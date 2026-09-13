@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import request from 'supertest';
+import { httpClient } from './http.js';
 import { openDatabase, migrate } from '../server/db.js';
 import { createApp } from '../server/app.js';
 import { seedConfiguration } from '../server/seed.js';
@@ -47,15 +47,16 @@ function fixture(t) {
     sendOtp: async ({ email, code }) => inbox.set(email, code),
     slipStore: new SlipStore(root), promptPayId: MERCHANT,
   });
-  t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+  t.after(() => { app.locals.stopSweeper?.(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  const http = httpClient(app, t);
 
   const call = (method, path, token, body) => {
-    const req = request(app)[method](`/api${path}`).set('X-Gym-Client', 'mobile');
+    const req = http[method](`/api${path}`).set('X-Gym-Client', 'mobile');
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
   const uploadSlip = (token, orderId, file = jpegWithExif(), fields = {}) => {
-    const req = request(app).post(`/api/orders/${orderId}/slip`).set('X-Gym-Client', 'mobile')
+    const req = http.post(`/api/orders/${orderId}/slip`).set('X-Gym-Client', 'mobile')
       .set('Authorization', `Bearer ${token}`)
       .field('reference_no', fields.reference_no ?? `REF-${randomUUID().slice(0, 8)}`)
       .field('transferred_at', fields.transferred_at ?? '2026-09-14T08:45');
@@ -326,7 +327,7 @@ test('a limited-sessions package grants the sessions bought and still expires', 
   assert.equal(approved.body.entitlement.expires_at, approved.body.order.reviewed_at + 90 * DAY);
 });
 
-test('a double-clicked approve and two admins at once both yield one entitlement', async t => {
+test('approve and reject at once never leave the order and the membership disagreeing', async t => {
   const { call, member, shop, uploadSlip, login, db } = fixture(t);
   const { adminToken, packageId } = await shop();
   const secondAdmin = await login('second-admin@example.test', 'admin');
@@ -342,13 +343,22 @@ test('a double-clicked approve and two admins at once both yield one entitlement
     call('post', `/admin/orders/${order.id}/reject`, secondAdmin, { version, reason: 'ยอดไม่ตรง' }),
   ]);
   const statuses = results.map(r => r.value?.status ?? 500);
-  // The invariant that matters is the membership, not the HTTP shape: whoever
-  // won the race, the member ends up with exactly one entitlement.
-  assert.equal(db.prepare('SELECT count(*) n FROM entitlements WHERE order_id=?').get(order.id).n, 1,
-    `one entitlement expected, statuses were ${statuses}`);
-  assert.equal((await call('get', '/entitlements', token).expect(200)).body.items.length, 1);
-  assert.equal(statuses.filter(s => s >= 500).length, 0, `a request failed outright: ${statuses}`);
-  assert.equal(statuses.filter(s => s === 200).length, 1, `exactly one winner, got ${statuses}`);
+  const decided = db.prepare('SELECT status FROM orders WHERE id=?').get(order.id).status;
+  const rows = db.prepare('SELECT count(*) n FROM entitlements WHERE order_id=?').get(order.id).n;
+  const live = db.prepare("SELECT count(*) n FROM entitlements WHERE order_id=? AND status='active'").get(order.id).n;
+  const seen = `statuses ${statuses}, order ${decided}`;
+
+  // The invariant that matters is the membership, not the HTTP shape. One of
+  // the four requests wins and the other three lose on the version; which one
+  // wins is genuinely up to the scheduler, and the reject winning is a correct
+  // outcome, not a bug. What must never happen is the order and the membership
+  // disagreeing, or one order minting two of them.
+  assert.equal(statuses.filter(s => s >= 500).length, 0, `a request failed outright: ${seen}`);
+  assert.equal(statuses.filter(s => s === 200).length, 1, `exactly one winner, got ${seen}`);
+  assert.ok(rows <= 1, `${rows} entitlement rows for one order (${seen})`);
+  assert.ok(['paid', 'rejected'].includes(decided), `order ended as ${decided} (${seen})`);
+  assert.equal(live, decided === 'paid' ? 1 : 0, `${decided} order with ${live} live entitlements (${seen})`);
+  assert.equal((await call('get', '/entitlements', token).expect(200)).body.items.length, live);
 });
 
 test('an order that was already decided cannot be approved again', async t => {
