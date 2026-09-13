@@ -2,11 +2,14 @@ import express from 'express';
 import helmet from 'helmet';
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { registerCheckInRoutes } from './checkin.js';
 import { registerPaymentRoutes } from './payments.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
 import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
+/** Dead check-in tokens are kept a week, then deleted. */
+export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173', production = false,
   now = Date.now, trustProxy = 1, slipStore, promptPayId }) {
   if (!secret || secret.length < 32) throw new Error('OTP_SECRET must have at least 32 characters');
@@ -79,9 +82,18 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='orders'").get()) {
       expireStaleOrders(db, now());
     }
+    // A member watching the QR screen mints a fresh token every minute, and
+    // nothing used to delete them. A week is long enough to answer "who came in
+    // on Tuesday?" from the check_ins rows that point at them.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='check_in_tokens'").get()) {
+      db.prepare('DELETE FROM check_in_tokens WHERE expires_at < ?').run(now() - CHECK_IN_TOKEN_RETENTION_MS);
+    }
   };
   const sweepTimer = setInterval(sweep, 60000).unref();
   app.locals.stopSweeper = () => clearInterval(sweepTimer);
+  // Exposed so a deployment script or a test can run the sweep on demand
+  // rather than waiting out the interval.
+  app.locals.sweep = sweep;
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -174,6 +186,9 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   if (slipStore && promptPayId) {
     registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId });
   }
+
+  // Phase 3: QR check-in at the counter.
+  registerCheckInRoutes({ app, db, now, admin, secret, limit });
   app.get('/api/members', admin, (req, res) => {
     const { q = '', page = 1, limit: size = 20 } = parse(z.object({
       q: z.string().max(120).optional(), page: z.coerce.number().int().min(1).max(100000).optional(),
@@ -254,10 +269,11 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
       if (before.version !== input.version) throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนแก้ไข');
       db.prepare(`UPDATE gym_profile SET name=?,brand_name_th=?,address=?,location_note=?,phone_primary=?,
         phone_secondary=?,phone_display=?,hours_confirmed=?,hours_note=?,payment_sla_text=?,order_ttl_minutes=?,
-        version=version+1,updated_at=? WHERE id=1`)
+        check_in_window_minutes=?,check_in_token_seconds=?,version=version+1,updated_at=? WHERE id=1`)
         .run(input.name, input.brand_name_th, input.address, input.location_note, input.phone_primary,
           input.phone_secondary, input.phone_display, input.hours_confirmed ? 1 : 0, input.hours_note,
-          input.payment_sla_text, input.order_ttl_minutes, now());
+          input.payment_sla_text, input.order_ttl_minutes, input.check_in_window_minutes,
+          input.check_in_token_seconds, now());
       const after = db.prepare('SELECT * FROM gym_profile WHERE id=1').get();
       audit(db, req.user.id, 'gym.update', 'gym_profile:1', before, after, now(), 'gym_profile');
       return getGym(db);

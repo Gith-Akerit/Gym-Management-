@@ -8,6 +8,7 @@ export const MIGRATIONS = [
   { version: 1, name: '001_foundation' },
   { version: 2, name: '002_gym_config' },
   { version: 3, name: '003_orders' },
+  { version: 4, name: '004_checkin' },
 ];
 
 const sql = (name, direction) =>
@@ -20,10 +21,26 @@ export function openDatabase(path = ':memory:') {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY) STRICT');
   return db;
 }
-export function transaction(db, fn) {
-  db.exec('BEGIN IMMEDIATE');
-  try { const result = fn(); db.exec('COMMIT'); return result; }
-  catch (e) { db.exec('ROLLBACK'); throw e; }
+/**
+ * SQLite takes one writer at a time. Under a burst — two admins approving, a
+ * queue of members scanning in at once — a write can find the lock held and
+ * fail immediately rather than wait. Retrying briefly turns that into a slower
+ * request instead of an error the user has to understand.
+ */
+export function transaction(db, fn, { attempts = 5 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try { db.exec('BEGIN IMMEDIATE'); }
+    catch (e) {
+      if (attempt >= attempts || !/busy|locked/i.test(e.message)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * 10);
+      continue;
+    }
+    try { const result = fn(); db.exec('COMMIT'); return result; }
+    catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* the transaction is already gone */ }
+      throw e;
+    }
+  }
 }
 const applied = (db, version) => !!db.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(version);
 
@@ -87,7 +104,8 @@ export function getGym(db) {
 export function publicGym(db) {
   const { profile, hours } = getGym(db);
   if (!profile) return { profile: null, hours };
-  const { phone_primary, phone_secondary, phone_display, version, order_ttl_minutes, ...rest } = profile;
+  const { phone_primary, phone_secondary, phone_display, version, order_ttl_minutes,
+    check_in_window_minutes, check_in_token_seconds, ...rest } = profile;
   const phone = phone_display === 'hidden' ? null
     : phone_display === 'secondary' ? phone_secondary : phone_primary;
   return { profile: { ...rest, phone: phone ?? null }, hours };

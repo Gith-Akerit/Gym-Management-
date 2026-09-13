@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
+import { httpClient } from './http.js';
 import { SMTPServer } from 'smtp-server';
 import { openDatabase, migrate, rollback, transaction, createMember } from '../server/db.js';
 import { createApp } from '../server/app.js';
@@ -15,9 +16,11 @@ function fixture(t) {
   let time = Date.now();
   const options = { db, secret: randomBytes(32).toString('hex'), now: () => time,
     sendOtp: async ({ email, code }) => inbox.set(email, code) };
-  const app = createApp(options); t.after(() => db.close());
+  const app = createApp(options);
+  t.after(() => { app.locals.stopSweeper?.(); db.close(); });
+  const http = httpClient(app, t);
   const call = (method, path, token, body) => {
-    const req = request(app)[method](`/api${path}`).set('X-Gym-Client', 'mobile');
+    const req = http[method](`/api${path}`).set('X-Gym-Client', 'mobile');
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
@@ -27,7 +30,7 @@ function fixture(t) {
     const verified = await call('post', '/auth/verify-otp', null, { challenge_id: start.body.challenge_id, code: inbox.get(email) }).expect(200);
     return verified.body.token;
   }
-  return { db, app, inbox, call, login, options, tick: ms => { time += ms; } };
+  return { db, app, http, inbox, call, login, options, tick: ms => { time += ms; } };
 }
 const member = (suffix = 1) => ({ name: 'สุดา ใจดี', email: `member${suffix}@example.test`, phone: `089${String(suffix).padStart(7, '0')}` });
 
@@ -46,15 +49,15 @@ test('data survives close/reopen and a migration on an existing database', () =>
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 test('OTP registers only after proof; only hashes stored; no token in web JSON', async t => {
-  const { db, app, call, inbox } = fixture(t);
+  const { db, http, call, inbox } = fixture(t);
   const start = await call('post', '/auth/request-otp', null, { email: 'New@Example.Test' }).expect(202);
   assert.equal(db.prepare('SELECT count(*) n FROM users').get().n, 0);
   assert.ok(!JSON.stringify(start.body).includes(inbox.get('new@example.test')));
   const c = db.prepare('SELECT * FROM otp_challenges').get(); assert.notEqual(c.code_hash, inbox.get(c.email));
-  const result = await request(app).post('/api/auth/verify-otp').set('X-Gym-Client', 'web').send({ challenge_id: c.id, code: inbox.get(c.email) }).expect(200);
+  const result = await http.post('/api/auth/verify-otp').set('X-Gym-Client', 'web').send({ challenge_id: c.id, code: inbox.get(c.email) }).expect(200);
   assert.equal(result.body.role, 'member'); assert.equal(result.body.member, null); assert.equal(result.body.token, undefined);
   assert.match(result.headers['set-cookie'][0], /HttpOnly/); assert.match(result.headers['set-cookie'][0], /SameSite=Strict/);
-  await request(app).get('/api/me').set('Cookie', result.headers['set-cookie']).expect(200);
+  await http.get('/api/me').set('Cookie', result.headers['set-cookie']).expect(200);
 });
 test('OTP wrong code, max attempts, expiry, replay and resend invalidation', async t => {
   const { call, inbox, tick } = fixture(t);
@@ -92,11 +95,11 @@ test('OTP cooldown, per-address and per-IP limits persist in database', async t 
 test('behind a proxy each member gets their own per-IP budget', async t => {
   // Production forces HTTPS, so there is always a proxy and every request shares
   // one TCP peer. Keying the budget on that peer locked members out of login.
-  const { app } = fixture(t);
+  const { app, http } = fixture(t);
   assert.equal(app.get('trust proxy'), 1);
   const statuses = [];
   for (let i = 0; i < 50; i++) {
-    const response = await request(app).post('/api/auth/request-otp')
+    const response = await http.post('/api/auth/request-otp')
       .set('X-Gym-Client', 'mobile').set('X-Forwarded-For', `203.0.113.${i + 1}`)
       .send({ email: `device${i}@example.test` });
     statuses.push(response.status);
@@ -106,7 +109,8 @@ test('behind a proxy each member gets their own per-IP budget', async t => {
 test('SMTP failure returns safe retry message and invalidates challenge', async t => {
   const { db, options } = fixture(t);
   const app = createApp({ ...options, sendOtp: async () => { throw new Error('secret SMTP credentials'); } });
-  const result = await request(app).post('/api/auth/request-otp').set('X-Gym-Client', 'mobile').send({ email: 'fail@example.test' }).expect(503);
+  t.after(() => app.locals.stopSweeper?.());
+  const result = await httpClient(app, t).post('/api/auth/request-otp').set('X-Gym-Client', 'mobile').send({ email: 'fail@example.test' }).expect(503);
   assert.ok(!JSON.stringify(result.body).includes('credentials'));
   assert.ok(db.prepare('SELECT consumed_at FROM otp_challenges').get().consumed_at);
 });
@@ -191,10 +195,10 @@ test('logout, expired and tampered tokens are denied', async t => {
   tick(61000); token = await login('session@example.test'); tick(43200001); await call('get', '/me', token).expect(401);
 });
 test('cross-origin mutations and missing custom header fail closed', async t => {
-  const { app } = fixture(t);
-  await request(app).post('/api/auth/request-otp').send({ email: 'csrf@example.test' }).expect(403);
-  await request(app).post('/api/auth/request-otp').set('Origin', 'https://evil.example').set('X-Gym-Client', 'web').send({ email: 'csrf@example.test' }).expect(403);
-  await request(app).options('/api/auth/request-otp').set('Origin', 'https://evil.example').expect(403);
+  const { http } = fixture(t);
+  await http.post('/api/auth/request-otp').send({ email: 'csrf@example.test' }).expect(403);
+  await http.post('/api/auth/request-otp').set('Origin', 'https://evil.example').set('X-Gym-Client', 'web').send({ email: 'csrf@example.test' }).expect(403);
+  await http.options('/api/auth/request-otp').set('Origin', 'https://evil.example').expect(403);
 });
 test('search metacharacters are literal, objects rejected, stored markup stays data', async t => {
   const { login, call } = fixture(t); const admin = await login('admin@example.test', 'admin');

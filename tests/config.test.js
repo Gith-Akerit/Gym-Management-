@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import request from 'supertest';
+import { httpClient } from './http.js';
 import { openDatabase, migrate } from '../server/db.js';
 import { createApp } from '../server/app.js';
 import { seedConfiguration, PACKAGE_DRAFTS } from '../server/seed.js';
@@ -12,9 +12,10 @@ function fixture(t, { seed = true } = {}) {
   let time = Date.now();
   const app = createApp({ db, secret: randomBytes(32).toString('hex'), now: () => time,
     sendOtp: async ({ email, code }) => inbox.set(email, code) });
-  t.after(() => db.close());
+  t.after(() => { app.locals.stopSweeper?.(); db.close(); });
+  const http = httpClient(app, t);
   const call = (method, path, token, body) => {
-    const req = request(app)[method](`/api${path}`).set('X-Gym-Client', 'mobile');
+    const req = http[method](`/api${path}`).set('X-Gym-Client', 'mobile');
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
