@@ -8,6 +8,8 @@ import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, 
 import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
+/** Dead check-in tokens are kept a week, then deleted. */
+export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173', production = false,
   now = Date.now, trustProxy = 1, slipStore, promptPayId }) {
   if (!secret || secret.length < 32) throw new Error('OTP_SECRET must have at least 32 characters');
@@ -80,9 +82,18 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='orders'").get()) {
       expireStaleOrders(db, now());
     }
+    // A member watching the QR screen mints a fresh token every minute, and
+    // nothing used to delete them. A week is long enough to answer "who came in
+    // on Tuesday?" from the check_ins rows that point at them.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='check_in_tokens'").get()) {
+      db.prepare('DELETE FROM check_in_tokens WHERE expires_at < ?').run(now() - CHECK_IN_TOKEN_RETENTION_MS);
+    }
   };
   const sweepTimer = setInterval(sweep, 60000).unref();
   app.locals.stopSweeper = () => clearInterval(sweepTimer);
+  // Exposed so a deployment script or a test can run the sweep on demand
+  // rather than waiting out the interval.
+  app.locals.sweep = sweep;
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

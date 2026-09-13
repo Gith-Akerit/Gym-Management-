@@ -47,6 +47,10 @@ export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
    * screen can work — the screenshot a friend was sent is already dead.
    */
   app.post('/api/me/check-in-token', (req, res) => {
+    // The screen renews about once a minute, so 120 in 15 minutes leaves room
+    // for two hours of watching it while still bounding what one account can
+    // write. Every write here competes with the counter for the same lock.
+    limit(`checkin-token:${req.user.id}`, 120, 900000);
     const member = requireActiveMember(req);
     if (member.status !== 'active') {
       throw new HttpError(403, member.status === 'suspended'
@@ -152,8 +156,13 @@ export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
       const recent = db.prepare(`SELECT * FROM check_ins WHERE member_id=? AND result='allowed' AND checked_in_at>?
         ORDER BY checked_in_at DESC LIMIT 1`).get(member.id, now() - window);
       if (recent) {
-        return record({ ...base, result: 'duplicate', entitlement_id: recent.entitlement_id,
-          failure_reason: `เช็คอินไปแล้วเมื่อไม่นานนี้ ไม่ได้หักสิทธิ์ซ้ำ` });
+        const duplicate = record({ ...base, result: 'duplicate', entitlement_id: recent.entitlement_id,
+          failure_reason: 'เช็คอินไปแล้วเมื่อไม่นานนี้ ไม่ได้หักสิทธิ์ซ้ำ' });
+        // "How many do I have left?" is the question asked most at the counter,
+        // and it is asked just as often by somebody who walked back in.
+        return { ...duplicate, _entitlement: recent.entitlement_id
+          ? db.prepare('SELECT * FROM entitlements WHERE id=?').get(recent.entitlement_id)
+          : nextEntitlement(member.id) };
       }
 
       const entitlement = nextEntitlement(member.id);
@@ -196,14 +205,20 @@ export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
   });
 
   app.get('/api/check-ins', counter, (req, res) => {
-    const { date, q, page = 1 } = parse(z.object({
+    const { date, q, page = 1, scope = 'all' } = parse(z.object({
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ใช้รูปแบบวันที่ YYYY-MM-DD').optional(),
       q: z.string().trim().max(120).optional(),
       page: z.coerce.number().int().min(1).max(10000).optional(),
+      scope: z.enum(['all', 'identified', 'unknown'], { error: 'กรุณาเลือกชุดข้อมูลที่ถูกต้อง' }).optional(),
     }).strict(), req.query);
 
     const where = [];
     const params = [];
+    // A scan of a forged or unreadable QR belongs to nobody. Everything is still
+    // recorded and the default still returns all of it; the screen asks for one
+    // side or the other so a spray of junk cannot bury the day's real visits.
+    if (scope === 'unknown') where.push('c.member_id IS NULL');
+    if (scope === 'identified') where.push('c.member_id IS NOT NULL');
     if (date) { where.push("date(c.checked_in_at/1000,'unixepoch','+7 hours')=?"); params.push(date); }
     if (q) {
       const term = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
@@ -217,7 +232,10 @@ export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
       m.name AS member_name, m.member_code FROM check_ins c
       LEFT JOIN members m ON m.id=c.member_id ${clause}
       ORDER BY c.checked_in_at DESC LIMIT 20 OFFSET ?`).all(...params, (page - 1) * 20);
-    res.json({ items, total, page });
+    res.json({
+      items, total, page, scope,
+      unknown_total: db.prepare('SELECT count(*) AS n FROM check_ins WHERE member_id IS NULL').get().n,
+    });
   });
 
   /** What the counter sees at a glance: how busy today has been. */
