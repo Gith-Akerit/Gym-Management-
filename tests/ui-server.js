@@ -7,7 +7,7 @@ import { seedConfiguration } from '../server/seed.js';
 import { SlipStore } from '../server/slips.js';
 import { createApp } from '../server/app.js';
 const db = openDatabase(); migrate(db); seedConfiguration(db);
-for (const address of ['staff-ui@example.test', 'staff2-ui@example.test', 'staff3-ui@example.test']) {
+for (const address of ['staff-ui@example.test', 'staff2-ui@example.test', 'staff3-ui@example.test', 'staff4-ui@example.test']) {
   db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'staff',?)").run(randomUUID(), address, Date.now());
 }
 for (const address of ['admin@example.test', 'admin2@example.test', 'admin3@example.test', 'admin4@example.test', 'admin5@example.test', 'admin6@example.test']) {

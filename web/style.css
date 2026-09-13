@@ -159,3 +159,8 @@ table.sales td:last-child,table.sales th:last-child{text-align:right}
   .scan-result{flex-direction:column;text-align:center}
   .scan-result h2{font-size:26px}
 }
+
+/* The counter tablet's camera view. Kept small enough that the result panel
+   above it stays on screen while somebody is holding up a phone. */
+.camera{margin-bottom:14px}
+.camera-view{display:block;width:100%;max-width:420px;aspect-ratio:4/3;object-fit:cover;background:#000;border:1px solid var(--line);border-radius:12px;margin:0 auto}

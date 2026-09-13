@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { api, Field, formatDateTime, Notice, useResource } from './shared.jsx';
+import { CameraScanner } from './camera.jsx';
 
 const resultLabels = { allowed: 'เข้าใช้บริการได้', duplicate: 'เช็คอินไปแล้ว', denied: 'เข้าใช้บริการไม่ได้' };
 
@@ -84,9 +85,13 @@ export function StaffScanner() {
   const [outcome, setOutcome] = useState(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(null);
   const [revision, setRevision] = useState(0);
+  // The counter may have a USB reader, a tablet camera, or both. The camera is
+  // remembered per device so staff do not have to switch it on every shift.
+  const [camera, setCamera] = useState(() => localStorage.getItem('gym.camera') === 'on');
   const input = useRef(null);
 
   useEffect(() => { localStorage.setItem('gym.device', device); }, [device]);
+  useEffect(() => { localStorage.setItem('gym.camera', camera ? 'on' : 'off'); }, [camera]);
   useEffect(() => { input.current?.focus(); }, [outcome]);
 
   async function submit(scanned) {
@@ -133,6 +138,9 @@ export function StaffScanner() {
     </section>}
 
     <section className="card">
+      <label className="check-row"><input type="checkbox" checked={camera} onChange={e => setCamera(e.target.checked)}/>
+        <span>ใช้กล้องของเครื่องนี้สแกน (สำหรับแท็บเล็ตหน้าเคาน์เตอร์)</span></label>
+      <CameraScanner active={camera} onScan={value => submit(value)}/>
       <form onSubmit={e => { e.preventDefault(); submit(); }}>
         <label className="field">รหัสจาก QR ของสมาชิก
           <input ref={input} name="qr" value={code} autoFocus autoComplete="off"

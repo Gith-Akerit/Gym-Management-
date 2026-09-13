@@ -157,3 +157,29 @@ test('the admin can see who came in and who was turned away', async ({ page }) =
   await expect(page.getByRole('heading', { name: 'สรุปรายวัน' })).toBeVisible();
   await page.screenshot({ path: 'artifacts/admin-checkin-log.png', fullPage: true });
 });
+
+test('the counter tablet can scan with its own camera', async ({ page }) => {
+  // Chromium supplies a synthetic camera here (see playwright.config.js), so
+  // this proves the permission flow and that frames really are arriving. It
+  // cannot prove a QR decodes: the fake device shows a test pattern.
+  await login(page, 'staff4-ui@example.test');
+  await expect(page.getByRole('heading', { name: 'สแกนเช็คอิน' })).toBeVisible();
+
+  const toggle = page.getByLabel('ใช้กล้องของเครื่องนี้สแกน', { exact: false });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+
+  const view = page.getByLabel('ภาพจากกล้องสำหรับสแกน QR');
+  await expect(view).toBeVisible();
+  await expect.poll(() => view.evaluate(node => node.videoWidth), { timeout: 15000 }).toBeGreaterThan(0);
+  await expect.poll(() => view.evaluate(node => node.readyState)).toBeGreaterThanOrEqual(2);
+  await expect(page.getByText('หันกล้องไปที่จอของสมาชิก', { exact: false })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/staff-camera-scan.png', fullPage: true });
+
+  // Typing a code still works while the camera is on: most counters have both.
+  await expect(page.getByLabel('รหัสจาก QR ของสมาชิก')).toBeVisible();
+
+  // Turning it off releases the camera rather than leaving the light on.
+  await toggle.uncheck();
+  await expect(view).toHaveCount(0);
+});
