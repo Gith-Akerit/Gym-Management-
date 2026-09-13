@@ -195,13 +195,13 @@ export function MemberEntitlements() {
 
 // ------------------------------------------------------------- admin: review
 
-export function PaymentReview({ onAuthError }) {
+export function PaymentReview({ onAuthError, readOnly = false }) {
   const [status, setStatus] = useState('awaiting_review');
   const { data, error, busy, reload } = useResource(`/admin/orders?status=${status}`);
   const [openId, setOpenId] = useState(null), [notice, setNotice] = useState('');
 
   if (openId) {
-    return <ReviewDetail id={openId} onAuthError={onAuthError} onBack={() => setOpenId(null)}
+    return <ReviewDetail id={openId} onAuthError={onAuthError} readOnly={readOnly} onBack={() => setOpenId(null)}
       onDone={message => { setOpenId(null); setNotice(message); reload().catch(() => {}); }}/>;
   }
   const filters = [['awaiting_review', 'รอตรวจสอบ'], ['paid', 'อนุมัติแล้ว'], ['rejected', 'ถูกปฏิเสธ'], ['all', 'ทั้งหมด']];
@@ -225,7 +225,7 @@ export function PaymentReview({ onAuthError }) {
   </>;
 }
 
-function ReviewDetail({ id, onBack, onDone, onAuthError }) {
+function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
   const { data, error, busy, reload } = useResource(`/admin/orders/${id}`);
   const [checked, setChecked] = useState(false), [note, setNote] = useState(''), [reason, setReason] = useState('');
   const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null);
@@ -279,7 +279,8 @@ function ReviewDetail({ id, onBack, onDone, onAuthError }) {
 
         <Notice error={actionError}/>
 
-        {order.status === 'awaiting_review' && <>
+        {readOnly && <p className="fine">พนักงานดูได้อย่างเดียว การอนุมัติหรือปฏิเสธสลิปเป็นสิทธิ์ของผู้ดูแลระบบ</p>}
+        {!readOnly && order.status === 'awaiting_review' && <>
           <Field name="note" label={mismatch ? 'เหตุผลที่อนุมัติทั้งที่ยอดไม่ตรง (บังคับ)' : 'หมายเหตุ (บันทึกไว้ในประวัติ)'}
             value={note} onChange={setNote} maxLength={300}
             error={mismatch && !noteLongEnough ? `กรุณาระบุเหตุผลอย่างน้อย ${MISMATCH_NOTE_MIN} ตัวอักษร` : undefined}/>
@@ -297,14 +298,14 @@ function ReviewDetail({ id, onBack, onDone, onAuthError }) {
             onClick={() => act(`/admin/orders/${order.id}/reject`, { reason }, 'ปฏิเสธสลิปแล้ว')}>ปฏิเสธสลิป</button>
         </>}
 
-        {['expired', 'cancelled'].includes(order.status) && <div className="secondary-actions" style={{ display: 'block' }}>
+        {!readOnly && ['expired', 'cancelled'].includes(order.status) && <div className="secondary-actions" style={{ display: 'block' }}>
           <p className="fine">คำสั่งซื้อนี้ปิดไปแล้ว ถ้าสมาชิกโอนเงินมาจริง เปิดกลับมาให้ตรวจสอบได้โดยไม่ต้องให้โอนซ้ำ</p>
           <button disabled={working}
             onClick={() => act(`/admin/orders/${order.id}/reopen`, { minutes: 1440 }, 'เปิดคำสั่งซื้อกลับมาแล้ว')}>
             เปิดคำสั่งซื้อกลับมา</button>
         </div>}
 
-        {order.status === 'paid' && <div className="secondary-actions" style={{ display: 'block' }}>
+        {!readOnly && order.status === 'paid' && <div className="secondary-actions" style={{ display: 'block' }}>
           <Field name="reason" label="เหตุผลที่ยกเลิกการอนุมัติ" value={reason} onChange={setReason} maxLength={300}/>
           <button className="danger" disabled={!reason.trim() || working}
             onClick={() => act(`/admin/orders/${order.id}/reverse`, { reason }, 'ยกเลิกการอนุมัติแล้ว')}>

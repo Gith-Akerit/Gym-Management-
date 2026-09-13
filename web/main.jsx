@@ -9,6 +9,9 @@ import {
   MemberEntitlements, MemberOrder, MemberOrderHistory, MemberPackages,
   PaymentReview, SalesReport,
 } from './payments.jsx';
+import {
+  CheckInLog, CheckInSummary, MemberCheckInHistory, MemberCheckInQr, StaffScanner,
+} from './checkin.jsx';
 
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
 const blankPackage = { code: '', name_th: '', type: 'unlimited', duration_days: 30, session_limit: '', price_satang: '', description: '', status: 'draft', sort_order: 0 };
@@ -111,8 +114,9 @@ function MemberHome({ member, gym }) {
     {member.status !== 'active' && <div className="notice warn">{member.status === 'suspended'
       ? 'บัญชีสมาชิกถูกระงับ กรุณาติดต่อพนักงานที่ยิม' : 'สถานะสมาชิกหมดอายุ กรุณาติดต่อพนักงานที่ยิม'}</div>}
     <section className="card"><h2>QR สำหรับเช็คอิน</h2>
-      <div className="qr-frame" role="img" aria-label="ยังไม่เปิดใช้งานการเช็คอินด้วย QR"><span>QR เช็คอิน<br/>เปิดใช้งานในเฟสถัดไป</span></div>
-      <p className="muted">ระบบเช็คอินด้วย QR ให้พนักงานสแกน อยู่ระหว่างพัฒนา ตอนนี้แจ้งชื่อหรือรหัสสมาชิกกับพนักงานที่เคาน์เตอร์ได้ตามปกติ</p>
+      {member.status === 'active'
+        ? <MemberCheckInQr/>
+        : <p className="muted">เปิดรหัสเช็คอินไม่ได้ขณะที่สถานะสมาชิกยังไม่ปกติ กรุณาติดต่อพนักงานที่ยิม</p>}
     </section>
     <section className="card"><h2>แพ็กเกจปัจจุบัน</h2><MemberEntitlements/></section>
     {gym?.profile && <p className="fine">{gym.profile.brand_name_th || gym.profile.name}{gym.profile.address ? ` · ${gym.profile.address}` : ''}</p>}
@@ -151,6 +155,7 @@ function MemberAccount({ member, gym, refresh, onLogout, onOpenOrder }) {
         <button onClick={onLogout}>ออกจากระบบ</button>
       </div>
     </section>
+    <section className="card"><h2>ประวัติการเข้าใช้บริการ</h2><MemberCheckInHistory/></section>
     <section className="card"><h2>ประวัติการสั่งซื้อ</h2><MemberOrderHistory onOpen={onOpenOrder}/></section>
     <GymInfo gym={gym}/>
   </>;
@@ -387,6 +392,12 @@ function GymSettings({ onAuthError }) {
           onChange={v => set('payment_sla_text', v)} error={errors.payment_sla_text} required maxLength={200}/>
         <Field name="order_ttl_minutes" label="เวลาที่ให้ชำระเงินต่อคำสั่งซื้อ (นาที)" value={form.order_ttl_minutes}
           onChange={v => set('order_ttl_minutes', v)} error={errors.order_ttl_minutes} type="number" min={5} max={1440}/>
+        <h3 style={{ marginTop: 20 }}>การเช็คอิน</h3>
+        <Field name="check_in_token_seconds" label="อายุ QR เช็คอิน (วินาที)" value={form.check_in_token_seconds}
+          onChange={v => set('check_in_token_seconds', v)} error={errors.check_in_token_seconds} type="number" min={15} max={600}/>
+        <Field name="check_in_window_minutes" label="สแกนซ้ำภายในกี่นาทีถือเป็นครั้งเดียวกัน" value={form.check_in_window_minutes}
+          onChange={v => set('check_in_window_minutes', v)} error={errors.check_in_window_minutes} type="number" min={1} max={720}/>
+        <p className="fine">QR ยิ่งอายุสั้นยิ่งแชร์กันยาก แต่ต้องพอให้สมาชิกเดินจากประตูถึงเคาน์เตอร์</p>
         <p className="fine">บัญชี PromptPay ที่รับเงินตั้งค่าที่ตัวแปร PROMPTPAY_ID ตอน deploy ไม่ได้เก็บไว้ในหน้านี้หรือในโค้ด</p>
         <div className="actions"><button className="primary" disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึกข้อมูลยิม'}</button></div>
       </form></section>
@@ -409,14 +420,30 @@ function GymSettings({ onAuthError }) {
       <SalesReport/></section></>;
 }
 
+function Staff({ onAuthError }) {
+  const [tab, setTab] = useState('scan');
+  const tabs = [['scan', 'สแกนเช็คอิน'], ['history', 'ประวัติเช็คอิน'], ['queue', 'คิวสลิป']];
+  return <>
+    <nav className="tabs" aria-label="เมนูพนักงาน">{tabs.map(([key, label]) =>
+      <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
+    {tab === 'scan' && <StaffScanner/>}
+    {tab === 'history' && <CheckInLog/>}
+    {tab === 'queue' && <PaymentReview onAuthError={onAuthError} readOnly/>}
+  </>;
+}
+
 function Admin({ onAuthError }) {
   const [tab, setTab] = useState('members');
-  const tabs = [['members', 'สมาชิก'], ['review', 'ตรวจสลิป'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
+  const tabs = [['members', 'สมาชิก'], ['review', 'ตรวจสลิป'], ['checkin', 'เช็คอิน'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
   return <>
     <nav className="tabs" aria-label="เมนูผู้ดูแลระบบ">{tabs.map(([key, label]) =>
       <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
     {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
     {tab === 'review' && <PaymentReview onAuthError={onAuthError}/>}
+    {tab === 'checkin' && <><div className="page-heading"><div><span className="eyebrow">เช็คอิน</span>
+      <h1>การเข้าใช้บริการ</h1><p className="muted">ดูว่าใครเข้ายิมเมื่อไร และใครถูกปฏิเสธเพราะอะไร</p></div></div>
+      <CheckInLog/>
+      <section className="card"><h2>สรุปรายวัน</h2><CheckInSummary/></section></>}
     {tab === 'packages' && <PackageAdmin onAuthError={onAuthError}/>}
     {tab === 'gym' && <GymSettings onAuthError={onAuthError}/>}
   </>;
@@ -438,8 +465,7 @@ function App() {
     <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'staff' ? 'พนักงาน' : 'สมาชิก'}</span></div>
     <button onClick={logout}>ออกจากระบบ</button></header>
     <main><Notice error={error}/>{user.role === 'admin' ? <Admin onAuthError={onAuthError}/>
-      : user.role === 'staff' ? <section className="card"><h1>บัญชีพนักงาน</h1><p>เข้าสู่ระบบแล้ว สิทธิ์จัดการสมาชิกและตรวจสลิปสงวนไว้สำหรับผู้ดูแลระบบ</p>
-        <p className="muted">หน้าสแกน QR เช็คอินสำหรับพนักงานจะเปิดใช้งานในเฟสถัดไป</p></section>
+      : user.role === 'staff' ? <Staff onAuthError={onAuthError}/>
       : user.member ? <MemberApp member={user.member} gym={gym} onLogout={logout}
           refresh={async () => { try { await refresh(); } catch(e) { onAuthError(e); throw e; } }}/>
         : <Onboarding onSaved={refresh}/>}</main>

@@ -141,3 +141,21 @@ table.sales th{font-size:13px;color:var(--muted);font-weight:600}
 table.sales td:last-child,table.sales th:last-child{text-align:right}
 
 @media(max-width:860px){ .review-grid{grid-template-columns:1fr} }
+
+/* ----------------------------------------------------- check-in (phase 3) */
+.checkin-qr{display:block;width:100%;max-width:240px;height:auto;margin:16px auto 8px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.qr-hint{text-align:center;font-weight:600;color:var(--primary);margin-bottom:8px}
+/* The counter reads this from about a metre away, so it leads with size and an
+   icon as well as colour — colour alone excludes anyone who cannot tell them apart. */
+.scan-result{display:flex;gap:18px;align-items:center;border-radius:12px;padding:22px;margin-bottom:16px;border:2px solid}
+.scan-result h2{margin:0 0 4px;font-size:30px}
+.scan-result.allowed{background:var(--tint);border-color:var(--primary);color:var(--primary-dark)}
+.scan-result.duplicate{background:var(--accent-tint);border-color:var(--accent);color:#6F3A11}
+.scan-result.denied{background:#FBEDEB;border-color:var(--danger);color:#7A221A}
+.scan-icon{font:700 40px/1 Arial,sans-serif;width:64px;height:64px;flex:none;display:grid;place-items:center;border-radius:50%;background:#fff;border:2px solid currentColor}
+.scan-member{font-size:19px;font-weight:600;margin:0 0 4px}
+.scan-reason{margin:0;font-size:16px}
+@media(max-width:560px){
+  .scan-result{flex-direction:column;text-align:center}
+  .scan-result h2{font-size:26px}
+}
