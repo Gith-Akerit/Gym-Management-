@@ -1,0 +1,8 @@
+{
+  "expo": {
+    "name": "ยิมของเรา", "slug": "gym-member", "version": "0.1.0", "orientation": "portrait",
+    "userInterfaceStyle": "light", "ios": { "supportsTablet": true, "bundleIdentifier": "com.gymmanagement.member" },
+    "android": { "package": "com.gymmanagement.member" },
+    "plugins": ["expo-secure-store"], "web": { "bundler": "metro" }
+  }
+}
