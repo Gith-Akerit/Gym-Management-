@@ -92,6 +92,8 @@ export const gymSchema = z.object({
   hours_note: z.string().trim().max(200, 'หมายเหตุเวลาเปิดยาวได้ไม่เกิน 200 ตัวอักษร').default(''),
   payment_sla_text: z.string().trim().min(1, 'กรุณาระบุข้อความแจ้งเวลายืนยันสลิป').max(200, 'ข้อความยาวได้ไม่เกิน 200 ตัวอักษร').default('ภายใน 30 นาทีในเวลาทำการ'),
   order_ttl_minutes: z.coerce.number().int('ต้องเป็นจำนวนเต็ม').min(5, 'ต้องให้เวลาชำระเงินอย่างน้อย 5 นาที').max(1440, 'ให้เวลาชำระเงินได้ไม่เกิน 24 ชั่วโมง').default(60),
+  check_in_window_minutes: z.coerce.number().int('ต้องเป็นจำนวนเต็ม').min(1, 'ต้องอย่างน้อย 1 นาที').max(720, 'ได้ไม่เกิน 12 ชั่วโมง').default(5),
+  check_in_token_seconds: z.coerce.number().int('ต้องเป็นจำนวนเต็ม').min(15, 'QR ต้องมีอายุอย่างน้อย 15 วินาที').max(600, 'QR ควรมีอายุไม่เกิน 10 นาที เพื่อไม่ให้แชร์กันได้').default(60),
   version: z.number().int().positive(),
 }).strict();
 

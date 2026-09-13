@@ -2,6 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { registerCheckInRoutes } from './checkin.js';
 import { registerPaymentRoutes } from './payments.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
 import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
@@ -174,6 +175,9 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   if (slipStore && promptPayId) {
     registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId });
   }
+
+  // Phase 3: QR check-in at the counter.
+  registerCheckInRoutes({ app, db, now, admin, secret, limit });
   app.get('/api/members', admin, (req, res) => {
     const { q = '', page = 1, limit: size = 20 } = parse(z.object({
       q: z.string().max(120).optional(), page: z.coerce.number().int().min(1).max(100000).optional(),
@@ -254,10 +258,11 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
       if (before.version !== input.version) throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนแก้ไข');
       db.prepare(`UPDATE gym_profile SET name=?,brand_name_th=?,address=?,location_note=?,phone_primary=?,
         phone_secondary=?,phone_display=?,hours_confirmed=?,hours_note=?,payment_sla_text=?,order_ttl_minutes=?,
-        version=version+1,updated_at=? WHERE id=1`)
+        check_in_window_minutes=?,check_in_token_seconds=?,version=version+1,updated_at=? WHERE id=1`)
         .run(input.name, input.brand_name_th, input.address, input.location_note, input.phone_primary,
           input.phone_secondary, input.phone_display, input.hours_confirmed ? 1 : 0, input.hours_note,
-          input.payment_sla_text, input.order_ttl_minutes, now());
+          input.payment_sla_text, input.order_ttl_minutes, input.check_in_window_minutes,
+          input.check_in_token_seconds, now());
       const after = db.prepare('SELECT * FROM gym_profile WHERE id=1').get();
       audit(db, req.user.id, 'gym.update', 'gym_profile:1', before, after, now(), 'gym_profile');
       return getGym(db);

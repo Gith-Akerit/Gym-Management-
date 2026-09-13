@@ -342,9 +342,13 @@ test('a double-clicked approve and two admins at once both yield one entitlement
     call('post', `/admin/orders/${order.id}/reject`, secondAdmin, { version, reason: 'ยอดไม่ตรง' }),
   ]);
   const statuses = results.map(r => r.value?.status ?? 500);
-  assert.equal(statuses.filter(s => s === 200).length, 1, `exactly one winner, got ${statuses}`);
-  assert.equal(db.prepare('SELECT count(*) n FROM entitlements WHERE order_id=?').get(order.id).n, 1);
+  // The invariant that matters is the membership, not the HTTP shape: whoever
+  // won the race, the member ends up with exactly one entitlement.
+  assert.equal(db.prepare('SELECT count(*) n FROM entitlements WHERE order_id=?').get(order.id).n, 1,
+    `one entitlement expected, statuses were ${statuses}`);
   assert.equal((await call('get', '/entitlements', token).expect(200)).body.items.length, 1);
+  assert.equal(statuses.filter(s => s >= 500).length, 0, `a request failed outright: ${statuses}`);
+  assert.equal(statuses.filter(s => s === 200).length, 1, `exactly one winner, got ${statuses}`);
 });
 
 test('an order that was already decided cannot be approved again', async t => {
@@ -473,7 +477,7 @@ test('one member cannot reach another member order, slip or entitlement', async 
   await call('get', `/slips/${slip.id}/image`, owner).expect(200);
 });
 
-test('only an admin may review orders or read the queue', async t => {
+test('only an admin may decide an order; staff may look but not touch', async t => {
   const { call, member, shop, uploadSlip, login } = fixture(t);
   const { packageId } = await shop();
   const token = await member('regular@example.test');
@@ -481,15 +485,20 @@ test('only an admin may review orders or read the queue', async t => {
   const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
   await uploadSlip(token, order.id).expect(201);
 
+  // Deciding an order is money changing hands: admins only, always.
   for (const who of [null, token, staff]) {
     const expected = who ? 403 : 401;
-    await call('get', '/admin/orders', who).expect(expected);
-    await call('get', `/admin/orders/${order.id}`, who).expect(expected);
     await call('post', `/admin/orders/${order.id}/approve`, who, { version: 2, checked_against_bank: true }).expect(expected);
     await call('post', `/admin/orders/${order.id}/reject`, who, { version: 2, reason: 'x' }).expect(expected);
     await call('post', `/admin/orders/${order.id}/reverse`, who, { version: 2, reason: 'x' }).expect(expected);
     await call('get', '/admin/sales', who).expect(expected);
   }
+  // Reading the queue is different: staff at the counter get asked "has my slip
+  // been checked yet?" and need to be able to answer.
+  await call('get', '/admin/orders', null).expect(401);
+  await call('get', '/admin/orders', token).expect(403);
+  await call('get', '/admin/orders', staff).expect(200);
+  await call('get', `/admin/orders/${order.id}`, staff).expect(200);
 });
 
 test('the slip image is served with headers that stop it being treated as a page', async t => {

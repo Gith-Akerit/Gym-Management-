@@ -24,6 +24,10 @@ import {
 const DAY_MS = 86400000;
 
 export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId }) {
+  // Staff at the counter can see what is waiting, so they can tell a member
+  // whether their slip has been looked at. Deciding it stays with an admin.
+  const readQueue = (req, res, next) => (['staff', 'admin'].includes(req.user.role)
+    ? next() : next(new HttpError(403, 'เฉพาะพนักงานและผู้ดูแลระบบเท่านั้น')));
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_SLIP_BYTES, files: 1 } });
 
   /** The signed-in member's own profile row, or 403 for staff and admins. */
@@ -200,7 +204,7 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
       ORDER BY s.uploaded_at DESC LIMIT 10`)
     .all(slip.file_hash, slip.order_id, slip.file_hash, slip.reference_no) : []);
 
-  app.get('/api/admin/orders', admin, (req, res) => {
+  app.get('/api/admin/orders', readQueue, (req, res) => {
     const { status = 'awaiting_review', page = 1 } = parse(z.object({
       status: z.enum(['awaiting_review', 'pending_payment', 'paid', 'rejected', 'expired', 'cancelled', 'all']).optional(),
       page: z.coerce.number().int().min(1).max(10000).optional(),
@@ -233,7 +237,7 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
     return order;
   }
 
-  app.get('/api/admin/orders/:id', admin, (req, res) => {
+  app.get('/api/admin/orders/:id', readQueue, (req, res) => {
     const order = adminOrder(req);
     const slip = currentSlip(db, order.id);
     const member = db.prepare('SELECT m.*, u.email FROM members m JOIN users u ON u.id=m.user_id WHERE m.id=?')
