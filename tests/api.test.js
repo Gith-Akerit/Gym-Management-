@@ -62,7 +62,9 @@ test('OTP wrong code, max attempts, expiry, replay and resend invalidation', asy
   const id = start.body.challenge_id, correct = inbox.get(email), wrong = correct === '000000' ? '000001' : '000000';
   for (let i = 0; i < 5; i++) await call('post', '/auth/verify-otp', null, { challenge_id: id, code: wrong }).expect(400);
   await call('post', '/auth/verify-otp', null, { challenge_id: id, code: correct }).expect(400);
-  tick(61000); start = await call('post', '/auth/request-otp', null, { email }).expect(202);
+  // Five wrong codes lock the address, so a fresh challenge cannot restart the guessing.
+  tick(61000); await call('post', '/auth/request-otp', null, { email }).expect(429);
+  tick(900001); start = await call('post', '/auth/request-otp', null, { email }).expect(202);
   const old = { challenge_id: start.body.challenge_id, code: inbox.get(email) };
   tick(61000); start = await call('post', '/auth/request-otp', null, { email }).expect(202);
   await call('post', '/auth/verify-otp', null, old).expect(400);

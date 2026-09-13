@@ -2,8 +2,8 @@ import express from 'express';
 import helmet from 'helmet';
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { audit, createMember, getMember, memberSelect, publicMember, transaction } from './db.js';
-import { email, HttpError, memberSchema, parse, profileSchema, updateSchema } from './validation.js';
+import { audit, createMember, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
+import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173', production = false, now = Date.now }) {
@@ -40,11 +40,32 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
       .get(bucket, now() + windowMs, now(), now());
     if (count.hits > max) throw new HttpError(429, 'ขอรหัสหรือลองยืนยันบ่อยเกินไป กรุณารอ 15 นาที');
   }
+  // A per-challenge attempt cap alone is not enough: an attacker can request a
+  // fresh challenge after every 5 guesses. This bounds guesses per address.
+  const OTP_MAX_FAILURES = 5, OTP_LOCK_MS = 900000;
+  function assertNotLockedOut(address) {
+    const row = db.prepare('SELECT locked_until FROM otp_lockouts WHERE email=?').get(address);
+    if (row?.locked_until && row.locked_until > now()) {
+      throw new HttpError(429, 'ยืนยันรหัสผิดหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วขอรหัสใหม่');
+    }
+  }
+  function recordOtpFailure(address) {
+    db.prepare(`INSERT INTO otp_lockouts(email,failures,updated_at) VALUES(?,1,?)
+      ON CONFLICT(email) DO UPDATE SET
+        failures=CASE WHEN locked_until IS NOT NULL AND locked_until<=? THEN 1 ELSE failures+1 END,
+        locked_until=CASE WHEN locked_until IS NOT NULL AND locked_until<=? THEN NULL ELSE locked_until END,
+        updated_at=?`).run(address, now(), now(), now(), now());
+    db.prepare('UPDATE otp_lockouts SET locked_until=? WHERE email=? AND failures>=? AND locked_until IS NULL')
+      .run(now() + OTP_LOCK_MS, address, OTP_MAX_FAILURES);
+  }
+  const clearOtpFailures = address => db.prepare('DELETE FROM otp_lockouts WHERE email=?').run(address);
+
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
   app.post('/api/auth/request-otp', async (req, res) => {
     limit(`request-ip:${req.ip}`, 20, 900000);
     const input = parse(z.object({ email }).strict(), req.body);
     limit(`request-email:${input.email}`, 5, 900000);
+    assertNotLockedOut(input.email);
     const last = db.prepare('SELECT created_at FROM otp_challenges WHERE email=? ORDER BY created_at DESC LIMIT 1').get(input.email);
     if (last && last.created_at > now() - 60000) throw new HttpError(429, 'กรุณารอ 60 วินาทีก่อนขอรหัสใหม่');
     const id = randomUUID(), code = String(randomInt(0, 1000000)).padStart(6, '0');
@@ -70,8 +91,12 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     const c = db.prepare('SELECT * FROM otp_challenges WHERE id=?').get(input.challenge_id);
     const invalid = () => new HttpError(400, 'รหัสไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว กรุณาขอรหัสใหม่');
     if (!c || c.consumed_at !== null || c.expires_at <= now() || c.attempts >= 5) throw invalid();
+    assertNotLockedOut(c.email);
     db.prepare('UPDATE otp_challenges SET attempts=attempts+1 WHERE id=?').run(c.id);
-    if (!timingSafeEqual(Buffer.from(c.code_hash, 'hex'), Buffer.from(hmac(`${c.id}:${input.code}`), 'hex'))) throw invalid();
+    if (!timingSafeEqual(Buffer.from(c.code_hash, 'hex'), Buffer.from(hmac(`${c.id}:${input.code}`), 'hex'))) {
+      recordOtpFailure(c.email);
+      throw invalid();
+    }
     const token = randomBytes(32).toString('base64url');
     const result = transaction(db, () => {
       const consumed = db.prepare('UPDATE otp_challenges SET consumed_at=? WHERE id=? AND consumed_at IS NULL').run(now(), c.id);
@@ -80,6 +105,7 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
         ON CONFLICT(email) DO UPDATE SET email_verified_at=excluded.email_verified_at`).run(randomUUID(), c.email, now(), now());
       const user = db.prepare('SELECT * FROM users WHERE email=?').get(c.email);
       db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(token), user.id, now() + 43200000);
+      clearOtpFailures(c.email);
       return me(user);
     });
     if (req.get('X-Gym-Client') === 'mobile') return res.json({ ...result, token, expires_in: 43200 });
