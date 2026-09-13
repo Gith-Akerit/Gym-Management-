@@ -6,7 +6,9 @@ import { openDatabase, migrate } from '../server/db.js';
 import { seedConfiguration } from '../server/seed.js';
 import { createApp } from '../server/app.js';
 const db = openDatabase(); migrate(db); seedConfiguration(db);
-db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)").run(randomUUID(), 'admin@example.test', Date.now());
+for (const address of ['admin@example.test', 'admin2@example.test']) {
+  db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)").run(randomUUID(), address, Date.now());
+}
 const inbox = new Map();
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: 'http://127.0.0.1:4310', sendOtp: async ({ email, code }) => inbox.set(email, code) });
 app.get('/__test/code', (req, res) => res.json({ code: inbox.get(req.query.email) }));

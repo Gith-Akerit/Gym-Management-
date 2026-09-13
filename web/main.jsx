@@ -210,7 +210,7 @@ function MemberEditor({ member, onCancel, onSaved, onAuthError }) {
   return <section className="card narrow"><button onClick={onCancel} disabled={busy}>← กลับรายชื่อสมาชิก</button><h1>{member ? 'ข้อมูลสมาชิก' : 'เพิ่มสมาชิก'}</h1>
     {member && <p className="muted">{member.member_code}</p>}
     <form onSubmit={save}><ProfileFields value={value} setValue={setValue} includeEmail errors={error?.fields}/>
-      <label className="field">สถานะสมาชิก<select value={value.status} onChange={e => setValue({ ...value, status: e.target.value })}>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      <label className="field">สถานะสมาชิก<select aria-label="สถานะสมาชิก" value={value.status} onChange={e => setValue({ ...value, status: e.target.value })}>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <Notice error={error}/><div className="actions"><button className="primary" disabled={busy}>{busy ? 'กำลังบันทึก…' : 'บันทึกสมาชิก'}</button><button type="button" onClick={onCancel} disabled={busy}>ยกเลิก</button></div>
     </form>
     {member && <div className="secondary-actions"><button className="danger" onClick={deactivate} disabled={busy || member.status === 'suspended'}>ระงับสมาชิก</button>
@@ -285,7 +285,7 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
       <Field name="name_th" label="ชื่อแพ็กเกจ" value={value.name_th} onChange={v => set('name_th', v)} error={errors.name_th} required maxLength={120}/>
       <Field name="code" label="รหัสแพ็กเกจ (A-Z 0-9 _)" value={value.code} onChange={v => set('code', v)} error={errors.code} required maxLength={32} placeholder="UNLIMITED_30D"/>
       <label className="field">ประเภท
-        <select value={value.type} onChange={e => set('type', e.target.value)}>
+        <select aria-label="ประเภทแพ็กเกจ" value={value.type} onChange={e => set('type', e.target.value)}>
           <option value="unlimited">รายเดือน ไม่จำกัดครั้ง</option>
           <option value="limited_sessions">จำกัดจำนวนครั้ง</option>
         </select>
@@ -299,7 +299,7 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
       <Field name="description" label="คำอธิบาย" value={value.description} onChange={v => set('description', v)} error={errors.description} maxLength={500}/>
       <div className="row-2">
         <label className="field">สถานะ
-          <select value={value.status} onChange={e => set('status', e.target.value)}>
+          <select aria-label="สถานะแพ็กเกจ" value={value.status} onChange={e => set('status', e.target.value)}>
             {Object.entries(packageStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
           {errors.status && <span className="field-error">{errors.status}</span>}</label>
@@ -391,7 +391,7 @@ function GymSettings({ onAuthError }) {
           <Field name="phone_secondary" label="เบอร์โทรสำรอง" value={form.phone_secondary} onChange={v => set('phone_secondary', v)} error={errors.phone_secondary} type="tel"/>
         </div>
         <label className="field">เบอร์ที่แสดงในแอปสมาชิก
-          <select value={form.phone_display} onChange={e => set('phone_display', e.target.value)}>
+          <select aria-label="เบอร์ที่แสดงในแอปสมาชิก" value={form.phone_display} onChange={e => set('phone_display', e.target.value)}>
             <option value="primary">เบอร์หลัก</option><option value="secondary">เบอร์สำรอง</option><option value="hidden">ไม่แสดงเบอร์</option>
           </select></label>
         <Field name="hours_note" label="หมายเหตุเวลาเปิดทำการ (ภายใน)" value={form.hours_note} onChange={v => set('hours_note', v)} error={errors.hours_note} maxLength={200}/>

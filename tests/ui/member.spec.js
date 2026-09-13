@@ -18,7 +18,7 @@ test('admin creates, searches, updates and deactivates without executing stored 
   await page.getByLabel('อีเมล', { exact: true }).fill('created@example.test');
   await page.getByLabel('เบอร์มือถือ').fill('0812345678');
   await page.getByRole('button', { name: 'บันทึกสมาชิก' }).click();
-  await expect(page.getByRole('status')).toContainText('เพิ่มสมาชิกแล้ว');
+  await expect(page.getByRole('status').filter({ hasText: 'เพิ่มสมาชิกแล้ว' })).toBeVisible();
   await page.getByLabel('ค้นหาสมาชิก').fill('081-234-5678');
   await page.getByRole('button', { name: 'แก้ไข <img src=x onerror=alert(1)>' }).click();
   await page.getByLabel('ชื่อ–นามสกุล').fill('สุดา ใจดี');
