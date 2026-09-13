@@ -116,3 +116,7 @@ dd{margin:2px 0 0}
   .hours-grid{grid-template-columns:1fr 1fr;gap:8px}
   main{padding:18px 16px 96px}
 }
+
+/* The public gym card sits under both columns of the sign-in layout. */
+.public-info{grid-column:1 / -1;max-width:760px;margin:0 auto;width:100%}
+@media(max-width:760px){.public-info{max-width:420px}}

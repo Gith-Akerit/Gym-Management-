@@ -81,8 +81,27 @@ test('OTP cooldown, per-address and per-IP limits persist in database', async t 
   for (let i = 0; i < 3; i++) { tick(61000); await call('post', '/auth/request-otp', null, { email }).expect(202); }
   tick(61000); await call('post', '/auth/request-otp', null, { email }).expect(429);
   assert.ok(db.prepare('SELECT count(*) n FROM rate_limits').get().n > 0);
-  for (let i = 0; i < 14; i++) await call('post', '/auth/request-otp', null, { email: `ip${i}@example.test` }).expect(202);
-  await call('post', '/auth/request-otp', null, { email: 'other@example.test' }).expect(429);
+
+  // One address spraying many different inboxes still runs into the per-IP
+  // ceiling, which is what keeps the mail bill and the spam complaints down.
+  const statuses = [];
+  for (let i = 0; i < 60; i++) statuses.push((await call('post', '/auth/request-otp', null, { email: `ip${i}@example.test` })).status);
+  assert.ok(statuses.includes(429), 'a single address could spray 60 inboxes unthrottled');
+});
+
+test('behind a proxy each member gets their own per-IP budget', async t => {
+  // Production forces HTTPS, so there is always a proxy and every request shares
+  // one TCP peer. Keying the budget on that peer locked members out of login.
+  const { app } = fixture(t);
+  assert.equal(app.get('trust proxy'), 1);
+  const statuses = [];
+  for (let i = 0; i < 50; i++) {
+    const response = await request(app).post('/api/auth/request-otp')
+      .set('X-Gym-Client', 'mobile').set('X-Forwarded-For', `203.0.113.${i + 1}`)
+      .send({ email: `device${i}@example.test` });
+    statuses.push(response.status);
+  }
+  assert.deepEqual([...new Set(statuses)], [202], '50 members on 50 devices must each get their code');
 });
 test('SMTP failure returns safe retry message and invalidates challenge', async t => {
   const { db, options } = fixture(t);

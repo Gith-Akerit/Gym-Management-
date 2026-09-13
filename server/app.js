@@ -6,11 +6,17 @@ import { audit, createMember, getGym, getMember, getPackage, memberSelect, publi
 import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
-export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173', production = false, now = Date.now }) {
+export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173', production = false,
+  now = Date.now, trustProxy = 1 }) {
   if (!secret || secret.length < 32) throw new Error('OTP_SECRET must have at least 32 characters');
   if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
   const app = express();
   app.disable('x-powered-by');
+  // Production forces HTTPS, so there is always a proxy in front and every
+  // request arrives from its address. Without this, req.ip is the proxy and the
+  // whole gym shares one per-IP budget — 20 members and the rest are locked out
+  // of login (BUG-01). Set TRUST_PROXY to the real number of hops.
+  app.set('trust proxy', trustProxy);
   app.use(helmet({ strictTransportSecurity: production ? undefined : false }));
   app.use(express.json({ limit: '16kb' }));
   app.use('/api', (req, res, next) => {
@@ -60,9 +66,29 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   }
   const clearOtpFailures = address => db.prepare('DELETE FROM otp_lockouts WHERE email=?').run(address);
 
+  // Expired challenges, sessions and rate-limit buckets are swept here rather
+  // than in start.js, so every entry point that builds an app gets the cleanup.
+  const sweep = () => {
+    db.prepare('DELETE FROM otp_challenges WHERE expires_at<?').run(now() - 900000);
+    db.prepare('DELETE FROM sessions WHERE expires_at<?').run(now());
+    db.prepare('DELETE FROM rate_limits WHERE expires_at<?').run(now());
+    db.prepare('DELETE FROM otp_lockouts WHERE locked_until IS NOT NULL AND locked_until<?').run(now() - 900000);
+  };
+  const sweepTimer = setInterval(sweep, 60000).unref();
+  app.locals.stopSweeper = () => clearInterval(sweepTimer);
+
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+  // Anyone may read what the gym advertises: opening hours, address, the phone
+  // number staff chose to publish, and the packages actually on sale. Somebody
+  // deciding whether to join should not have to create an account first.
+  app.get('/api/public/gym', (req, res) => res.json(publicGym(db)));
+  app.get('/api/public/packages', (req, res) => res.json({
+    items: db.prepare("SELECT * FROM packages WHERE status='active' ORDER BY sort_order, created_at")
+      .all().map(publicPackage),
+  }));
   app.post('/api/auth/request-otp', async (req, res) => {
-    limit(`request-ip:${req.ip}`, 20, 900000);
+    limit(`request-ip:${req.ip}`, 40, 900000);
     const input = parse(z.object({ email }).strict(), req.body);
     limit(`request-email:${input.email}`, 5, 900000);
     assertNotLockedOut(input.email);
@@ -86,7 +112,7 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
       member: publicMember(db.prepare(`${memberSelect} WHERE m.user_id=?`).get(user.id)) };
   }
   app.post('/api/auth/verify-otp', (req, res) => {
-    limit(`verify-ip:${req.ip}`, 60, 900000);
+    limit(`verify-ip:${req.ip}`, 120, 900000);
     const input = parse(z.object({ challenge_id: z.uuid(), code: z.string().regex(/^\d{6}$/, 'กรอกรหัส 6 หลัก') }).strict(), req.body);
     const c = db.prepare('SELECT * FROM otp_challenges WHERE id=?').get(input.challenge_id);
     const invalid = () => new HttpError(400, 'รหัสไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว กรุณาขอรหัสใหม่');
@@ -178,7 +204,13 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
       const before = getMember(db, req.params.id);
       if (!before) throw new HttpError(404, 'ไม่พบสมาชิก');
       if (before.version !== input.version) throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนแก้ไข');
-      const values = deactivate ? { ...before, status: 'suspended' } : input;
+      // An omitted optional field keeps whatever is already stored. Overwriting
+      // it with a default is how an emergency contact used to vanish (BUG-03).
+      const values = deactivate ? { ...before, status: 'suspended' } : {
+        ...input,
+        date_of_birth: input.date_of_birth === undefined ? before.date_of_birth : input.date_of_birth,
+        emergency_contact: input.emergency_contact === undefined ? before.emergency_contact : input.emergency_contact,
+      };
       db.prepare(`UPDATE members SET name=?,phone=?,date_of_birth=?,emergency_contact=?,status=?,version=version+1,updated_at=? WHERE id=?`)
         .run(values.name, values.phone, values.date_of_birth, values.emergency_contact, values.status, now(), before.id);
       if (values.email !== before.email) {
@@ -307,8 +339,11 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     if (err.message?.includes('UNIQUE constraint failed')) return res.status(409).json({ error: 'อีเมลหรือเบอร์โทรนี้มีอยู่ในระบบแล้ว' });
     if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') return res.status(400).json({ error: 'รูปแบบหรือขนาดข้อมูลไม่ถูกต้อง' });
     // Never log request bodies, credentials, SQL values, or raw database errors.
-    console.error(JSON.stringify({ event: 'request_error', request_id: randomUUID() }));
-    res.status(500).json({ error: 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง' });
+    // The id is returned as well as logged, so a support call can be matched to
+    // the log line without asking the caller to describe what they did.
+    const requestId = randomUUID();
+    console.error(JSON.stringify({ event: 'request_error', request_id: requestId }));
+    res.status(500).json({ error: 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง', request_id: requestId });
   });
   return app;
 }

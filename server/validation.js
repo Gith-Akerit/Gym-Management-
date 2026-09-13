@@ -15,14 +15,56 @@ export const profileFields = {
 export const profileSchema = z.object(profileFields).strict();
 export const status = z.enum(['active', 'suspended', 'expired'], { error: 'กรุณาเลือกสถานะที่ถูกต้อง' });
 export const memberSchema = z.object({ ...profileFields, email, status: status.default('active') }).strict();
-export const updateSchema = memberSchema.extend({ version: z.number().int().positive() });
+/**
+ * Editing a member. date_of_birth and emergency_contact are optional *without*
+ * a default: a client that omits them leaves the stored values alone. Giving
+ * them defaults here silently wiped an emergency contact whenever somebody
+ * renamed a member (BUG-03).
+ */
+export const updateSchema = z.object({
+  ...profileFields,
+  date_of_birth: dob.optional(),
+  emergency_contact: z.string().trim().max(200, 'ข้อมูลติดต่อฉุกเฉินยาวได้ไม่เกิน 200 ตัวอักษร').optional(),
+  email,
+  status: status.default('active'),
+  version: z.number().int().positive(),
+}).strict();
 export class HttpError extends Error {
   constructor(status, message, fields) { super(message); this.status = status; this.fields = fields; }
 }
+const THAI = /[฀-๿]/;
+
+/**
+ * Thai wording for the validation failures we did not write a message for —
+ * a missing field, an unexpected key, a value out of range. Zod's own defaults
+ * are English, and the people using this are a gym owner and their staff.
+ */
+function thaiMessage(issue) {
+  const label = issue.path.length ? `"${issue.path.join('.')}"` : 'ข้อมูลที่ส่งมา';
+  switch (issue.code) {
+    case 'invalid_type':
+      return issue.input === undefined
+        ? (issue.path.length ? `กรุณากรอกข้อมูลในช่อง ${label}` : 'กรุณากรอกข้อมูลให้ครบ')
+        : `รูปแบบข้อมูลของ ${label} ไม่ถูกต้อง`;
+    case 'unrecognized_keys':
+      return `ไม่รู้จักข้อมูล ${(issue.keys ?? []).map(k => `"${k}"`).join(', ')} กรุณาเปิดแอปใหม่แล้วลองอีกครั้ง`;
+    case 'too_big':
+      return `ค่าของ ${label} มากเกินกว่าที่ระบบรองรับ (ไม่เกิน ${issue.maximum})`;
+    case 'too_small':
+      return `ค่าของ ${label} น้อยเกินกว่าที่ระบบรองรับ (อย่างน้อย ${issue.minimum})`;
+    default:
+      return `รูปแบบข้อมูลของ ${label} ไม่ถูกต้อง`;
+  }
+}
+
 export function parse(schema, input) {
   const result = schema.safeParse(input);
   if (!result.success) {
-    const fields = Object.fromEntries(result.error.issues.map(i => [i.path.join('.') || 'form', i.message]));
+    const fields = Object.fromEntries(result.error.issues.map(issue => [
+      issue.path.join('.') || 'form',
+      // Our own messages are already Thai; anything else came from the library.
+      THAI.test(String(issue.message)) ? issue.message : thaiMessage(issue),
+    ]));
     throw new HttpError(400, 'กรุณาตรวจสอบข้อมูลที่กรอก', fields);
   }
   return result.data;

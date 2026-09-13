@@ -13,11 +13,25 @@ const formatPrice = value => (value === null || value === undefined ? null : bah
 const formatPhone = value => (value ? value.replace(/^(0\d{1,2})(\d{3})(\d{3,4})$/, '$1-$2-$3') : null);
 
 async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, { ...options, credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-Gym-Client': 'web' },
-    body: options.body ? JSON.stringify(options.body) : undefined });
-  const data = response.status === 204 ? null : await response.json();
-  if (!response.ok) { const error = new Error(data.error || 'ระบบขัดข้อง'); error.fields = data.fields; error.status = response.status; throw error; }
+  let response;
+  try {
+    response = await fetch(`/api${path}`, { ...options, credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Gym-Client': 'web' },
+      body: options.body ? JSON.stringify(options.body) : undefined });
+  } catch (cause) {
+    // fetch only rejects when the request never got an answer. The browser's
+    // own wording for that is English ("Failed to fetch"), so replace it.
+    if (cause.name === 'AbortError') throw cause;
+    const error = new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาตรวจอินเทอร์เน็ตแล้วกดลองใหม่');
+    error.offline = true;
+    throw error;
+  }
+  const data = response.status === 204 ? null : await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง');
+    error.fields = data.fields; error.status = response.status; error.requestId = data.request_id;
+    throw error;
+  }
   return data;
 }
 function Field({ label, name, value, onChange, error, children, ...props }) {
@@ -28,7 +42,13 @@ function Field({ label, name, value, onChange, error, children, ...props }) {
           aria-invalid={!!error} aria-describedby={error ? `${name}-error` : undefined} {...props}/>}
     {error && <span className="field-error" id={`${name}-error`}>{error}</span>}</label>;
 }
-function Notice({ error }) { return error && <div className="notice error" role="alert">{error.message || error}</div>; }
+function Notice({ error }) {
+  if (!error) return null;
+  return <div className="notice error" role="alert">
+    {error.message || error}
+    {error.requestId && <span className="fine"> (รหัสอ้างอิงสำหรับแจ้งปัญหา: {error.requestId})</span>}
+  </div>;
+}
 
 /** Loads a resource once, exposing the three states every screen has to render. */
 function useResource(path, enabled = true) {
@@ -54,6 +74,36 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
       {field('emergency_contact', 'ผู้ติดต่อฉุกเฉินและเบอร์โทร', { maxLength: 200 })}
     </details>
   </>;
+}
+
+function PublicGymInfo() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    Promise.all([api('/public/gym'), api('/public/packages')])
+      .then(([gym, packages]) => setData({ gym, packages: packages.items }))
+      .catch(() => setData(null));
+  }, []);
+  if (!data?.gym?.profile) return null;
+  const { profile, hours } = data.gym;
+  return <section className="card public-info"><h2>{profile.brand_name_th || profile.name}</h2>
+    {profile.address && <p className="muted">{profile.address}</p>}
+    {profile.phone && <p className="muted">โทร <a href={`tel:${profile.phone}`}>{formatPhone(profile.phone)}</a></p>}
+    <h3>เวลาเปิดทำการ</h3>
+    {!profile.hours_confirmed && <div className="notice warn">เวลาเปิดทำการยังรอการยืนยันจากยิม กรุณาโทรสอบถามก่อนเดินทาง</div>}
+    <dl>{hours.map(day => <React.Fragment key={day.weekday}>
+      <dt>{day.label}</dt><dd>{day.closed ? 'ปิด' : `${day.open_time} – ${day.close_time} น.`}</dd>
+    </React.Fragment>)}</dl>
+    <h3 style={{ marginTop: 18 }}>แพ็กเกจ</h3>
+    {!data.packages.length ? <p className="muted">ยังไม่เปิดขายแพ็กเกจ สอบถามได้ที่เคาน์เตอร์</p>
+      : data.packages.map(item => <div className="pkg-card" key={item.id}>
+        <div className="pkg-head"><div><h3>{item.name_th}</h3>
+          <p className="muted">{item.type === 'unlimited'
+            ? `เข้าได้ไม่จำกัดครั้ง ภายใน ${item.duration_days} วัน`
+            : `เข้าได้ ${item.session_limit} ครั้ง ภายใน ${item.duration_days} วัน`}</p></div>
+          <span className="price">{formatPrice(item.price_thb)}</span></div>
+      </div>)}
+    <p className="fine">สมัครสมาชิกด้วยอีเมลที่ช่องด้านบนเพื่อซื้อแพ็กเกจ</p>
+  </section>;
 }
 
 function Login({ onLogin }) {
@@ -85,7 +135,8 @@ function Login({ onLogin }) {
         <button disabled={busy} onClick={() => { setChallenge(null); setError(null); }}>เปลี่ยนอีเมล</button></div>
         <p className="fine">ไม่ได้รับอีเมล? ลองตรวจโฟลเดอร์จดหมายขยะ แล้วกดส่งรหัสใหม่ หากยังไม่ได้รับ กรุณาติดต่อพนักงานที่เคาน์เตอร์</p></>}
       <p className="fine">สมาชิกใหม่กรอกชื่อและเบอร์มือถือหลังยืนยันอีเมล</p>
-    </section></div>;
+    </section>
+    <PublicGymInfo/></div>;
 }
 
 function Onboarding({ onSaved }) {
