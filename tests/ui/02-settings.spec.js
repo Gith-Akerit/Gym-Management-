@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-// Runs after member.spec against the same test server, so these journeys never
+// Spec files share one test server and run in filename order, hence the number
+// prefixes. Runs after 01-member.spec, so these journeys never
 // assume an empty member list. Declaration order matters: the empty-catalogue
 // check has to happen before the admin publishes a package.
 

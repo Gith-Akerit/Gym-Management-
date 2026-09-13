@@ -1,46 +1,17 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import {
+  api, Field, formatDate, formatPhone, formatPrice, labels, Notice,
+  packageStatusLabels, useResource,
+} from './shared.jsx';
+import {
+  MemberEntitlements, MemberOrder, MemberOrderHistory, MemberPackages,
+  PaymentReview, SalesReport,
+} from './payments.jsx';
 
-const labels = { active: 'ใช้งานอยู่', suspended: 'ถูกระงับ', expired: 'หมดอายุ' };
-const packageStatusLabels = { draft: 'ร่าง ยังไม่เปิดขาย', active: 'เปิดขาย', archived: 'ปิดการขาย' };
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
 const blankPackage = { code: '', name_th: '', type: 'unlimited', duration_days: 30, session_limit: '', price_satang: '', description: '', status: 'draft', sort_order: 0 };
-const formatDate = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' }).format(new Date(value));
-const baht = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 2 });
-/** A null price means the gym has not published one yet — never render it as ฿0. */
-const formatPrice = value => (value === null || value === undefined ? null : baht.format(value));
-const formatPhone = value => (value ? value.replace(/^(0\d{1,2})(\d{3})(\d{3,4})$/, '$1-$2-$3') : null);
-
-async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, { ...options, credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-Gym-Client': 'web' },
-    body: options.body ? JSON.stringify(options.body) : undefined });
-  const data = response.status === 204 ? null : await response.json();
-  if (!response.ok) { const error = new Error(data.error || 'ระบบขัดข้อง'); error.fields = data.fields; error.status = response.status; throw error; }
-  return data;
-}
-function Field({ label, name, value, onChange, error, children, ...props }) {
-  return <label className="field">{label}
-    {children
-      ? React.cloneElement(children, { name, value: value ?? '', onChange: e => onChange(e.target.value), 'aria-invalid': !!error })
-      : <input name={name} value={value ?? ''} onChange={e => onChange(e.target.value)}
-          aria-invalid={!!error} aria-describedby={error ? `${name}-error` : undefined} {...props}/>}
-    {error && <span className="field-error" id={`${name}-error`}>{error}</span>}</label>;
-}
-function Notice({ error }) { return error && <div className="notice error" role="alert">{error.message || error}</div>; }
-
-/** Loads a resource once, exposing the three states every screen has to render. */
-function useResource(path, enabled = true) {
-  const [state, setState] = useState({ data: null, error: null, busy: enabled });
-  const reload = useCallback(async () => {
-    setState(s => ({ ...s, busy: true, error: null }));
-    try { const data = await api(path); setState({ data, error: null, busy: false }); return data; }
-    catch (e) { setState({ data: null, error: e, busy: false }); throw e; }
-  }, [path]);
-  useEffect(() => { if (enabled) reload().catch(() => {}); }, [reload, enabled]);
-  return { ...state, reload, setData: data => setState(s => ({ ...s, data })) };
-}
 
 function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
   const field = (name, label, props = {}) => <Field key={name} name={name} label={label} value={value[name]}
@@ -99,17 +70,6 @@ function Onboarding({ onSaved }) {
 
 // --------------------------------------------------------------- member app
 
-function PackageSummary({ item }) {
-  const price = formatPrice(item.price_thb);
-  return <div className="pkg-card"><div className="pkg-head"><div>
-    <h3>{item.name_th}</h3>
-    <p className="muted">{item.type === 'unlimited'
-      ? `เข้าได้ไม่จำกัดครั้ง ภายใน ${item.duration_days} วัน`
-      : `เข้าได้ ${item.session_limit} ครั้ง ภายใน ${item.duration_days} วัน`}</p>
-  </div><span className={price ? 'price' : 'price tbd'}>{price ?? 'รอประกาศราคา'}</span></div>
-    {item.description && <p className="muted">{item.description}</p>}</div>;
-}
-
 function MemberHome({ member, gym }) {
   return <>
     <section className="member-card"><span className="eyebrow">บัตรสมาชิกของคุณ</span>
@@ -123,21 +83,9 @@ function MemberHome({ member, gym }) {
       <div className="qr-frame" role="img" aria-label="ยังไม่เปิดใช้งานการเช็คอินด้วย QR"><span>QR เช็คอิน<br/>เปิดใช้งานในเฟสถัดไป</span></div>
       <p className="muted">ระบบเช็คอินด้วย QR ให้พนักงานสแกน อยู่ระหว่างพัฒนา ตอนนี้แจ้งชื่อหรือรหัสสมาชิกกับพนักงานที่เคาน์เตอร์ได้ตามปกติ</p>
     </section>
-    <section className="card"><h2>แพ็กเกจปัจจุบัน</h2>
-      <p className="muted">ระบบซื้อแพ็กเกจและบันทึกสิทธิ์จะเปิดใช้งานในเฟสถัดไป สอบถามสิทธิ์คงเหลือได้ที่เคาน์เตอร์</p></section>
+    <section className="card"><h2>แพ็กเกจปัจจุบัน</h2><MemberEntitlements/></section>
     {gym?.profile && <p className="fine">{gym.profile.brand_name_th || gym.profile.name}{gym.profile.address ? ` · ${gym.profile.address}` : ''}</p>}
   </>;
-}
-
-function MemberPackages() {
-  const { data, error, busy, reload } = useResource('/packages');
-  if (busy) return <p role="status" className="empty">กำลังโหลดแพ็กเกจ…</p>;
-  if (error) return <><Notice error={error}/><button onClick={() => reload().catch(() => {})}>ลองใหม่</button></>;
-  if (!data.items.length) return <div className="empty"><h2>ยังไม่เปิดขายแพ็กเกจ</h2>
-    <p>ยิมกำลังจัดเตรียมแพ็กเกจและราคา สอบถามได้ที่เคาน์เตอร์</p></div>;
-  return <><h1>แพ็กเกจ</h1>
-    {data.items.map(item => <PackageSummary key={item.id} item={item}/>)}
-    <p className="fine">การสั่งซื้อผ่านแอปด้วย PromptPay จะเปิดใช้งานในเฟสถัดไป ตอนนี้ซื้อแพ็กเกจได้ที่เคาน์เตอร์</p></>;
 }
 
 function GymInfo({ gym }) {
@@ -156,7 +104,7 @@ function GymInfo({ gym }) {
     </React.Fragment>)}</dl></section>;
 }
 
-function MemberAccount({ member, gym, refresh, onLogout }) {
+function MemberAccount({ member, gym, refresh, onLogout, onOpenOrder }) {
   const [error, setError] = useState(null), [busy, setBusy] = useState(false);
   return <>
     <h1>บัญชีของฉัน</h1>
@@ -172,23 +120,29 @@ function MemberAccount({ member, gym, refresh, onLogout }) {
         <button onClick={onLogout}>ออกจากระบบ</button>
       </div>
     </section>
+    <section className="card"><h2>ประวัติการสั่งซื้อ</h2><MemberOrderHistory onOpen={onOpenOrder}/></section>
     <GymInfo gym={gym}/>
   </>;
 }
 
 function MemberApp({ member, gym, refresh, onLogout }) {
   const [tab, setTab] = useState('home');
+  const [orderId, setOrderId] = useState(null);
   const tabs = [['home', 'หน้าแรก'], ['packages', 'แพ็กเกจ'], ['account', 'บัญชี']];
+  const open = id => { setOrderId(id); setTab('packages'); };
   return <div className="member-shell">
     {tab === 'home' && <MemberHome member={member} gym={gym}/>}
-    {tab === 'packages' && <MemberPackages/>}
-    {tab === 'account' && <MemberAccount member={member} gym={gym} refresh={refresh} onLogout={onLogout}/>}
+    {tab === 'packages' && (orderId
+      ? <MemberOrder key={orderId} orderId={orderId} onBack={() => setOrderId(null)}/>
+      : <MemberPackages onBuy={setOrderId}/>)}
+    {tab === 'account' && <MemberAccount member={member} gym={gym} refresh={refresh} onLogout={onLogout} onOpenOrder={open}/>}
     <nav className="app-nav" aria-label="เมนูหลัก">{tabs.map(([key, label]) =>
-      <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
+      <button key={key} onClick={() => { setTab(key); if (key !== 'packages') setOrderId(null); }}
+        aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
   </div>;
 }
 
-// ---------------------------------------------------------------- admin: members
+// ------------------------------------------------------------ admin: members
 
 function MemberEditor({ member, onCancel, onSaved, onAuthError }) {
   const [value, setValue] = useState(member ? { ...blank, ...member } : { ...blank });
@@ -250,7 +204,7 @@ function MemberAdmin({ onAuthError }) {
     </section></>;
 }
 
-// --------------------------------------------------------------- admin: packages
+// ----------------------------------------------------------- admin: packages
 
 function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
   const toForm = row => ({ ...blankPackage, ...row,
@@ -340,7 +294,7 @@ function PackageAdmin({ onAuthError }) {
     <p className="fine">แพ็กเกจร่างมาจาก seed ของทีมวางแผน ราคายังว่างไว้จนกว่าเจ้าของยิมจะกรอกเอง</p></>;
 }
 
-// ------------------------------------------------------------- admin: gym info
+// ----------------------------------------------------------- admin: gym info
 
 function GymSettings({ onAuthError }) {
   const { data, error, busy, reload, setData } = useResource('/gym');
@@ -397,6 +351,12 @@ function GymSettings({ onAuthError }) {
         <Field name="hours_note" label="หมายเหตุเวลาเปิดทำการ (ภายใน)" value={form.hours_note} onChange={v => set('hours_note', v)} error={errors.hours_note} maxLength={200}/>
         <label className="check-row"><input type="checkbox" checked={form.hours_confirmed} onChange={e => set('hours_confirmed', e.target.checked)}/>
           <span>ยืนยันเวลาเปิดทำการแล้ว (เอาคำเตือนออกจากแอปสมาชิก)</span></label>
+        <h3 style={{ marginTop: 20 }}>การชำระเงิน</h3>
+        <Field name="payment_sla_text" label="ข้อความแจ้งสมาชิกว่าจะตรวจสลิปเมื่อไร" value={form.payment_sla_text}
+          onChange={v => set('payment_sla_text', v)} error={errors.payment_sla_text} required maxLength={200}/>
+        <Field name="order_ttl_minutes" label="เวลาที่ให้ชำระเงินต่อคำสั่งซื้อ (นาที)" value={form.order_ttl_minutes}
+          onChange={v => set('order_ttl_minutes', v)} error={errors.order_ttl_minutes} type="number" min={5} max={1440}/>
+        <p className="fine">บัญชี PromptPay ที่รับเงินตั้งค่าที่ตัวแปร PROMPTPAY_ID ตอน deploy ไม่ได้เก็บไว้ในหน้านี้หรือในโค้ด</p>
         <div className="actions"><button className="primary" disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึกข้อมูลยิม'}</button></div>
       </form></section>
 
@@ -411,16 +371,21 @@ function GymSettings({ onAuthError }) {
           onChange={e => setDay(day.weekday, { close_time: e.target.value })}/>
       </div>)}
       <div className="actions"><button className="primary" onClick={saveHours} disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึกเวลาเปิดทำการ'}</button></div>
-    </section></>;
+    </section>
+
+    <section className="card"><h2>ยอดขายรายวัน</h2>
+      <p className="muted">ใช้เทียบกับรายการเงินเข้าบัญชีจริง นับเฉพาะคำสั่งซื้อที่อนุมัติแล้ว</p>
+      <SalesReport/></section></>;
 }
 
 function Admin({ onAuthError }) {
   const [tab, setTab] = useState('members');
-  const tabs = [['members', 'สมาชิก'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
+  const tabs = [['members', 'สมาชิก'], ['review', 'ตรวจสลิป'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
   return <>
     <nav className="tabs" aria-label="เมนูผู้ดูแลระบบ">{tabs.map(([key, label]) =>
       <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
     {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
+    {tab === 'review' && <PaymentReview onAuthError={onAuthError}/>}
     {tab === 'packages' && <PackageAdmin onAuthError={onAuthError}/>}
     {tab === 'gym' && <GymSettings onAuthError={onAuthError}/>}
   </>;
@@ -442,7 +407,7 @@ function App() {
     <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'staff' ? 'พนักงาน' : 'สมาชิก'}</span></div>
     <button onClick={logout}>ออกจากระบบ</button></header>
     <main><Notice error={error}/>{user.role === 'admin' ? <Admin onAuthError={onAuthError}/>
-      : user.role === 'staff' ? <section className="card"><h1>บัญชีพนักงาน</h1><p>เข้าสู่ระบบแล้ว สิทธิ์จัดการสมาชิกสงวนไว้สำหรับผู้ดูแลระบบ</p>
+      : user.role === 'staff' ? <section className="card"><h1>บัญชีพนักงาน</h1><p>เข้าสู่ระบบแล้ว สิทธิ์จัดการสมาชิกและตรวจสลิปสงวนไว้สำหรับผู้ดูแลระบบ</p>
         <p className="muted">หน้าสแกน QR เช็คอินสำหรับพนักงานจะเปิดใช้งานในเฟสถัดไป</p></section>
       : user.member ? <MemberApp member={user.member} gym={gym} onLogout={logout}
           refresh={async () => { try { await refresh(); } catch(e) { onAuthError(e); throw e; } }}/>
