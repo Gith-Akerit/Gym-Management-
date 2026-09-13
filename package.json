@@ -16,7 +16,8 @@
     "db:rollback": "node --env-file-if-exists=.env server/manage.js rollback",
     "db:seed": "node --env-file-if-exists=.env server/manage.js seed",
     "db:admin": "node --env-file-if-exists=.env server/manage.js admin",
-    "db:seed:demo": "node --env-file-if-exists=.env server/manage.js seed:demo"
+    "db:seed:demo": "node --env-file-if-exists=.env server/manage.js seed:demo",
+    "slips:prune": "node --env-file-if-exists=.env server/prune-slips.js"
   },
   "dependencies": {
     "express": "^5.2.1",

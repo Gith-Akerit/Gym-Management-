@@ -134,7 +134,7 @@ test('a package cannot go on sale without a price, and prices survive as exact s
   await call('put', `/packages/${created.body.id}`, adminToken, { ...base, version: created.body.version, status: 'active' }).expect(400);
 
   const priced = await call('put', `/packages/${created.body.id}`, adminToken,
-    { ...base, version: created.body.version, price_satang: '1299.50', status: 'active' }).expect(200);
+    { ...base, version: created.body.version, price_thb: '1299.50', status: 'active' }).expect(200);
   assert.equal(priced.body.price_satang, 129950);
   assert.equal(priced.body.price_thb, 1299.5);
 
@@ -157,7 +157,9 @@ test('package validation rejects mismatched type, bad prices and zero durations'
     { ...base, duration_days: 0 },
     { ...base, type: 'limited_sessions', session_limit: 0 },
     { ...base, price_satang: -1 },
-    { ...base, price_satang: '1.005' },
+    { ...base, price_thb: '1.005' },
+    { ...base, price_satang: 1.5 },
+    { ...base, price_thb: 1, price_satang: 100 },
     { ...base, code: 'no lower case' },
     { ...base, name_th: '' },
     { ...base, type: 'monthly' },

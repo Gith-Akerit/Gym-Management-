@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { registerPaymentRoutes } from './payments.js';
-import { audit, createMember, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
+import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
 import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -74,6 +74,11 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     db.prepare('DELETE FROM sessions WHERE expires_at<?').run(now());
     db.prepare('DELETE FROM rate_limits WHERE expires_at<?').run(now());
     db.prepare('DELETE FROM otp_lockouts WHERE locked_until IS NOT NULL AND locked_until<?').run(now() - 900000);
+    // Reading an order used to perform this UPDATE on every GET. Reads now
+    // project the expired state instead, and the durable change happens here.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='orders'").get()) {
+      expireStaleOrders(db, now());
+    }
   };
   const sweepTimer = setInterval(sweep, 60000).unref();
   app.locals.stopSweeper = () => clearInterval(sweepTimer);
@@ -344,7 +349,22 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, ...(err.fields && { fields: err.fields }) });
-    if (err.message?.includes('UNIQUE constraint failed')) return res.status(409).json({ error: 'อีเมลหรือเบอร์โทรนี้มีอยู่ในระบบแล้ว' });
+    // Say which collision happened. Reporting every UNIQUE violation as a
+    // duplicate email sent an admin hunting an email problem while the real one
+    // was an entitlement row left over from a reversal (QA P2-BUG-02).
+    if (err.message?.includes('UNIQUE constraint failed')) {
+      const where = err.message.match(/UNIQUE constraint failed: ([a-z_]+).([a-z_]+)/);
+      const messages = {
+        'users.email': 'อีเมลนี้มีอยู่ในระบบแล้ว',
+        'members.phone': 'เบอร์โทรนี้มีอยู่ในระบบแล้ว',
+        'members.member_code': 'รหัสสมาชิกซ้ำ กรุณาลองใหม่อีกครั้ง',
+        'packages.code': 'รหัสแพ็กเกจนี้มีอยู่แล้ว กรุณาใช้รหัสอื่น',
+        'entitlements.order_id': 'คำสั่งซื้อนี้มีสิทธิ์ที่ออกไว้แล้ว กรุณาโหลดหน้าใหม่แล้วตรวจสอบอีกครั้ง',
+        'payment_slips.stored_name': 'บันทึกไฟล์สลิปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+      };
+      const key = where ? `${where[1]}.${where[2]}` : '';
+      return res.status(409).json({ error: messages[key] ?? 'ข้อมูลนี้มีอยู่ในระบบแล้ว' });
+    }
     if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'ไฟล์สลิปใหญ่เกิน 5 MB กรุณาถ่ายใหม่หรือย่อรูปก่อนอัปโหลด' });
     if (err.code?.startsWith?.('LIMIT_')) return res.status(400).json({ error: 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาแนบรูปสลิปเพียงไฟล์เดียว' });
     if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') return res.status(400).json({ error: 'รูปแบบหรือขนาดข้อมูลไม่ถูกต้อง' });

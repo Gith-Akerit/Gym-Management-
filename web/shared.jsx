@@ -11,6 +11,9 @@ export const orderStatusLabels = {
   cancelled: 'ยกเลิกแล้ว',
 };
 
+/** Mirrors the server rule: a mismatched amount needs a written reason. */
+export const MISMATCH_NOTE_MIN = 10;
+
 export const formatDate = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' }).format(new Date(value));
 export const formatDateTime = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' }).format(new Date(value));
 const baht = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 2 });

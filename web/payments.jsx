@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
-  api, Field, formatDateTime, formatPhone, formatPrice, Notice, orderStatusLabels,
-  upload, useCountdown, useResource,
+  api, Field, formatDateTime, formatPhone, formatPrice, MISMATCH_NOTE_MIN, Notice,
+  orderStatusLabels, upload, useCountdown, useResource,
 } from './shared.jsx';
 
 const describe = pkg => (pkg.type === 'unlimited' || pkg.package_type_snapshot === 'unlimited'
@@ -60,10 +60,11 @@ function OrderScreen({ view, onBack, onChange, onReload }) {
   const { order, slip, payment_sla_text: sla } = view;
   const countdown = useCountdown(order.status === 'pending_payment' ? order.expires_at : null);
   const price = formatPrice(order.price_thb);
-  // A rejected order carries no countdown but is still open until its deadline,
-  // so the gate is the order's own expiry rather than the timer on screen.
-  const stillOpen = order.expires_at > Date.now();
-  const canSendSlip = ['pending_payment', 'awaiting_review', 'rejected'].includes(order.status) && stillOpen;
+  // Only an unpaid order runs out of time. Once a slip is in, the money has
+  // left the member's account and the order stays workable (QA P2-BUG-01).
+  const stillOpen = order.status !== 'pending_payment' || order.expires_at > Date.now();
+  const canSendSlip = !view.free
+    && ['pending_payment', 'awaiting_review', 'rejected'].includes(order.status) && stillOpen;
 
   return <>
     <button onClick={onBack}>← กลับไปหน้าแพ็กเกจ</button>
@@ -74,7 +75,12 @@ function OrderScreen({ view, onBack, onChange, onReload }) {
       <span className={`tag ${order.status === 'paid' ? 'active' : 'draft'}`}>{orderStatusLabels[order.status]}</span>
     </section>
 
-    {order.status === 'pending_payment' && <section className="card">
+    {view.free && ['pending_payment', 'awaiting_review'].includes(order.status) && <div className="notice">
+      <strong>แพ็กเกจนี้ไม่มีค่าใช้จ่าย</strong>
+      <p>ไม่ต้องโอนเงินและไม่ต้องส่งสลิป รอพนักงานกดมอบสิทธิ์ให้{sla ? ` ${sla}` : ''}</p>
+    </div>}
+
+    {view.promptpay_payload !== null && <section className="card">
       <h2 style={{ textAlign: 'center' }}>PromptPay</h2>
       <img className="qr-image" alt={`QR พร้อมเพย์ จำนวน ${price}`} src={`/api/orders/${order.id}/qr.png`}/>
       <p className="qr-amount">{price}</p>
@@ -84,9 +90,10 @@ function OrderScreen({ view, onBack, onChange, onReload }) {
         3. กลับมาที่หน้านี้ แล้วส่งสลิปด้านล่าง
       </p>
       <a className="button secondary" href={`/api/orders/${order.id}/qr.png`} download>บันทึกรูป QR</a>
-      <p className="fine">{countdown.expired
+      {order.status === 'pending_payment' && <p className="fine">{countdown.expired
         ? 'คำสั่งซื้อหมดอายุแล้ว กรุณากดซื้อใหม่'
-        : `คำสั่งซื้อนี้หมดอายุใน ${countdown.text} นาที`}</p>
+        : `คำสั่งซื้อนี้หมดอายุใน ${countdown.text} นาที`}</p>}
+      {order.status === 'rejected' && <p className="fine">โอนตามยอดนี้แล้วส่งสลิปใหม่ได้เลย ไม่ต้องสั่งซื้อใหม่</p>}
     </section>}
 
     {order.status === 'awaiting_review' && <div className="notice warn">
@@ -227,6 +234,7 @@ function ReviewDetail({ id, onBack, onDone, onAuthError }) {
   if (error) return <><button onClick={onBack}>← กลับ</button><Notice error={error}/></>;
 
   const { order, slip, member, duplicates, amount_mismatch: mismatch } = data;
+  const noteLongEnough = note.trim().length >= MISMATCH_NOTE_MIN;
   async function act(path, body, message) {
     setWorking(true); setActionError(null);
     try { await api(path, { method: 'POST', body: { version: order.version, ...body } }); onDone(message); }
@@ -272,19 +280,29 @@ function ReviewDetail({ id, onBack, onDone, onAuthError }) {
         <Notice error={actionError}/>
 
         {order.status === 'awaiting_review' && <>
-          <Field name="note" label="หมายเหตุ (บันทึกไว้ในประวัติ)" value={note} onChange={setNote} maxLength={300}/>
+          <Field name="note" label={mismatch ? 'เหตุผลที่อนุมัติทั้งที่ยอดไม่ตรง (บังคับ)' : 'หมายเหตุ (บันทึกไว้ในประวัติ)'}
+            value={note} onChange={setNote} maxLength={300}
+            error={mismatch && !noteLongEnough ? `กรุณาระบุเหตุผลอย่างน้อย ${MISMATCH_NOTE_MIN} ตัวอักษร` : undefined}/>
           <label className="check-row"><input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}/>
             <span>ตรวจกับแอปธนาคารแล้วว่าเงินเข้าจริงตามยอดและเวลานี้</span></label>
           <div className="actions">
-            <button className="primary" disabled={!checked || working}
+            <button className="primary" disabled={!checked || working || (mismatch && !noteLongEnough)}
               onClick={() => act(`/admin/orders/${order.id}/approve`, { checked_against_bank: true, note }, 'อนุมัติแล้ว')}>
               {working ? 'กำลังบันทึก…' : 'อนุมัติและให้สิทธิ์'}</button>
           </div>
-          <p className="fine">ปุ่มอนุมัติจะกดได้เมื่อติ๊กช่องด้านบน เพราะไม่มีข้อมูลจากผู้ให้บริการชำระเงินมายืนยันแทน</p>
+          <p className="fine">ปุ่มอนุมัติจะกดได้เมื่อติ๊กช่องด้านบน เพราะไม่มีข้อมูลจากผู้ให้บริการชำระเงินมายืนยันแทน
+            {mismatch ? ' และเมื่อยอดไม่ตรง ต้องเขียนเหตุผลไว้ในประวัติด้วย' : ''}</p>
           <Field name="reason" label="เหตุผลที่ปฏิเสธ" value={reason} onChange={setReason} maxLength={300}/>
           <button className="danger" disabled={!reason.trim() || working}
             onClick={() => act(`/admin/orders/${order.id}/reject`, { reason }, 'ปฏิเสธสลิปแล้ว')}>ปฏิเสธสลิป</button>
         </>}
+
+        {['expired', 'cancelled'].includes(order.status) && <div className="secondary-actions" style={{ display: 'block' }}>
+          <p className="fine">คำสั่งซื้อนี้ปิดไปแล้ว ถ้าสมาชิกโอนเงินมาจริง เปิดกลับมาให้ตรวจสอบได้โดยไม่ต้องให้โอนซ้ำ</p>
+          <button disabled={working}
+            onClick={() => act(`/admin/orders/${order.id}/reopen`, { minutes: 1440 }, 'เปิดคำสั่งซื้อกลับมาแล้ว')}>
+            เปิดคำสั่งซื้อกลับมา</button>
+        </div>}
 
         {order.status === 'paid' && <div className="secondary-actions" style={{ display: 'block' }}>
           <Field name="reason" label="เหตุผลที่ยกเลิกการอนุมัติ" value={reason} onChange={setReason} maxLength={300}/>

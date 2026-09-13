@@ -80,7 +80,7 @@ function fixture(t) {
     const draft = db.prepare("SELECT * FROM packages WHERE code='UNLIMITED_30D'").get();
     await call('put', `/packages/${draft.id}`, adminToken, {
       version: draft.version, code: draft.code, name_th: draft.name_th, type: draft.type,
-      duration_days: draft.duration_days, price_satang: price / 100, status: 'active',
+      duration_days: draft.duration_days, price_satang: price, status: 'active',
     }).expect(200);
     return { adminToken, packageId: draft.id };
   }
@@ -127,7 +127,7 @@ test('the client cannot dictate the price, and a later price edit does not rewri
   const pkg = db.prepare('SELECT * FROM packages WHERE id=?').get(packageId);
   await call('put', `/packages/${packageId}`, adminToken, {
     version: pkg.version, code: pkg.code, name_th: pkg.name_th, type: pkg.type,
-    duration_days: pkg.duration_days, price_satang: 2500, status: 'active',
+    duration_days: pkg.duration_days, price_thb: 2500, status: 'active',
   }).expect(200);
 
   const reread = await call('get', `/orders/${order.id}`, token).expect(200);
@@ -312,7 +312,7 @@ test('a limited-sessions package grants the sessions bought and still expires', 
   const draft = db.prepare("SELECT * FROM packages WHERE code='VISIT_10_90D'").get();
   await call('put', `/packages/${draft.id}`, adminToken, {
     version: draft.version, code: draft.code, name_th: draft.name_th, type: draft.type,
-    duration_days: draft.duration_days, session_limit: draft.session_limit, price_satang: 900, status: 'active',
+    duration_days: draft.duration_days, session_limit: draft.session_limit, price_thb: 900, status: 'active',
   }).expect(200);
 
   const token = await member('tenvisits@example.test');
@@ -516,7 +516,7 @@ test('stacking a second package keeps the first, and sales totals match the orde
   const visits = db.prepare("SELECT * FROM packages WHERE code='VISIT_10_90D'").get();
   await call('put', `/packages/${visits.id}`, adminToken, {
     version: visits.version, code: visits.code, name_th: visits.name_th, type: visits.type,
-    duration_days: visits.duration_days, session_limit: visits.session_limit, price_satang: 900, status: 'active',
+    duration_days: visits.duration_days, session_limit: visits.session_limit, price_thb: 900, status: 'active',
   }).expect(200);
 
   for (const id of [packageId, visits.id]) {

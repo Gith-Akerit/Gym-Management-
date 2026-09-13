@@ -250,7 +250,7 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
       duration_days: value.duration_days, description: value.description,
       status: value.status, sort_order: value.sort_order,
       session_limit: value.type === 'limited_sessions' ? value.session_limit : '',
-      price_satang: value.price_satang,
+      price_thb: value.price_satang,
       ...(item && { version: item.version }),
     };
     try { await api(item ? `/packages/${item.id}` : '/packages', { method: item ? 'PUT' : 'POST', body });
@@ -280,7 +280,7 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
         {value.type === 'limited_sessions' &&
           <Field name="session_limit" label="จำนวนครั้ง" value={value.session_limit} onChange={v => set('session_limit', v)} error={errors.session_limit} type="number" min={1} max={1000} required/>}
       </div>
-      <Field name="price_satang" label="ราคา (บาท) — เว้นว่างได้ถ้ายังไม่กำหนด" value={value.price_satang} onChange={v => set('price_satang', v)} error={errors.price_satang} type="number" min={0} step="0.01"/>
+      <Field name="price_thb" label="ราคา (บาท) — เว้นว่างได้ถ้ายังไม่กำหนด" value={value.price_satang} onChange={v => set('price_satang', v)} error={errors.price_thb ?? errors.price_satang} type="number" min={0} step="0.01"/>
       <Field name="description" label="คำอธิบาย" value={value.description} onChange={v => set('description', v)} error={errors.description} maxLength={500}/>
       <div className="row-2">
         <label className="field">สถานะ

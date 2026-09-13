@@ -114,21 +114,33 @@ export const ORDER_OPEN = ['pending_payment', 'awaiting_review', 'rejected'];
 
 export const getOrder = (db, id) => db.prepare('SELECT * FROM orders WHERE id=?').get(id);
 
-export function publicOrder(row) {
+/**
+ * A pending order past its deadline reads as expired straight away, without
+ * writing anything. The sweeper makes that durable a minute later; doing it on
+ * every read turned an ordinary GET into a database write.
+ */
+export function publicOrder(row, now) {
   if (!row) return null;
   const { price_satang_snapshot, session_limit_snapshot, reviewed_by, ...rest } = row;
+  const expired = now !== undefined && row.status === 'pending_payment' && row.expires_at <= now;
   return {
     ...rest,
+    status: expired ? 'expired' : row.status,
     session_limit_snapshot: session_limit_snapshot ?? null,
     price_satang_snapshot,
     price_thb: price_satang_snapshot / 100,
   };
 }
 
-/** Slip metadata only — the image itself is fetched through an authorised route. */
+/**
+ * Slip metadata only — the image itself is fetched through an authorised route.
+ * The storage filename and the content hash stay on the server: neither is any
+ * use to a client, and handing them out is one careless endpoint away from
+ * becoming a way to read somebody else's slip (QA P2-BUG-07).
+ */
 export function publicSlip(row) {
   if (!row) return null;
-  const { amount_satang_claimed, ...rest } = row;
+  const { amount_satang_claimed, stored_name, file_hash, ...rest } = row;
   return {
     ...rest,
     amount_satang_claimed: amount_satang_claimed ?? null,
@@ -156,10 +168,11 @@ export const activeEntitlements = (db, memberId, now) =>
     ORDER BY expires_at, created_at`).all(memberId, now);
 
 /**
- * Moves unpaid orders past their deadline to 'expired'. Called before any read
- * of order state so a member never sees a dead order as still payable.
+ * Only an order nobody has paid for expires. Once a slip exists the member has
+ * already transferred money, so letting the deadline close the order stranded
+ * them with no way to act and no way for an admin to recover it (QA P2-BUG-01).
  */
 export function expireStaleOrders(db, now) {
   return db.prepare(`UPDATE orders SET status='expired', version=version+1, updated_at=?
-    WHERE status IN ('pending_payment','rejected') AND expires_at<=?`).run(now, now).changes;
+    WHERE status='pending_payment' AND expires_at<=?`).run(now, now).changes;
 }
