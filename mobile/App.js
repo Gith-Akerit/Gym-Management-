@@ -11,9 +11,9 @@ const storage = {
 };
 function Button({ children, onPress, disabled, secondary = false }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} onPress={onPress} disabled={disabled}
-    style={({ pressed }) => [s.button, secondary && s.secondary, (disabled || pressed) && { opacity: .55 }]}><Text style={[s.buttonText, secondary && { color: '#124734' }]}>{children}</Text></Pressable>;
+    style={({ pressed }) => [s.button, secondary && s.secondary, (disabled || pressed) && { opacity: .55 }]}><Text style={[s.buttonText, secondary && { color: '#175C50' }]}>{children}</Text></Pressable>;
 }
-function Input({ label, ...props }) { return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} placeholderTextColor="#68786f" style={s.input} {...props}/></View>; }
+function Input({ label, ...props }) { return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} placeholderTextColor="#52616B" style={s.input} {...props}/></View>; }
 function AppContent() {
   const [token, setToken] = useState(null), [user, setUser] = useState(null), [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [email, setEmail] = useState('');
@@ -43,7 +43,7 @@ function AppContent() {
     return () => listener.remove();
   }, [token]);
   async function sendCode() { setChallenge(await request('/auth/request-otp', 'POST', { email: email.trim() })); setCode(''); setRemaining(60); }
-  if (loading) return <SafeAreaView style={s.safe}><ActivityIndicator size="large" color="#124734" accessibilityLabel="กำลังโหลด"/></SafeAreaView>;
+  if (loading) return <SafeAreaView style={s.safe}><ActivityIndicator size="large" color="#175C50" accessibilityLabel="กำลังโหลด"/></SafeAreaView>;
   return <SafeAreaView style={s.safe}><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
       <View style={s.header}><Text style={s.brand}>G · ยิมของเรา</Text>{user && <Button secondary disabled={busy} onPress={() => run(async () => { await request('/auth/logout', 'POST'); await storage.set(null); setToken(null); setUser(null); setChallenge(null); setCode(''); })}>ออกจากระบบ</Button>}</View>
@@ -71,17 +71,17 @@ function AppContent() {
 }
 export default function App() { return <SafeAreaProvider><AppContent/></SafeAreaProvider>; }
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#f4f6f3' }, container: { padding: 20, maxWidth: 600, width: '100%', alignSelf: 'center', flexGrow: 1 },
-  header: { gap: 12, marginBottom: 30 }, brand: { fontSize: 23, fontWeight: '700', color: '#124734' },
-  panel: { backgroundColor: 'white', padding: 24, borderRadius: 18, borderWidth: 1, borderColor: '#dfe5df', marginBottom: 20 },
-  title: { fontSize: 28, fontWeight: '700', color: '#20372f', marginBottom: 14 }, heading: { fontSize: 22, fontWeight: '600', color: '#20372f', marginBottom: 20 },
-  muted: { color: '#596b60', fontSize: 16, lineHeight: 26, marginBottom: 20 }, field: { marginBottom: 20 },
-  label: { color: '#506354', fontSize: 14, marginBottom: 8 }, input: { borderWidth: 1, borderColor: '#a4b6a9', borderRadius: 10, padding: 14, minHeight: 50, fontSize: 16, color: '#20372f' },
-  button: { minHeight: 48, borderRadius: 10, backgroundColor: '#124734', justifyContent: 'center', alignItems: 'center', padding: 14, marginBottom: 10 },
-  buttonText: { color: 'white', fontSize: 16, fontWeight: '600', textAlign: 'center' }, secondary: { backgroundColor: '#edf2ec', borderWidth: 1, borderColor: '#c4d0c5' },
-  error: { color: '#92271f', backgroundColor: '#fff0eb', padding: 14, borderRadius: 10, marginBottom: 20, fontSize: 15, lineHeight: 24 },
-  memberCard: { backgroundColor: '#124734', padding: 26, borderRadius: 20, marginBottom: 20 }, eyebrow: { color: '#d0e1cd', fontSize: 14, marginBottom: 28 },
-  memberName: { color: 'white', fontSize: 28, fontWeight: '700', marginBottom: 8 }, memberCode: { color: '#d4e3d5', fontSize: 14, marginBottom: 22 },
-  badge: { backgroundColor: '#e9f2e5', color: '#224c2f', alignSelf: 'flex-start', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, overflow: 'hidden' },
-  joined: { color: '#d4e3d5', fontSize: 13, marginTop: 30 }, value: { fontSize: 17, color: '#20372f', marginBottom: 22 }, footer: { color: '#657469', fontSize: 13, textAlign: 'center', margin: 20 },
+  safe: { flex: 1, backgroundColor: '#F3F6F5' }, container: { padding: 20, maxWidth: 600, width: '100%', alignSelf: 'center', flexGrow: 1 },
+  header: { gap: 12, marginBottom: 30 }, brand: { fontSize: 23, fontWeight: '700', color: '#175C50' },
+  panel: { backgroundColor: 'white', padding: 24, borderRadius: 18, borderWidth: 1, borderColor: '#CCD5D8', marginBottom: 20 },
+  title: { fontSize: 28, fontWeight: '700', color: '#172B36', marginBottom: 14 }, heading: { fontSize: 22, fontWeight: '600', color: '#172B36', marginBottom: 20 },
+  muted: { color: '#52616B', fontSize: 16, lineHeight: 26, marginBottom: 20 }, field: { marginBottom: 20 },
+  label: { color: '#52616B', fontSize: 14, marginBottom: 8 }, input: { borderWidth: 1, borderColor: '#71838C', borderRadius: 10, padding: 14, minHeight: 50, fontSize: 16, color: '#172B36' },
+  button: { minHeight: 48, borderRadius: 10, backgroundColor: '#175C50', justifyContent: 'center', alignItems: 'center', padding: 14, marginBottom: 10 },
+  buttonText: { color: 'white', fontSize: 16, fontWeight: '600', textAlign: 'center' }, secondary: { backgroundColor: '#E8F1EE', borderWidth: 1, borderColor: '#CCD5D8' },
+  error: { color: '#9B2C22', backgroundColor: '#FBEDEB', padding: 14, borderRadius: 10, marginBottom: 20, fontSize: 15, lineHeight: 24 },
+  memberCard: { backgroundColor: '#175C50', padding: 26, borderRadius: 20, marginBottom: 20 }, eyebrow: { color: '#BFDCD4', fontSize: 14, marginBottom: 28 },
+  memberName: { color: 'white', fontSize: 28, fontWeight: '700', marginBottom: 8 }, memberCode: { color: '#BFDCD4', fontSize: 14, marginBottom: 22 },
+  badge: { backgroundColor: '#E8F1EE', color: '#175C50', alignSelf: 'flex-start', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, overflow: 'hidden' },
+  joined: { color: '#BFDCD4', fontSize: 13, marginTop: 30 }, value: { fontSize: 17, color: '#172B36', marginBottom: 22 }, footer: { color: '#52616B', fontSize: 13, textAlign: 'center', margin: 20 },
 });
