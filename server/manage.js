@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { openDatabase, migrate, rollback, transaction, createMember, audit } from './db.js';
 import { email, parse } from './validation.js';
+import { seedConfiguration } from './seed.js';
 const db = openDatabase(process.env.DATABASE_PATH || './data/gym.sqlite');
 const command = process.argv[2];
 try {
@@ -19,8 +20,15 @@ try {
       audit(db, user.id, 'user.bootstrap_admin', user.id, null, { role: 'admin' }, Date.now());
     });
   } else if (command === 'seed') {
+    // Gym profile, opening hours and package drafts are real configuration,
+    // so this is safe to re-run in production; it never overwrites edits.
+    migrate(db);
+    const created = seedConfiguration(db);
+    console.log(JSON.stringify({ event: 'seed_configuration', ...created }));
+  } else if (command === 'seed:demo') {
     if (process.env.NODE_ENV === 'production') throw new Error('Demo seed is disabled in production');
     migrate(db);
+    seedConfiguration(db);
     transaction(db, () => {
       for (const [index, role] of ['admin', 'staff', 'member'].entries()) {
         const address = `${role}@example.test`;
@@ -30,6 +38,6 @@ try {
         if (role === 'member') createMember(db, id, { name: 'สมาชิก ทดสอบ', phone: '0890000001', date_of_birth: null, emergency_contact: '' }, id, Date.now());
       }
     });
-  } else throw new Error('Use migrate, rollback, admin, or seed');
+  } else throw new Error('Use migrate, rollback, admin, seed, or seed:demo');
   console.log(`Database command completed: ${command}`);
 } finally { db.close(); }

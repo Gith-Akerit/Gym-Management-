@@ -15,7 +15,8 @@
     "db:migrate": "node --env-file-if-exists=.env server/manage.js migrate",
     "db:rollback": "node --env-file-if-exists=.env server/manage.js rollback",
     "db:seed": "node --env-file-if-exists=.env server/manage.js seed",
-    "db:admin": "node --env-file-if-exists=.env server/manage.js admin"
+    "db:admin": "node --env-file-if-exists=.env server/manage.js admin",
+    "db:seed:demo": "node --env-file-if-exists=.env server/manage.js seed:demo"
   },
   "dependencies": {
     "express": "^5.2.1",

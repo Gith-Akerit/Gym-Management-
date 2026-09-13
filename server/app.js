@@ -197,6 +197,109 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     const rows = db.prepare('SELECT * FROM audit_logs WHERE entity_id=? ORDER BY created_at DESC,id LIMIT 100').all(req.params.id);
     res.json({ items: rows.map(({ before_json, after_json, ...row }) => ({ ...row, before: JSON.parse(before_json), after: JSON.parse(after_json) })) });
   });
+
+  // --------------------------------------------------------------- gym profile
+
+  // Every signed-in user may read the gym's public facts; only admins edit them.
+  app.get('/api/gym', (req, res) => res.json(req.user.role === 'admin' ? getGym(db) : publicGym(db)));
+
+  app.put('/api/gym', admin, (req, res) => {
+    const input = parse(gymSchema, req.body);
+    const result = transaction(db, () => {
+      const before = db.prepare('SELECT * FROM gym_profile WHERE id=1').get();
+      if (!before) throw new HttpError(409, 'ยังไม่ได้ตั้งค่าข้อมูลยิม กรุณารัน npm run db:seed ก่อน');
+      if (before.version !== input.version) throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนแก้ไข');
+      db.prepare(`UPDATE gym_profile SET name=?,brand_name_th=?,address=?,location_note=?,phone_primary=?,
+        phone_secondary=?,phone_display=?,hours_confirmed=?,hours_note=?,version=version+1,updated_at=? WHERE id=1`)
+        .run(input.name, input.brand_name_th, input.address, input.location_note, input.phone_primary,
+          input.phone_secondary, input.phone_display, input.hours_confirmed ? 1 : 0, input.hours_note, now());
+      const after = db.prepare('SELECT * FROM gym_profile WHERE id=1').get();
+      audit(db, req.user.id, 'gym.update', 'gym_profile:1', before, after, now(), 'gym_profile');
+      return getGym(db);
+    });
+    res.json(result);
+  });
+
+  app.put('/api/gym/hours', admin, (req, res) => {
+    const { hours } = parse(hoursSchema, req.body);
+    const result = transaction(db, () => {
+      const before = db.prepare('SELECT * FROM gym_hours ORDER BY weekday').all();
+      for (const day of hours) {
+        db.prepare(`INSERT INTO gym_hours(weekday,closed,open_time,close_time,updated_at) VALUES(?,?,?,?,?)
+          ON CONFLICT(weekday) DO UPDATE SET closed=excluded.closed,open_time=excluded.open_time,
+          close_time=excluded.close_time,updated_at=excluded.updated_at`)
+          .run(day.weekday, day.closed ? 1 : 0, day.closed ? null : day.open_time, day.closed ? null : day.close_time, now());
+      }
+      const after = db.prepare('SELECT * FROM gym_hours ORDER BY weekday').all();
+      audit(db, req.user.id, 'gym.update_hours', 'gym_hours', { hours: before }, { hours: after }, now(), 'gym_hours');
+      return getGym(db);
+    });
+    res.json(result);
+  });
+
+  // ----------------------------------------------------------------- packages
+
+  // Members only ever see what is on sale; drafts and archived stay internal.
+  app.get('/api/packages', (req, res) => {
+    const rows = req.user.role === 'admin'
+      ? db.prepare('SELECT * FROM packages ORDER BY sort_order, created_at').all()
+      : db.prepare("SELECT * FROM packages WHERE status='active' ORDER BY sort_order, created_at").all();
+    res.json({ items: rows.map(publicPackage) });
+  });
+
+  app.post('/api/packages', admin, (req, res) => {
+    const input = parse(packageSchema, req.body);
+    const id = randomUUID();
+    const result = transaction(db, () => {
+      db.prepare(`INSERT INTO packages(id,code,name_th,type,duration_days,session_limit,price_satang,
+        description,status,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(id, input.code, input.name_th, input.type, input.duration_days, input.session_limit,
+          input.price_satang, input.description, input.status, input.sort_order, now(), now());
+      const after = getPackage(db, id);
+      audit(db, req.user.id, 'package.create', id, null, after, now(), 'package');
+      return publicPackage(after);
+    });
+    res.status(201).json(result);
+  });
+
+  app.get('/api/packages/:id', admin, (req, res) => {
+    const row = getPackage(db, req.params.id);
+    if (!row) throw new HttpError(404, 'ไม่พบแพ็กเกจ');
+    res.json(publicPackage(row));
+  });
+
+  app.put('/api/packages/:id', admin, (req, res) => {
+    const input = parse(packageUpdateSchema, req.body);
+    const result = transaction(db, () => {
+      const before = getPackage(db, req.params.id);
+      if (!before) throw new HttpError(404, 'ไม่พบแพ็กเกจ');
+      if (before.version !== input.version) throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนแก้ไข');
+      db.prepare(`UPDATE packages SET code=?,name_th=?,type=?,duration_days=?,session_limit=?,price_satang=?,
+        description=?,status=?,sort_order=?,version=version+1,updated_at=? WHERE id=?`)
+        .run(input.code, input.name_th, input.type, input.duration_days, input.session_limit,
+          input.price_satang, input.description, input.status, input.sort_order, now(), before.id);
+      const after = getPackage(db, before.id);
+      audit(db, req.user.id, 'package.update', before.id, before, after, now(), 'package');
+      return publicPackage(after);
+    });
+    res.json(result);
+  });
+
+  // Archive rather than delete: orders bought in Phase 2 must keep pointing here.
+  app.delete('/api/packages/:id', admin, (req, res) => {
+    const input = parse(z.object({ version: z.number().int().positive() }).strict(), req.body);
+    const result = transaction(db, () => {
+      const before = getPackage(db, req.params.id);
+      if (!before) throw new HttpError(404, 'ไม่พบแพ็กเกจ');
+      if (before.version !== input.version) throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนแก้ไข');
+      db.prepare("UPDATE packages SET status='archived',version=version+1,updated_at=? WHERE id=?").run(now(), before.id);
+      const after = getPackage(db, before.id);
+      audit(db, req.user.id, 'package.archive', before.id, before, after, now(), 'package');
+      return publicPackage(after);
+    });
+    res.json(result);
+  });
+
   app.use('/api', (req, res, next) => next(new HttpError(404, 'ไม่พบรายการที่ต้องการ')));
   app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
