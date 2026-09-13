@@ -71,7 +71,7 @@ function fixture(t) {
   }
   async function pkg(admin, over = {}) {
     const body = { code: `P${randomUUID().slice(0, 8).toUpperCase().replace(/-/g, '')}`, name_th: 'รายเดือน',
-      type: 'unlimited', duration_days: 30, price_satang: 1200, status: 'active', ...over };
+      type: 'unlimited', duration_days: 30, price_thb: 1200, status: 'active', ...over };
     return (await call('post', '/packages', admin, body).expect(201)).body;
   }
   return { db, app, call, upload, login, member, pkg, root,
@@ -84,10 +84,10 @@ test('PKG-001/002/003 unlimited, limited-session and mixed packages all go on sa
   const admin = await login('a@example.test', 'admin');
   const made = [];
   for (const spec of [
-    { code: 'UNL30', name_th: 'รายเดือน Unlimited', type: 'unlimited', duration_days: 30, price_satang: 120000, status: 'active' },
-    { code: 'V10_90', name_th: '10 ครั้ง 90 วัน', type: 'limited_sessions', duration_days: 90, session_limit: 10, price_satang: 250000, status: 'active' },
-    { code: 'UNL365', name_th: 'รายปี', type: 'unlimited', duration_days: 365, price_satang: 999900, status: 'active', sort_order: 5 },
-    { code: 'V1_1', name_th: 'ครั้งเดียว 1 วัน', type: 'limited_sessions', duration_days: 1, session_limit: 1, price_satang: 8000, status: 'active' },
+    { code: 'UNL30', name_th: 'รายเดือน Unlimited', type: 'unlimited', duration_days: 30, price_thb: 1200, status: 'active' },
+    { code: 'V10_90', name_th: '10 ครั้ง 90 วัน', type: 'limited_sessions', duration_days: 90, session_limit: 10, price_thb: 2500, status: 'active' },
+    { code: 'UNL365', name_th: 'รายปี', type: 'unlimited', duration_days: 365, price_thb: 9999, status: 'active', sort_order: 5 },
+    { code: 'V1_1', name_th: 'ครั้งเดียว 1 วัน', type: 'limited_sessions', duration_days: 1, session_limit: 1, price_thb: 80, status: 'active' },
   ]) made.push((await call('post', '/packages', admin, spec).expect(201)).body);
   console.log('PKG-001/002/003 created:', JSON.stringify(made.map(p => ({ code: p.code, type: p.type, d: p.duration_days, s: p.session_limit, thb: p.price_thb }))));
   const tok = await member('shop@example.test');
@@ -103,7 +103,7 @@ test('PKG-001/002/003 unlimited, limited-session and mixed packages all go on sa
 test('PKG-005 archiving hides a package but keeps entitlements already sold', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const tok = await member('keep@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id).expect(201);
@@ -133,6 +133,12 @@ test('PKG-006/007 package validation rejects impossible prices and durations', a
   out['price 999999999'] = await tryIt({ price_satang: 999999999 });
   out['price 1200.555'] = await tryIt({ price_satang: 1200.555 });
   out['price 0 draft'] = await tryIt({ price_satang: 0 });
+  // The baht field has its own rules; both ways in have to reject nonsense.
+  out['baht -1'] = await tryIt({ price_thb: -1 });
+  out['baht 1200.555'] = await tryIt({ price_thb: 1200.555 });
+  out['baht 1000001'] = await tryIt({ price_thb: 1000001 });
+  out['both units at once'] = await tryIt({ price_thb: 1200, price_satang: 120000 });
+  out['baht 1200.50'] = await tryIt({ price_thb: 1200.5 });
   out['duration 0'] = await tryIt({ duration_days: 0, price_satang: 100 });
   out['duration 3651'] = await tryIt({ duration_days: 3651, price_satang: 100 });
   out['limited, no session count'] = await tryIt({ type: 'limited_sessions', price_satang: 100 });
@@ -142,6 +148,7 @@ test('PKG-006/007 package validation rejects impossible prices and durations', a
   console.log('PKG-006/007 validation:\n' + JSON.stringify(out, null, 1));
   for (const k of Object.keys(out)) {
     if (k === 'price 0 draft') { assert.equal(out[k].status, 201, 'a genuinely free package must be allowed'); continue; }
+    if (k === 'baht 1200.50') { assert.equal(out[k].status, 201, 'two decimal places of baht are legal'); continue; }
     assert.equal(out[k].status, 400, `${k} should be refused`);
   }
 });
@@ -213,7 +220,7 @@ test('PKG-013 mobile, national ID and e-Wallet identifiers each use their own ta
 test('PKG-016 the merchant identifier is never exposed or logged', async t => {
   const { call, login, member, pkg, app } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 120000 });
+  const p = await pkg(admin, { price_thb: 120000 });
   const tok = await member('priv@example.test');
   const captured = [];
   const real = { log: console.log, error: console.error, warn: console.warn, info: console.info };
@@ -236,7 +243,7 @@ test('PKG-016 the merchant identifier is never exposed or logged', async t => {
 test('PKG-017 an unpaid order expires by itself and a fresh one can be made', async t => {
   const { call, login, member, pkg, tick } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const tok = await member('lapse@example.test');
   const first = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   console.log('PKG-017 ttl minutes from gym settings; order expires_at - created_at =', (first.expires_at - first.created_at) / 60000, 'minutes');
@@ -257,7 +264,7 @@ test('PKG-017 an unpaid order expires by itself and a fresh one can be made', as
 test('PKG-020/021 a normal slip uploads and reads as awaiting review, never paid', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 120000 });
+  const p = await pkg(admin, { price_thb: 120000 });
   for (const [label, file, ct, fn] of [['jpeg', jpeg(), 'image/jpeg', 'slip.jpg'], ['png', png(), 'image/png', 'slip.png'], ['webp', webp(), 'image/webp', 'slip.webp']]) {
     const tok = await member(`up-${label}@example.test`);
     const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
@@ -336,7 +343,7 @@ test('PKG-024/025 disguised executables, scripts and SVG are refused on content,
 test('PKG-026 a member cannot read another member order, slip image or entitlement', async t => {
   const { call, login, member, upload, pkg, db } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const victim = await member('victim@example.test');
   const attacker = await member('attacker@example.test');
   const o = (await call('post', '/orders', victim, { package_id: p.id }).expect(201)).body.order;
@@ -368,8 +375,10 @@ test('PKG-027 the browser-supplied filename never reaches the filesystem', async
   for (const [i, filename] of names.entries()) {
     const tok = await member(`path${i}@example.test`);
     const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
+    const before = new Set(readdirSync(root));
     const r = await upload(tok, o.id, jpeg(String(i)), { filename });
-    stored.push({ filename: filename.slice(0, 30), status: r.status, storedAs: r.body.slip?.stored_name });
+    const added = readdirSync(root).filter(f => !before.has(f));
+    stored.push({ filename: filename.slice(0, 30), status: r.status, storedAs: added[0] ?? null });
   }
   console.log('PKG-027 uploads:\n' + JSON.stringify(stored, null, 1));
   console.log('PKG-027 files actually on disk:', JSON.stringify(readdirSync(root)));
@@ -388,8 +397,10 @@ test('PKG-028 EXIF and GPS are stripped from the bytes actually stored', async t
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   const original = jpeg('SECRETHOME');
   console.log('PKG-028 uploaded bytes contain GPS text:', original.toString('latin1').includes('GPSLatitude'));
-  const r = await upload(tok, o.id, original).expect(201);
-  const onDisk = readFileSync(join(root, r.body.slip.stored_name));
+  await upload(tok, o.id, original).expect(201);
+  const files = readdirSync(root);
+  assert.equal(files.length, 1, 'expected exactly one stored slip');
+  const onDisk = readFileSync(join(root, files[0]));
   console.log('PKG-028 stored bytes contain GPS text:', onDisk.toString('latin1').includes('GPSLatitude'),
     '| contains "Exif":', onDisk.toString('latin1').includes('Exif'),
     '| size', original.length, '->', onDisk.length);
@@ -425,7 +436,7 @@ test('PKG-030 a rejected upload leaves no half-written row and no orphan file', 
 test('PKG-031 re-uploading shows the newest slip and keeps the old one', async t => {
   const { call, login, member, upload, pkg, tick } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const tok = await member('redo@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   const first = (await upload(tok, o.id, jpeg('one'), { reference_no: 'REFFIRST1' }).expect(201)).body;
@@ -445,8 +456,8 @@ test('PKG-031 re-uploading shows the newest slip and keeps the old one', async t
 test('PKG-040/060/061/062 approval turns one transfer into exactly one membership', async t => {
   const { call, login, member, upload, pkg, at } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const unlimited = await pkg(admin, { price_satang: 120000, type: 'unlimited', duration_days: 30 });
-  const limited = await pkg(admin, { price_satang: 250000, type: 'limited_sessions', duration_days: 90, session_limit: 10, name_th: '10 ครั้ง' });
+  const unlimited = await pkg(admin, { price_thb: 120000, type: 'unlimited', duration_days: 30 });
+  const limited = await pkg(admin, { price_thb: 250000, type: 'limited_sessions', duration_days: 90, session_limit: 10, name_th: '10 ครั้ง' });
   for (const [label, p, expectSessions, days] of [['unlimited', unlimited, null, 30], ['limited', limited, 10, 90]]) {
     const tok = await member(`ent-${label}@example.test`);
     const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
@@ -468,7 +479,7 @@ test('PKG-041/042 a double click and two admins at once still yield one membersh
   const { call, login, member, upload, pkg, db } = fixture(t);
   const admin = await login('a@example.test', 'admin');
   const admin2 = await login('a2@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 120000 });
+  const p = await pkg(admin, { price_thb: 120000 });
   const tok = await member('race@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id).expect(201);
@@ -490,7 +501,7 @@ test('PKG-041/042 a double click and two admins at once still yield one membersh
 test('PKG-043 rejection explains itself and the member sends a new slip on the same order', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const tok = await member('reject@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id, jpeg('first'), { reference_no: 'REFBAD001' }).expect(201);
@@ -512,7 +523,7 @@ test('PKG-043 rejection explains itself and the member sends a new slip on the s
 test('PKG-044 the review queue is oldest first and counts what is waiting', async t => {
   const { call, login, member, upload, pkg, tick } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const made = []; const tokens = {};
   for (let i = 0; i < 4; i++) {
     const tok = await member(`q${i}@example.test`);
@@ -528,15 +539,17 @@ test('PKG-044 the review queue is oldest first and counts what is waiting', asyn
   const queue = (await call('get', '/admin/orders', admin).expect(200)).body;
   console.log('PKG-044 queue total:', queue.total, '| awaiting_review counter:', queue.awaiting_review);
   console.log('PKG-044 order of the queue:', JSON.stringify(queue.items.map(o => ({ created: o.created_at, waiting_since: o.waiting_since, status: o.status }))));
-  const createdAts = queue.items.map(o => o.created_at);
-  assert.deepEqual(createdAts, [...createdAts].sort((a, b) => a - b), 'queue is not oldest first');
+  const waiting = queue.items.map(o => o.waiting_since);
+  assert.deepEqual(waiting, [...waiting].sort((a, b) => a - b),
+    'the queue is not ordered by how long the member has been waiting');
+  assert.ok(queue.items.every(o => o.waiting_since >= o.created_at));
   assert.equal(typeof queue.awaiting_review, 'number');
 });
 
 test('PKG-045 approval is impossible without confirming the bank app was checked', async t => {
   const { call, login, member, upload, pkg, db } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 120000 });
+  const p = await pkg(admin, { price_thb: 120000 });
   const tok = await member('confirm@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id).expect(201);
@@ -557,7 +570,7 @@ test('PKG-045 approval is impossible without confirming the bank app was checked
 test('PKG-049 an approval made in error can be reversed and then re-decided', async t => {
   const { call, login, member, upload, pkg, db } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 120000 });
+  const p = await pkg(admin, { price_thb: 120000 });
   const tok = await member('oops@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id, jpeg('wrong'), { reference_no: 'REFWRONG1' }).expect(201);
@@ -587,7 +600,7 @@ test('PKG-049 an approval made in error can be reversed and then re-decided', as
 test('PKG-050 a suspended member cannot be approved and cannot start an order', async t => {
   const { call, login, member, upload, pkg, db } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const tok = await member('gone@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id).expect(201);
@@ -606,7 +619,7 @@ test('PKG-050 a suspended member cannot be approved and cannot start an order', 
 test('PKG-053 a slip that does not match the price is flagged before approval', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 120000 });
+  const p = await pkg(admin, { price_thb: 120000 });
   const tok = await member('short@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id, jpeg(), { amount_thb: 500 }).expect(201);
@@ -624,8 +637,8 @@ test('PKG-053 a slip that does not match the price is flagged before approval', 
 test('PKG-063/064 a second package stacks and the soonest expiry is offered first', async t => {
   const { call, login, member, upload, pkg, db, at } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const short = await pkg(admin, { price_satang: 50000, duration_days: 7, name_th: 'สัปดาห์' });
-  const long = await pkg(admin, { price_satang: 120000, duration_days: 90, name_th: 'สามเดือน' });
+  const short = await pkg(admin, { price_thb: 50000, duration_days: 7, name_th: 'สัปดาห์' });
+  const long = await pkg(admin, { price_thb: 120000, duration_days: 90, name_th: 'สามเดือน' });
   const tok = await member('stack@example.test');
   for (const p of [long, short]) {                       // bought long first on purpose
     const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
@@ -645,7 +658,7 @@ test('PKG-063/064 a second package stacks and the soonest expiry is offered firs
 test('PKG-065 a member reading someone else entitlement or order gets nothing', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const owner = await member('own@example.test');
   const other = await member('other@example.test');
   const o = (await call('post', '/orders', owner, { package_id: p.id }).expect(201)).body.order;
@@ -663,8 +676,8 @@ test('PKG-065 a member reading someone else entitlement or order gets nothing', 
 test('PKG-070/071 daily sales equal the sum of approved orders', async t => {
   const { call, login, member, upload, pkg, db, tick } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p1 = await pkg(admin, { price_satang: 120000 });
-  const p2 = await pkg(admin, { price_satang: 55050, name_th: 'ครึ่งเดือน' });
+  const p1 = await pkg(admin, { price_thb: 120000 });
+  const p2 = await pkg(admin, { price_thb: 55050, name_th: 'ครึ่งเดือน' });
   let approved = 0;
   for (const [i, p] of [p1, p2, p1].entries()) {
     const tok = await member(`sale${i}@example.test`);
@@ -698,7 +711,7 @@ test('PKG-070/071 daily sales equal the sum of approved orders', async t => {
 test('PKG-072 every order status has a way out', async t => {
   const { call, login, member, upload, pkg, tick } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const reached = {};
   const start = async who => {
     const tok = await member(`${who}@example.test`);
@@ -741,7 +754,7 @@ test('PKG-072 every order status has a way out', async t => {
 test('PKG-085 transfer times are interpreted in Bangkok time, not the server timezone', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const tok = await member('tz@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   const r = await upload(tok, o.id, jpeg(), { transferred_at: '2026-09-14T08:45' }).expect(201);
@@ -754,7 +767,7 @@ test('PKG-085 transfer times are interpreted in Bangkok time, not the server tim
 test('PKG-086 slip storage stays outside anything served statically', async t => {
   const { call, login, member, upload, pkg, root, db } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 50000 });
+  const p = await pkg(admin, { price_thb: 50000 });
   const tok = await member('store@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   const up = await upload(tok, o.id).expect(201);

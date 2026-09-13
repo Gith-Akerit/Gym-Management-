@@ -61,10 +61,10 @@ function fixture(t) {
     await call('put', '/me/profile', token, { name, phone: `089${seq++}` }).expect(201);
     return token;
   }
-  /** NOTE: the API field is called price_satang but the value it accepts is BAHT. */
+  /** price_thb is baht; price_satang is satang. Sending both is refused as ambiguous. */
   async function pkg(admin, over = {}) {
     const body = { code: `P${randomUUID().slice(0, 8).toUpperCase().replace(/-/g, '')}`, name_th: 'รายเดือน',
-      type: 'unlimited', duration_days: 30, price_satang: 1200, status: 'active', ...over };
+      type: 'unlimited', duration_days: 30, price_thb: 1200, status: 'active', ...over };
     return (await call('post', '/packages', admin, body).expect(201)).body;
   }
   return { db, app, call, upload, login, member, pkg, root, tick: ms => { time += ms; }, at: () => time };
@@ -74,13 +74,13 @@ function fixture(t) {
 test('PKG-004 (retest) a later price edit leaves the placed order alone', async t => {
   const { call, login, member, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200 });          // 1,200 baht
-  console.log('PKG-004 package as created: price_satang =', p.price_satang, 'price_thb =', p.price_thb);
+  const p = await pkg(admin, { price_thb: 1200 });          // 1,200 baht
+  console.log('PKG-004 package as created: price_satang =', p.price_satang, '(satang) price_thb =', p.price_thb);
   const tok = await member('buyer@example.test');
   const view = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body;
   console.log('PKG-004 order at purchase: ฿', view.order.price_thb, '| QR tag 54 =', parsePromptPayPayload(view.promptpay_payload).fields['54']);
   await call('put', `/packages/${p.id}`, admin, { code: p.code, name_th: 'ชื่อใหม่', type: p.type,
-    duration_days: p.duration_days, price_satang: 3000, status: 'active', sort_order: 0, version: p.version }).expect(200);
+    duration_days: p.duration_days, price_thb: 3000, status: 'active', sort_order: 0, version: p.version }).expect(200);
   const after = (await call('get', `/orders/${view.order.id}`, tok).expect(200)).body;
   console.log('PKG-004 after the price rose to ฿3,000: order still ฿', after.order.price_thb,
     '| name snapshot:', after.order.package_name_snapshot, '| QR tag 54 =', parsePromptPayPayload(after.promptpay_payload).fields['54']);
@@ -94,7 +94,7 @@ test('PKG-012/014 (retest) the QR carries the exact amount, decimals included', 
   const admin = await login('a@example.test', 'admin');
   const rows = [];
   for (const baht of [1200, 1, 999, 1299.5, 1200.05, 999999]) {
-    const p = await pkg(admin, { price_satang: baht });
+    const p = await pkg(admin, { price_thb: baht });
     const tok = await member(`amt${String(baht).replace('.', '')}@example.test`);
     const v = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body;
     const f = parsePromptPayPayload(v.promptpay_payload);
@@ -115,7 +115,7 @@ test('PKG-012/014 (retest) the QR carries the exact amount, decimals included', 
 test('PKG-015 (retest) the price comes from the package, never from the request', async t => {
   const { call, login, member, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200 });
+  const p = await pkg(admin, { price_thb: 1200 });
   const tok = await member('cheat@example.test');
   const ok = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body;
   console.log('PKG-015 server-decided amount: ฿', ok.order.price_thb, '| QR tag 54 =', parsePromptPayPayload(ok.promptpay_payload).fields['54']);
@@ -126,7 +126,7 @@ test('PKG-015 (retest) the price comes from the package, never from the request'
 test('PKG-029 (retest) a reused image and a reused reference number are both flagged', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 500 });
+  const p = await pkg(admin, { price_thb: 500 });
   const image = jpeg('SAMEIMAGE');
   const orders = {};
   for (const [who, img, ref] of [['a', image, 'REFSHARED1'], ['b', image, 'REFSHARED1'], ['c', jpeg('OTHER'), 'REFSHARED1'], ['d', image, 'REFUNIQUE9']]) {
@@ -151,7 +151,7 @@ test('PKG-029 (retest) a reused image and a reused reference number are both fla
 test('PKG-048 (retest) the audit entry carries the amount actually charged', async t => {
   const { call, login, member, upload, pkg, db } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200 });
+  const p = await pkg(admin, { price_thb: 1200 });
   const tok = await member('audit@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id).expect(201);
@@ -169,7 +169,7 @@ test('PKG-048 (retest) the audit entry carries the amount actually charged', asy
 test('PKG-084 (retest) both satang and baht are published for every amount', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200.5 });
+  const p = await pkg(admin, { price_thb: 1200.5 });
   const tok = await member('money@example.test');
   const v = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body;
   await upload(tok, v.order.id, jpeg(), { amount_thb: 1200.5 }).expect(201);
@@ -184,10 +184,10 @@ test('PKG-084 (retest) both satang and baht are published for every amount', asy
 });
 
 // ---------------------------------------------------------- new hypotheses
-test('a package read from the API and written back unchanged multiplies its price by 100', async t => {
+test('a package read from the API and written back unchanged keeps its price', async t => {
   const { call, login, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200 });
+  const p = await pkg(admin, { price_thb: 1200 });
   console.log('round trip — GET gives   :', JSON.stringify({ price_satang: p.price_satang, price_thb: p.price_thb }));
   // A client that echoes the object it was handed, as REST invites it to.
   const echoed = await call('put', `/packages/${p.id}`, admin, {
@@ -197,14 +197,20 @@ test('a package read from the API and written back unchanged multiplies its pric
   });
   console.log('round trip — PUT returns :', JSON.stringify({ status: echoed.status, price_satang: echoed.body.price_satang, price_thb: echoed.body.price_thb }));
   console.log('=> price changed by a factor of', echoed.body.price_thb / p.price_thb);
+  const both = await call('put', `/packages/${p.id}`, admin, { code: p.code, name_th: p.name_th, type: p.type,
+    duration_days: p.duration_days, session_limit: p.session_limit, price_satang: p.price_satang,
+    price_thb: p.price_thb, description: p.description, status: p.status, sort_order: p.sort_order,
+    version: echoed.body.version });
+  console.log('sending both units at once ->', both.status, JSON.stringify(both.body.fields ?? both.body.error));
+  assert.equal(both.status, 400, 'sending baht and satang together must be refused as ambiguous');
   assert.equal(echoed.body.price_thb, p.price_thb,
-    'the field named price_satang accepts baht on write but returns satang on read');
+    'price_satang must mean satang in both directions, or a read-modify-write corrupts the price');
 });
 
 test('a free package that is put on sale cannot be bought at all', async t => {
   const { call, login, member, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const free = await pkg(admin, { price_satang: 0, name_th: 'ทดลองเล่นฟรี 1 ครั้ง', type: 'limited_sessions', session_limit: 1, duration_days: 7, status: 'active' });
+  const free = await pkg(admin, { price_thb: 0, name_th: 'ทดลองเล่นฟรี 1 ครั้ง', type: 'limited_sessions', session_limit: 1, duration_days: 7, status: 'active' });
   console.log('free package on sale:', JSON.stringify({ code: free.code, status: free.status, satang: free.price_satang, thb: free.price_thb }));
   const tok = await member('free@example.test');
   const catalogue = (await call('get', '/packages', tok).expect(200)).body.items.map(x => x.code);
@@ -219,7 +225,7 @@ test('a free package that is put on sale cannot be bought at all', async t => {
 test('a slip sent late is stranded when the admin rejects it after the deadline', async t => {
   const { call, login, member, upload, pkg, tick } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200 });
+  const p = await pkg(admin, { price_thb: 1200 });
   const tok = await member('night@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   console.log('21:00 — member transfers and uploads the slip');
@@ -245,7 +251,7 @@ test('a slip sent late is stranded when the admin rejects it after the deadline'
 test('after a rejection the member is never shown the QR again', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200 });
+  const p = await pkg(admin, { price_thb: 1200 });
   const tok = await member('noqr@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   await upload(tok, o.id).expect(201);
@@ -263,7 +269,7 @@ test('after a rejection the member is never shown the QR again', async t => {
 test('slip metadata handed to the member includes the storage filename and file hash', async t => {
   const { call, login, member, upload, pkg } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 500 });
+  const p = await pkg(admin, { price_thb: 500 });
   const tok = await member('leak@example.test');
   const o = (await call('post', '/orders', tok, { package_id: p.id }).expect(201)).body.order;
   const view = (await upload(tok, o.id).expect(201)).body;
@@ -357,7 +363,7 @@ test('XCUT-001 the app still starts without Phase 2 configured', async t => {
 test('PKG-073 fifty members buying and uploading at once', async t => {
   const { call, login, member, upload, pkg, db, root } = fixture(t);
   const admin = await login('a@example.test', 'admin');
-  const p = await pkg(admin, { price_satang: 1200 });
+  const p = await pkg(admin, { price_thb: 1200 });
   // Signing 50 members in through the front door is impossible today: the
   // per-IP OTP cap (BUG-01) refuses member 21. Sessions are minted directly so
   // this case measures the payment path rather than re-reporting that bug.
