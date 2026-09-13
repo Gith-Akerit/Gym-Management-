@@ -13,7 +13,7 @@ for (const address of ['admin@example.test', 'admin2@example.test', 'admin3@exam
 const inbox = new Map();
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: 'http://127.0.0.1:4310',
   sendOtp: async ({ email, code }) => inbox.set(email, code),
-  slipStore: new SlipStore(resolve('test-results/slips')), promptPayId: '0899999999' });
+  slipStore: new SlipStore(resolve('data/test-slips')), promptPayId: '0899999999' });
 app.get('/__test/code', (req, res) => res.json({ code: inbox.get(req.query.email) }));
 app.use(express.static(resolve('dist')));
 const server = app.listen(4310, '127.0.0.1');
