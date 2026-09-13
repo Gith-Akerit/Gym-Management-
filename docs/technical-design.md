@@ -1,4 +1,4 @@
-# Technical design — Gym Management (Phase 1)
+# Technical design — Gym Management (Phase 1–2)
 
 เอกสารนี้อธิบายการตัดสินใจที่มีผลข้ามเฟส เพื่อให้ Phase 2 (ซื้อแพ็กเกจ) และ Phase 3 (เช็คอิน) ต่อยอดได้โดยไม่ต้องรื้อ
 
@@ -58,12 +58,22 @@ packages(id, code UNIQUE, name_th, type, duration_days, session_limit,
          price_satang, description, status, sort_order, version, created_at, updated_at)
 ```
 
-### ที่จะเพิ่มใน Phase 2-3 (ยังไม่ได้สร้าง)
+### Phase 2 (migration 003)
 
 ```
-orders(id, member_id, package_id, price_satang_snapshot, status, created_at, expires_at)
-payment_slips(id, order_id, file_key, file_hash, reference_no, transferred_at, uploaded_at)
-entitlements(id, member_id, package_id, order_id, starts_at, expires_at, sessions_remaining, status)
+gym_profile += payment_sla_text, order_ttl_minutes
+orders(id, member_id, package_id, package_*_snapshot, price_satang_snapshot, status,
+       rejection_reason, review_note, reviewed_by, reviewed_at, version,
+       created_at, expires_at, updated_at)
+payment_slips(id, order_id, stored_name UNIQUE, content_type, byte_size, file_hash,
+              reference_no, transferred_at, amount_satang_claimed, superseded_at, uploaded_at)
+entitlements(id, order_id UNIQUE, member_id, package_id, starts_at, expires_at,
+             sessions_total, sessions_remaining, status, revoked_at, revoked_reason, created_at)
+```
+
+### ที่จะเพิ่มใน Phase 3 (ยังไม่ได้สร้าง)
+
+```
 check_ins(id, member_id, entitlement_id, result, failure_reason, device_id, checked_in_at)
 ```
 
@@ -128,18 +138,61 @@ API คืนทั้ง `price_satang` และ `price_thb` เพื่อ�
 | GET | `/api/packages` | ล็อกอินแล้ว | สมาชิกเห็นเฉพาะ `active` |
 | POST/GET/PUT/DELETE | `/api/packages[/:id]` | แอดมิน | `DELETE` = archive |
 
-หลักที่ Phase 2-3 ต้องรักษาไว้: ไม่ลบ endpoint หรือ field ที่มือถือใช้อยู่โดยไม่แจ้ง (เคส XCUT-003)
+## สัญญา API (Phase 2)
 
-## สิ่งที่ Phase 2 ต้องทำตั้งแต่ต้น ไม่ใช่มาแก้ทีหลัง
+| Method | Path | สิทธิ์ | หมายเหตุ |
+|---|---|---|---|
+| POST | `/api/orders` | สมาชิก | คืนคำสั่งซื้อที่เปิดอยู่ถ้ามี (201 = ใบใหม่, 200 = ใบเดิม) |
+| GET | `/api/orders` | สมาชิก | เฉพาะของตัวเอง |
+| GET | `/api/orders/:id` | สมาชิก (เจ้าของ) | รวมสลิป ประวัติสลิป สิทธิ์ และ payload ของ QR |
+| GET | `/api/orders/:id/qr.png` | สมาชิก (เจ้าของ) | เฉพาะตอน `pending_payment` |
+| POST | `/api/orders/:id/slip` | สมาชิก (เจ้าของ) | multipart: รูป + เลขอ้างอิง + เวลาโอน + ยอดที่แจ้ง |
+| POST | `/api/orders/:id/cancel` | สมาชิก (เจ้าของ) | เฉพาะตอนยังไม่ส่งสลิป |
+| GET | `/api/entitlements` | สมาชิก | สิทธิ์ที่ยังใช้ได้ เรียงตามวันหมดอายุใกล้สุดก่อน |
+| GET | `/api/slips/:id/image` | แอดมิน หรือเจ้าของสลิป | `nosniff` + CSP sandbox |
+| GET | `/api/admin/orders[/:id]` | แอดมิน | คิวเรียงจากรอนานสุด พร้อมธงยอดไม่ตรงและสลิปซ้ำ |
+| POST | `/api/admin/orders/:id/approve` | แอดมิน | ต้องส่ง `checked_against_bank: true` |
+| POST | `/api/admin/orders/:id/reject` | แอดมิน | ต้องระบุเหตุผล |
+| POST | `/api/admin/orders/:id/reverse` | แอดมิน | ยกเลิกการอนุมัติและเพิกถอนสิทธิ์ |
+| GET | `/api/admin/sales` | แอดมิน | ยอดรายวันไว้กระทบยอดกับบัญชีธนาคาร |
 
-1. **ยืนยันสลิปต้อง idempotent** — แอดมินดับเบิลคลิก หรือแอดมินสองคนกดพร้อมกัน ต้องได้ entitlement ใบเดียว
-   ใช้ `UPDATE orders SET status='paid' WHERE id=? AND status='awaiting_review'` แล้วตรวจ `changes === 1` ในทรานแซกชันเดียวกับการสร้าง entitlement
-2. **ราคาคิดจากฝั่งเซิร์ฟเวอร์เสมอ** — อ่านจาก `packages.price_satang` ไม่เชื่อค่าที่ client ส่งมา และ snapshot ราคาลงใน order
-3. **สลิปเป็นข้อมูลส่วนบุคคล** — เก็บใน private storage ตั้งชื่อไฟล์เองฝั่งเซิร์ฟเวอร์ ตรวจ magic bytes ไม่ใช่นามสกุล
-   ไม่รับ SVG เข้าถึงผ่าน signed URL อายุสั้น ถอด EXIF และตั้งอายุการเก็บไว้ 1 ปี
-4. **กันสลิปซ้ำ** — เก็บ hash ของไฟล์และเลขอ้างอิงสลิป เตือนแอดมินเมื่อซ้ำ
-5. **PromptPay ID อ่านจาก env** และ mask ใน log เพราะเป็นเบอร์โทรของเจ้าของกิจการ
-6. **สถานะ order** `pending_payment → awaiting_review → paid | rejected | expired | cancelled` ทุกสถานะต้องมีทางออก
+ทุก endpoint ที่แก้ข้อมูลต้องส่ง `version` ที่อ่านมา ถ้าไม่ตรงจะได้ 409
+
+หลักที่ Phase 3 ต้องรักษาไว้: ไม่ลบ endpoint หรือ field ที่มือถือใช้อยู่โดยไม่แจ้ง (เคส XCUT-003)
+
+## Phase 2: การชำระเงินด้วย PromptPay
+
+ข้อบังคับที่วางไว้ก่อนเริ่ม ทำครบแล้วทั้งหมด:
+
+1. **ยืนยันสลิปเป็น idempotent** — `UPDATE orders SET status='paid' WHERE id=? AND status='awaiting_review'`
+   แล้วตรวจ `changes === 1` ในทรานแซกชันเดียวกับการสร้าง entitlement
+   ที่สำคัญกว่านั้นคือ `entitlements.order_id` เป็น **UNIQUE** ฐานข้อมูลจึงปฏิเสธใบที่สองเองแม้โค้ดชั้นบนจะพลาด
+2. **ราคาคิดจากฝั่งเซิร์ฟเวอร์เสมอ** — อ่านจาก `packages.price_satang` และ snapshot ทุกฟิลด์ของแพ็กเกจลงใน order
+   การแก้ราคาภายหลังจึงไม่เขียนทับสิ่งที่ลูกค้าตกลงซื้อไปแล้ว
+3. **สลิปเป็นข้อมูลส่วนบุคคล** — เก็บนอก web root ตั้งชื่อไฟล์เองฝั่งเซิร์ฟเวอร์ ตัดสินชนิดไฟล์จาก magic bytes
+   ไม่ใช่นามสกุลหรือ content-type ไม่รับ SVG ถอด EXIF/XMP ทิ้ง และเสิร์ฟผ่าน endpoint ที่ตรวจสิทธิ์เท่านั้น
+4. **กันสลิปซ้ำ** — เก็บ SHA-256 ของไฟล์ (หลังถอด metadata แล้ว จึงเทียบได้จริง) และเลขอ้างอิง เตือนแอดมินเมื่อซ้ำกับคำสั่งซื้ออื่น
+   เป็นการเตือน ไม่ใช่การบล็อก เพราะมีแต่คนเท่านั้นที่แยกการส่งซ้ำโดยสุจริตออกจากการโกงได้
+5. **PromptPay ID อ่านจาก env** และ mask เหลือ 4 หลักท้ายทุกที่ที่แสดงผล
+6. **สถานะ order** `pending_payment → awaiting_review → paid | rejected | expired | cancelled` ทุกสถานะมีทางออก
+   `rejected` กลับไป `awaiting_review` ได้ด้วยการส่งสลิปใหม่ โดยไม่ต้องสั่งซื้อใหม่
+
+ที่ตัดสินใจเพิ่มระหว่างทำ:
+
+- **`awaiting_review` ไม่หมดอายุเอง** มีแต่ `pending_payment` และ `rejected` ที่หมดอายุตาม `order_ttl_minutes`
+  เพราะสมาชิกที่ส่งสลิปแล้วคือคนที่จ่ายเงินไปแล้ว การยกเลิกให้อัตโนมัติคือการยึดเงิน คิวจึงเรียงจากที่รอนานสุดก่อนแทน
+- **กดซื้อซ้ำได้คำสั่งซื้อเดิม** ถ้ามีคำสั่งซื้อที่ยังเปิดอยู่ของแพ็กเกจเดียวกัน ระบบคืนใบเดิมแทนการสร้างใบใหม่
+- **ราคาเก็บเป็นสตางค์ทั้งสายงาน** ตั้งแต่ `packages` ถึง `orders` และแท็ก 54 ของ QR
+- **ยอดที่สมาชิกแจ้งเป็นข้อมูลประกอบ** ไม่ใช่ข้อมูลที่ระบบเชื่อ ใช้เพียงเพื่อเตือนแอดมินเมื่อไม่ตรงกับราคา
+- **การอนุมัติต้องมีการยืนยันจากคน** ปุ่มถูกล็อกจนกว่าจะติ๊กว่าตรวจกับแอปธนาคารแล้ว
+  เมื่อไม่มีผู้ให้บริการชำระเงิน audit log ฝั่งเราคือหลักฐานเดียวที่เหลือ จึงบันทึกผู้อนุมัติ เวลา สลิป และหมายเหตุครบ
+
+### ทดสอบ QR โดยไม่ใช้เงินจริง
+
+`tests/promptpay.test.js` ตรวจ payload แบบ offline ทั้งหมด: CRC เทียบกับค่าตรวจสอบมาตรฐานของ CRC-16/CCITT-FALSE
+(`"123456789" → 0x29B1`), การถอด payload กลับเป็นฟิลด์, การแก้ payload 1 ตัวอักษรต้องทำให้ checksum ไม่ผ่าน,
+ยอดในแท็ก 54 ตรงกับราคา และแท็กของเบอร์โทร/เลขบัตร/e-Wallet ใช้หมายเลขและความยาวถูกต้อง
+**การสแกนด้วยแอปธนาคารจริงยังไม่ได้ทดสอบ** เพราะจะเกิดการโอนเงินจริง
 
 ## สิ่งที่ Phase 3 ต้องทำตั้งแต่ต้น
 
@@ -156,6 +209,11 @@ API คืนทั้ง `price_satang` และ `price_thb` เพื่อ�
 
 ## การทดสอบ
 
-- `npm test` — 30 เคสระดับ API ครอบคลุม migration ขึ้น-ลง-ขึ้น, OTP และ lockout, สิทธิ์, IDOR, injection, การ seed และ validation ของแพ็กเกจ
-- `npm run test:ui` — 6 เส้นทางผ่านเบราว์เซอร์จริง รวมหน้าจอ 320-390 px และตรวจว่าไม่มี JS error
-- ที่ยัง **ไม่ได้** ทดสอบ: แอป Expo บนอุปกรณ์จริง (ไม่มี Android SDK / Xcode บนเครื่องที่พัฒนา) และทุกอย่างของ Phase 2-3 ที่ยังไม่มีโค้ด
+- `npm test` — 61 เคสระดับ API ครอบคลุม migration ขึ้น-ลง-ขึ้น, OTP และ lockout, สิทธิ์, IDOR, injection, การ seed,
+  validation ของแพ็กเกจ, PromptPay payload/CRC, การอัปโหลดสลิปและการปลอมชนิดไฟล์, การอนุมัติซ้ำ และการเพิกถอนสิทธิ์
+- `npm run test:ui` — 8 เส้นทางผ่านเบราว์เซอร์จริง รวมหน้าจอ 320-390 px และตรวจว่าไม่มี JS error
+- ที่ยัง **ไม่ได้** ทดสอบ: การสแกน QR ด้วยแอปธนาคารจริง (จะเกิดการโอนเงินจริง),
+  แอป Expo บนอุปกรณ์จริง (ไม่มี Android SDK / Xcode บนเครื่องที่พัฒนา) และทุกอย่างของ Phase 3 ที่ยังไม่มีโค้ด
+
+หมายเหตุเรื่องการทดสอบพร้อมกัน: คำขอในชุดทดสอบวิ่งทีละรายการ การกดอนุมัติพร้อมกันจริง ๆ จึงจำลองได้ไม่ครบ
+ตัวที่รับประกันคือ UNIQUE constraint บน `entitlements.order_id` ซึ่งมีเทสต์ยิงตรงไปที่ฐานข้อมูลเพื่อยืนยันว่าใบที่สองถูกปฏิเสธจริง
