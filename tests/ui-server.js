@@ -4,13 +4,16 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { openDatabase, migrate } from '../server/db.js';
 import { seedConfiguration } from '../server/seed.js';
+import { SlipStore } from '../server/slips.js';
 import { createApp } from '../server/app.js';
 const db = openDatabase(); migrate(db); seedConfiguration(db);
-for (const address of ['admin@example.test', 'admin2@example.test']) {
+for (const address of ['admin@example.test', 'admin2@example.test', 'admin3@example.test', 'admin4@example.test']) {
   db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)").run(randomUUID(), address, Date.now());
 }
 const inbox = new Map();
-const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: 'http://127.0.0.1:4310', sendOtp: async ({ email, code }) => inbox.set(email, code) });
+const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: 'http://127.0.0.1:4310',
+  sendOtp: async ({ email, code }) => inbox.set(email, code),
+  slipStore: new SlipStore(resolve('data/test-slips')), promptPayId: '0899999999' });
 app.get('/__test/code', (req, res) => res.json({ code: inbox.get(req.query.email) }));
 app.use(express.static(resolve('dist')));
 const server = app.listen(4310, '127.0.0.1');

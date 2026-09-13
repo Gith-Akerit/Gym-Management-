@@ -3,11 +3,15 @@ import { resolve } from 'node:path';
 import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
 import { createMailer } from './mail.js';
+import { SlipStore } from './slips.js';
+import { loadPromptPayId } from './promptpay.js';
 const db = openDatabase(process.env.DATABASE_PATH || './data/gym.sqlite');
 migrate(db);
 const app = createApp({ db, sendOtp: createMailer(), secret: process.env.OTP_SECRET,
   origin: process.env.APP_ORIGIN, production: process.env.NODE_ENV === 'production',
-  trustProxy: Number(process.env.TRUST_PROXY ?? 1) });
+  trustProxy: Number(process.env.TRUST_PROXY ?? 1),
+  slipStore: new SlipStore(process.env.SLIP_STORAGE_PATH || './data/slips'),
+  promptPayId: loadPromptPayId() });
 app.use(express.static(resolve('dist')));
 const server = app.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => {
   console.log(JSON.stringify({ event: 'ready', port: Number(process.env.PORT || 3000) }));

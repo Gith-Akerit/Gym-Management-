@@ -90,6 +90,8 @@ export const gymSchema = z.object({
   phone_display: z.enum(['primary', 'secondary', 'hidden'], { error: 'กรุณาเลือกเบอร์ที่จะแสดงในแอป' }).default('primary'),
   hours_confirmed: z.boolean().default(false),
   hours_note: z.string().trim().max(200, 'หมายเหตุเวลาเปิดยาวได้ไม่เกิน 200 ตัวอักษร').default(''),
+  payment_sla_text: z.string().trim().min(1, 'กรุณาระบุข้อความแจ้งเวลายืนยันสลิป').max(200, 'ข้อความยาวได้ไม่เกิน 200 ตัวอักษร').default('ภายใน 30 นาทีในเวลาทำการ'),
+  order_ttl_minutes: z.coerce.number().int('ต้องเป็นจำนวนเต็ม').min(5, 'ต้องให้เวลาชำระเงินอย่างน้อย 5 นาที').max(1440, 'ให้เวลาชำระเงินได้ไม่เกิน 24 ชั่วโมง').default(60),
   version: z.number().int().positive(),
 }).strict();
 
@@ -108,11 +110,18 @@ export const hoursSchema = z.object({
 // ------------------------------------------------------------------- packages
 
 // Prices are held in satang so a baht amount can never drift through a float.
-const price = z.union([z.literal(''), z.null(), z.undefined(),
+// Two ways in, each meaning exactly what its name says: price_satang is the
+// stored unit, price_thb is what a person types. Reading price_satang and
+// writing it straight back used to multiply the price by 100 (QA P2-BUG-03).
+const blank = v => v === '' || v === null || v === undefined;
+const satangField = z.union([z.literal(''), z.null(), z.undefined(),
+  z.coerce.number().min(0, 'ราคาต้องไม่ติดลบ').max(100000000, 'ราคาสูงเกินกว่าที่ระบบรองรับ')
+    .refine(Number.isInteger, 'ราคาหน่วยสตางค์ต้องเป็นจำนวนเต็ม ถ้าต้องการใส่เป็นบาทให้ใช้ price_thb')])
+  .transform(v => (blank(v) ? null : v));
+const bahtField = z.union([z.literal(''), z.null(), z.undefined(),
   z.coerce.number().min(0, 'ราคาต้องไม่ติดลบ').max(1000000, 'ราคาสูงเกินกว่าที่ระบบรองรับ')
-    .refine(n => Number.isInteger(Math.round(n * 100)) && Math.abs(n * 100 - Math.round(n * 100)) < 1e-9,
-      'ราคาใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง')])
-  .transform(v => (v === '' || v === null || v === undefined ? null : Math.round(v * 100)));
+    .refine(n => Math.abs(n * 100 - Math.round(n * 100)) < 1e-9, 'ราคาใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง')])
+  .transform(v => (blank(v) ? null : Math.round(v * 100)));
 
 export const packageFields = {
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_]{3,32}$/, 'รหัสแพ็กเกจใช้ A-Z 0-9 และ _ ยาว 3-32 ตัว'),
@@ -124,13 +133,20 @@ export const packageFields = {
     z.coerce.number().int('จำนวนครั้งต้องเป็นจำนวนเต็ม').min(1, 'จำนวนครั้งต้องอย่างน้อย 1')
       .max(1000, 'จำนวนครั้งได้ไม่เกิน 1,000')])
     .transform(v => (v === '' || v === undefined ? null : v)).default(null),
-  price_satang: price.default(null),
+  price_satang: satangField.default(null),
+  price_thb: bahtField.default(null),
   description: z.string().trim().max(500, 'คำอธิบายยาวได้ไม่เกิน 500 ตัวอักษร').default(''),
   status: z.enum(['draft', 'active', 'archived'], { error: 'กรุณาเลือกสถานะแพ็กเกจ' }).default('draft'),
   sort_order: z.coerce.number().int().min(0).max(999).default(0),
 };
 /** Rules that hold whether the package is being created or edited. */
 const packageRules = schema => schema
+  .refine(p => !(p.price_satang !== null && p.price_thb !== null),
+    { message: 'ส่งราคาได้ทางเดียว เลือกระหว่าง price_thb (บาท) หรือ price_satang (สตางค์)', path: ['price_thb'] })
+  .transform(p => {
+    const { price_thb, ...rest } = p;
+    return { ...rest, price_satang: p.price_satang ?? price_thb ?? null };
+  })
   .refine(p => (p.type === 'limited_sessions') === (p.session_limit !== null),
     { message: 'แพ็กเกจแบบจำกัดครั้งต้องระบุจำนวนครั้ง ส่วนแบบ unlimited ต้องเว้นว่าง', path: ['session_limit'] })
   .refine(p => p.status !== 'active' || p.price_satang !== null,
@@ -139,3 +155,59 @@ const packageRules = schema => schema
 export const packageSchema = packageRules(z.object(packageFields).strict());
 export const packageUpdateSchema = packageRules(
   z.object({ ...packageFields, version: z.number().int().positive() }).strict());
+
+// --------------------------------------------------------- orders and slips
+
+// Thailand keeps a fixed UTC+7 offset all year, so a wall-clock time from the
+// member's screen maps to one instant without needing a timezone library.
+export const BANGKOK_OFFSET = '+07:00';
+export const bangkokLocalToEpoch = local => Date.parse(`${local}:00${BANGKOK_OFFSET}`);
+
+export const orderSchema = z.object({ package_id: z.uuid('กรุณาเลือกแพ็กเกจ') }).strict();
+
+/**
+ * Fields that travel alongside the slip image. The reference number and the
+ * transfer time are what let the system spot the same transfer being reused for
+ * a second order, which is the cheapest fraud available without a provider.
+ */
+export const slipSchema = z.object({
+  reference_no: z.string().trim().min(4, 'เลขอ้างอิงสั้นเกินไป').max(40, 'เลขอ้างอิงยาวเกินไป')
+    .regex(/^[A-Za-z0-9-]+$/, 'เลขอ้างอิงใช้ตัวเลข ตัวอักษรอังกฤษ และขีดกลางเท่านั้น'),
+  transferred_at: z.string().regex(/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/, 'กรุณาเลือกวันและเวลาที่โอน')
+    .refine(value => Number.isFinite(bangkokLocalToEpoch(value)), 'วันและเวลาที่โอนไม่ถูกต้อง'),
+  amount_thb: z.union([z.literal(''), z.null(), z.undefined(),
+    z.coerce.number().min(0, 'ยอดเงินต้องไม่ติดลบ').max(1000000, 'ยอดเงินสูงเกินกว่าที่ระบบรองรับ')])
+    .transform(v => (v === '' || v === null || v === undefined ? null : Math.round(v * 100))).default(null),
+}).strict();
+
+/**
+ * Approving is the moment money becomes membership, and there is no third party
+ * to appeal to afterwards, so the admin has to state they compared the slip with
+ * the bank app first.
+ */
+export const MISMATCH_NOTE_MIN = 10;
+
+export const approveSchema = z.object({
+  version: z.coerce.number().int().positive(),
+  checked_against_bank: z.literal(true, { error: 'ต้องยืนยันว่าตรวจกับแอปธนาคารแล้วก่อนอนุมัติ' }),
+  note: z.string().trim().max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร').default(''),
+}).strict();
+
+/**
+ * When the slip does not match the price, the note stops being optional. This
+ * is the only moment money becomes membership and there is no provider record
+ * to appeal to, so a short payment must never pass without a written reason.
+ */
+export const approveMismatchSchema = approveSchema.refine(
+  input => input.note.length >= MISMATCH_NOTE_MIN,
+  { message: `ยอดในสลิปไม่ตรงกับราคา กรุณาระบุเหตุผลอย่างน้อย ${MISMATCH_NOTE_MIN} ตัวอักษรก่อนอนุมัติ`, path: ['note'] });
+
+export const rejectSchema = z.object({
+  version: z.coerce.number().int().positive(),
+  reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ปฏิเสธ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
+}).strict();
+
+export const reverseSchema = z.object({
+  version: z.coerce.number().int().positive(),
+  reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ยกเลิกการอนุมัติ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
+}).strict();

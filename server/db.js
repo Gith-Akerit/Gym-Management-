@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 export const MIGRATIONS = [
   { version: 1, name: '001_foundation' },
   { version: 2, name: '002_gym_config' },
+  { version: 3, name: '003_orders' },
 ];
 
 const sql = (name, direction) =>
@@ -86,7 +87,7 @@ export function getGym(db) {
 export function publicGym(db) {
   const { profile, hours } = getGym(db);
   if (!profile) return { profile: null, hours };
-  const { phone_primary, phone_secondary, phone_display, version, ...rest } = profile;
+  const { phone_primary, phone_secondary, phone_display, version, order_ttl_minutes, ...rest } = profile;
   const phone = phone_display === 'hidden' ? null
     : phone_display === 'secondary' ? phone_secondary : phone_primary;
   return { profile: { ...rest, phone: phone ?? null }, hours };
@@ -106,3 +107,72 @@ export function publicPackage(row) {
   };
 }
 export const getPackage = (db, id) => db.prepare('SELECT * FROM packages WHERE id=?').get(id);
+
+// ------------------------------------------------------------ orders & slips
+
+export const ORDER_OPEN = ['pending_payment', 'awaiting_review', 'rejected'];
+
+export const getOrder = (db, id) => db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+
+/**
+ * A pending order past its deadline reads as expired straight away, without
+ * writing anything. The sweeper makes that durable a minute later; doing it on
+ * every read turned an ordinary GET into a database write.
+ */
+export function publicOrder(row, now) {
+  if (!row) return null;
+  const { price_satang_snapshot, session_limit_snapshot, reviewed_by, ...rest } = row;
+  const expired = now !== undefined && row.status === 'pending_payment' && row.expires_at <= now;
+  return {
+    ...rest,
+    status: expired ? 'expired' : row.status,
+    session_limit_snapshot: session_limit_snapshot ?? null,
+    price_satang_snapshot,
+    price_thb: price_satang_snapshot / 100,
+  };
+}
+
+/**
+ * Slip metadata only — the image itself is fetched through an authorised route.
+ * The storage filename and the content hash stay on the server: neither is any
+ * use to a client, and handing them out is one careless endpoint away from
+ * becoming a way to read somebody else's slip (QA P2-BUG-07).
+ */
+export function publicSlip(row) {
+  if (!row) return null;
+  const { amount_satang_claimed, stored_name, file_hash, ...rest } = row;
+  return {
+    ...rest,
+    amount_satang_claimed: amount_satang_claimed ?? null,
+    amount_thb_claimed: amount_satang_claimed === null || amount_satang_claimed === undefined
+      ? null : amount_satang_claimed / 100,
+  };
+}
+
+export const currentSlip = (db, orderId) =>
+  db.prepare('SELECT * FROM payment_slips WHERE order_id=? AND superseded_at IS NULL ORDER BY uploaded_at DESC LIMIT 1')
+    .get(orderId);
+
+export function publicEntitlement(row) {
+  if (!row) return null;
+  const { sessions_total, sessions_remaining, ...rest } = row;
+  return { ...rest, sessions_total: sessions_total ?? null, sessions_remaining: sessions_remaining ?? null };
+}
+
+/**
+ * Live entitlements, soonest expiry first. Phase 3 deducts from the head of
+ * this list; ties are broken by purchase order, as agreed on KENC-20.
+ */
+export const activeEntitlements = (db, memberId, now) =>
+  db.prepare(`SELECT * FROM entitlements WHERE member_id=? AND status='active' AND expires_at>?
+    ORDER BY expires_at, created_at`).all(memberId, now);
+
+/**
+ * Only an order nobody has paid for expires. Once a slip exists the member has
+ * already transferred money, so letting the deadline close the order stranded
+ * them with no way to act and no way for an admin to recover it (QA P2-BUG-01).
+ */
+export function expireStaleOrders(db, now) {
+  return db.prepare(`UPDATE orders SET status='expired', version=version+1, updated_at=?
+    WHERE status='pending_payment' AND expires_at<=?`).run(now, now).changes;
+}
