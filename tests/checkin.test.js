@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import request from 'supertest';
+import { httpClient } from './http.js';
 import { openDatabase, migrate } from '../server/db.js';
 import { createApp } from '../server/app.js';
 import { seedConfiguration } from '../server/seed.js';
@@ -32,10 +32,11 @@ function fixture(t) {
     sendOtp: async ({ email, code }) => inbox.set(email, code),
     slipStore: new SlipStore(root), promptPayId: '0899999999',
   });
-  t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+  t.after(() => { app.locals.stopSweeper?.(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  const http = httpClient(app, t);
 
   const call = (method, path, token, body) => {
-    const req = request(app)[method](`/api${path}`).set('X-Gym-Client', 'mobile');
+    const req = http[method](`/api${path}`).set('X-Gym-Client', 'mobile');
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
@@ -62,7 +63,7 @@ function fixture(t) {
   }
   async function buy(memberToken, adminToken, packageId) {
     const order = (await call('post', '/orders', memberToken, { package_id: packageId }).expect(201)).body.order;
-    await request(app).post(`/api/orders/${order.id}/slip`).set('X-Gym-Client', 'mobile')
+    await http.post(`/api/orders/${order.id}/slip`).set('X-Gym-Client', 'mobile')
       .set('Authorization', `Bearer ${memberToken}`)
       .field('reference_no', `REF-${randomUUID().slice(0, 8)}`)
       .field('transferred_at', '2026-09-14T17:30')

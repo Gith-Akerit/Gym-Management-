@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import request from 'supertest';
+import { httpClient } from './http.js';
 import { openDatabase, migrate } from '../server/db.js';
 import { createApp, CHECK_IN_TOKEN_RETENTION_MS } from '../server/app.js';
 import { seedConfiguration } from '../server/seed.js';
@@ -14,9 +14,10 @@ function fixture(t) {
   let time = Date.parse('2026-09-14T18:00:00+07:00');
   const app = createApp({ db, secret: randomBytes(32).toString('hex'), now: () => time, sendOtp: async () => {} });
   t.after(() => { app.locals.stopSweeper?.(); db.close(); });
+  const http = httpClient(app, t);
 
   const call = (method, path, token, body) => {
-    const req = request(app)[method](`/api${path}`).set('X-Gym-Client', 'mobile');
+    const req = http[method](`/api${path}`).set('X-Gym-Client', 'mobile');
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
