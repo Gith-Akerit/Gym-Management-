@@ -1,0 +1,11 @@
+DROP INDEX entitlements_member;
+DROP TABLE entitlements;
+DROP INDEX slips_reference;
+DROP INDEX slips_hash;
+DROP INDEX slips_order;
+DROP TABLE payment_slips;
+DROP INDEX orders_status;
+DROP INDEX orders_member;
+DROP TABLE orders;
+ALTER TABLE gym_profile DROP COLUMN order_ttl_minutes;
+ALTER TABLE gym_profile DROP COLUMN payment_sla_text;
