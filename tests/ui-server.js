@@ -7,12 +7,20 @@ import { seedConfiguration } from '../server/seed.js';
 import { SlipStore } from '../server/slips.js';
 import { createApp } from '../server/app.js';
 const db = openDatabase(); migrate(db); seedConfiguration(db);
-for (const address of ['staff-ui@example.test', 'staff2-ui@example.test', 'staff3-ui@example.test', 'staff4-ui@example.test', 'staff5-ui@example.test', 'staff6-ui@example.test']) {
-  db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'staff',?)").run(randomUUID(), address, Date.now());
-}
-for (const address of ['admin@example.test', 'admin2@example.test', 'admin3@example.test', 'admin4@example.test', 'admin5@example.test', 'admin6@example.test', 'admin7@example.test']) {
-  db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)").run(randomUUID(), address, Date.now());
-}
+// Every browser journey signs in as its own account: asking for a code twice
+// for one address inside a minute is refused, and that cooldown is a real rule
+// rather than something the suite should be built to dodge. Numbering them
+// makes it obvious how many are spare when a new spec needs one.
+const seedUsers = (role, addresses) => {
+  for (const address of addresses) {
+    db.prepare('INSERT INTO users(id,email,role,created_at) VALUES(?,?,?,?)')
+      .run(randomUUID(), address, role, Date.now());
+  }
+};
+seedUsers('staff', ['staff-ui@example.test',
+  ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
+seedUsers('admin', ['admin@example.test',
+  ...Array.from({ length: 7 }, (_, i) => `admin${i + 2}@example.test`)]);
 const inbox = new Map();
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: 'http://127.0.0.1:4310',
   sendOtp: async ({ email, code }) => inbox.set(email, code),
