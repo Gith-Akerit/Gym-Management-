@@ -156,6 +156,36 @@ test('the admin can see who came in and who was turned away', async ({ page }) =
   await expect(page.getByText('เข้าใช้บริการไม่ได้').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'สรุปรายวัน' })).toBeVisible();
   await page.screenshot({ path: 'artifacts/admin-checkin-log.png', fullPage: true });
+
+  // A forged QR belongs to nobody, so it sits in its own tab rather than
+  // burying the day's real visits.
+  await page.getByRole('button', { name: /QR ไม่ถูกต้อง/ }).click();
+  await expect(page.getByText('ระบุตัวสมาชิกไม่ได้', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ค้นหาสมาชิก' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'รายชื่อสมาชิก' }).click();
+  await expect(page.getByText('ไม่ทราบสมาชิก')).toHaveCount(0);
+});
+
+test('a scan that matches no member is kept out of the member history', async ({ browser }) => {
+  const staffContext = await browser.newContext();
+  const staff = await staffContext.newPage();
+  await login(staff, 'staff5-ui@example.test');
+  await staff.getByLabel('รหัสจาก QR ของสมาชิก').fill('GYMCHK1.forged-code.0000');
+  await staff.getByRole('button', { name: 'ตรวจสอบ' }).click();
+  await expect(scanResult(staff).getByText('QR ไม่ถูกต้อง', { exact: false })).toBeVisible();
+  // The scanner's own list is unfiltered: a junk scan that just happened is
+  // exactly what the person at the counter wants to see.
+  await expect(staff.getByRole('heading', { name: 'เช็คอินล่าสุด' })).toBeVisible();
+  await expect(staff.getByText('ไม่ทราบสมาชิก').first()).toBeVisible();
+
+  const admin = await (await browser.newContext()).newPage();
+  await login(admin, 'admin7@example.test');
+  await admin.getByRole('button', { name: 'เช็คอิน' }).click();
+  const tab = admin.getByRole('button', { name: /QR ไม่ถูกต้อง/ });
+  await expect(tab).toContainText(/\(\d+\)/);
+  await tab.click();
+  await expect(admin.getByText('ไม่ทราบสมาชิก').first()).toBeVisible();
+  await admin.screenshot({ path: 'artifacts/admin-checkin-unknown.png', fullPage: true });
 });
 
 test('the counter tablet can scan with its own camera', async ({ page }) => {

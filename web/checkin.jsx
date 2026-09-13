@@ -75,9 +75,12 @@ export function MemberCheckInHistory() {
 // -------------------------------------------------------------------- staff
 
 /**
- * The counter screen. A USB or Bluetooth QR scanner types into the box and
- * presses Enter, which is how most Thai gym counters already work; where the
- * browser supports it, the tablet camera can be used instead.
+ * The counter screen, which accepts a code two ways and does not care which.
+ *
+ * A USB or Bluetooth QR reader types into the box and presses Enter, which is
+ * how most Thai gym counters already work, so the box keeps the focus. Ticking
+ * the camera box instead points the tablet's own camera at the member's screen
+ * (see camera.jsx). Both can be on at once.
  */
 export function StaffScanner() {
   const [device, setDevice] = useState(() => localStorage.getItem('gym.device') || '');
@@ -165,16 +168,29 @@ export function StaffScanner() {
 export function CheckInLog({ compact = false }) {
   const [date, setDate] = useState('');
   const [q, setQ] = useState('');
-  const query = `/check-ins?${new URLSearchParams({ ...(date && { date }), ...(q && { q }) })}`;
+  // compact is the scanner's own recent list, where a junk scan that just
+  // happened is exactly what staff want to see.
+  const [scope, setScope] = useState(compact ? 'all' : 'identified');
+  const query = `/check-ins?${new URLSearchParams({ scope, ...(date && { date }), ...(q && { q }) })}`;
   const { data, error, busy, reload } = useResource(query);
 
   return <section className="card">
     <h2>{compact ? 'เช็คอินล่าสุด' : 'ประวัติการเช็คอิน'}</h2>
-    {!compact && <div className="search-row">
-      <Field name="checkin-date" label="วันที่" value={date} onChange={setDate} type="date"/>
-      <Field name="checkin-q" label="ค้นหาสมาชิก" value={q} onChange={setQ} type="search" placeholder="ชื่อ หรือรหัสสมาชิก" maxLength={120}/>
-      <span className="muted">{data ? `${data.total.toLocaleString('th-TH')} รายการ` : ''}</span>
-    </div>}
+    {!compact && <>
+      <nav className="tabs" aria-label="ชุดรายการเช็คอิน">
+        <button onClick={() => setScope('identified')} aria-current={scope === 'identified' ? 'page' : undefined}>
+          รายชื่อสมาชิก</button>
+        <button onClick={() => setScope('unknown')} aria-current={scope === 'unknown' ? 'page' : undefined}>
+          QR ไม่ถูกต้อง{data?.unknown_total ? ` (${data.unknown_total.toLocaleString('th-TH')})` : ''}</button>
+      </nav>
+      {scope === 'unknown' && <p className="muted">รายการที่สแกนแล้วระบุตัวสมาชิกไม่ได้ เช่น QR ปลอมหรืออ่านไม่ออก
+        แยกไว้ที่นี่เพื่อไม่ให้กลบประวัติการเข้าใช้บริการจริง</p>}
+      <div className="search-row">
+        <Field name="checkin-date" label="วันที่" value={date} onChange={setDate} type="date"/>
+        {scope === 'identified' && <Field name="checkin-q" label="ค้นหาสมาชิก" value={q} onChange={setQ} type="search" placeholder="ชื่อ หรือรหัสสมาชิก" maxLength={120}/>}
+        <span className="muted">{data ? `${data.total.toLocaleString('th-TH')} รายการ` : ''}</span>
+      </div>
+    </>}
     <Notice error={error}/>{error && <button onClick={() => reload().catch(() => {})}>ลองใหม่</button>}
     {busy ? <p role="status" className="empty">กำลังโหลด…</p> : !error && (
       !data.items.length ? <p className="muted">ยังไม่มีรายการ</p>
