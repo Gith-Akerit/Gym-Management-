@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import {
-  api, Field, formatDate, formatPhone, formatPrice, labels, Notice,
-  packageStatusLabels, useResource,
+  api, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Notice,
+  packageStatusLabels, PilotContext, useResource, usePilot,
 } from './shared.jsx';
 import {
   MemberEntitlements, MemberOrder, MemberOrderHistory, MemberPackages,
@@ -61,6 +61,7 @@ function PublicGymInfo() {
 }
 
 function Login({ onLogin }) {
+  const pilot = usePilot();
   const [email, setEmail] = useState(''), [challenge, setChallenge] = useState(null), [code, setCode] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(null), [remaining, setRemaining] = useState(0);
   useEffect(() => { if (!remaining) return; const timer = setTimeout(() => setRemaining(remaining - 1), 1000); return () => clearTimeout(timer); }, [remaining]);
@@ -79,15 +80,21 @@ function Login({ onLogin }) {
     <h1>เริ่มต้นดูแลตัวเอง<br/>ได้ทุกวัน</h1><p>ข้อมูลสมาชิกของคุณ<br/>อยู่ใกล้แค่ปลายนิ้ว</p><div className="welcome-line"/>
     <span>เรียบง่าย พร้อมสำหรับวันของคุณ</span></section>
     <section className="card login-card"><div className="icon-mark" aria-hidden="true">G</div><h2>{challenge ? 'ยืนยันอีเมลของคุณ' : 'ยินดีต้อนรับ'}</h2>
-      <p className="muted">{challenge ? `ส่งรหัส 6 หลักไปที่ ${email} แล้ว รหัสใช้ได้ 5 นาที` : 'เข้าสู่ระบบหรือสมัครสมาชิกด้วยอีเมล ไม่ต้องจำรหัสผ่าน'}</p>
+      <p className="muted">{challenge
+        ? (pilot
+          ? `ขอรหัส 6 หลักของ ${email} จากเจ้าหน้าที่ที่เคาน์เตอร์หรือทาง LINE รหัสใช้ได้ 5 นาที`
+          : `ส่งรหัส 6 หลักไปที่ ${email} แล้ว รหัสใช้ได้ 5 นาที`)
+        : 'เข้าสู่ระบบหรือสมัครสมาชิกด้วยอีเมล ไม่ต้องจำรหัสผ่าน'}</p>
       <form onSubmit={submit}>
         {!challenge ? <Field label="อีเมล" name="email" type="email" value={email} onChange={setEmail} required autoComplete="email" error={error?.fields?.email}/>
           : <Field label="รหัสยืนยัน 6 หลัก" name="code" value={code} onChange={setCode} required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" autoFocus/>}
-        <Notice error={error}/><button className="primary full" disabled={busy}>{busy ? 'กำลังดำเนินการ…' : challenge ? 'ยืนยันและเข้าสู่ระบบ' : 'รับรหัสทางอีเมล'}</button>
+        <Notice error={error}/><button className="primary full" disabled={busy}>{busy ? 'กำลังดำเนินการ…' : challenge ? 'ยืนยันและเข้าสู่ระบบ' : pilot ? 'ขอรหัสเข้าใช้งาน' : 'รับรหัสทางอีเมล'}</button>
       </form>
       {challenge && <><div className="login-actions"><button disabled={busy || remaining > 0} onClick={request}>{remaining ? `ส่งรหัสใหม่ได้ใน ${remaining} วินาที` : 'ส่งรหัสใหม่'}</button>
         <button disabled={busy} onClick={() => { setChallenge(null); setError(null); }}>เปลี่ยนอีเมล</button></div>
-        <p className="fine">ไม่ได้รับอีเมล? ลองตรวจโฟลเดอร์จดหมายขยะ แล้วกดส่งรหัสใหม่ หากยังไม่ได้รับ กรุณาติดต่อพนักงานที่เคาน์เตอร์</p></>}
+        <p className="fine">{pilot
+          ? 'ขณะนี้ระบบอยู่ในโหมดทดลอง ยังไม่ส่งอีเมล เจ้าหน้าที่จะเป็นผู้แจ้งรหัสให้คุณ'
+          : 'ไม่ได้รับอีเมล? ลองตรวจโฟลเดอร์จดหมายขยะ แล้วกดส่งรหัสใหม่ หากยังไม่ได้รับ กรุณาติดต่อพนักงานที่เคาน์เตอร์'}</p></>}
       <p className="fine">สมาชิกใหม่กรอกชื่อและเบอร์มือถือหลังยืนยันอีเมล</p>
     </section>
     <PublicGymInfo/></div>;
@@ -162,9 +169,12 @@ function MemberAccount({ member, gym, refresh, onLogout, onOpenOrder }) {
 }
 
 function MemberApp({ member, gym, refresh, onLogout }) {
+  const pilot = usePilot();
   const [tab, setTab] = useState('home');
   const [orderId, setOrderId] = useState(null);
-  const tabs = [['home', 'หน้าแรก'], ['packages', 'แพ็กเกจ'], ['account', 'บัญชี']];
+  // In pilot mode there is nothing to buy: the gym has no PromptPay account
+  // wired up yet, and packages are handed over by staff.
+  const tabs = [['home', 'หน้าแรก'], ...(pilot ? [] : [['packages', 'แพ็กเกจ']]), ['account', 'บัญชี']];
   const open = id => { setOrderId(id); setTab('packages'); };
   return <div className="member-shell">
     {tab === 'home' && <MemberHome member={member} gym={gym}/>}
@@ -180,7 +190,81 @@ function MemberApp({ member, gym, refresh, onLogout }) {
 
 // ------------------------------------------------------------ admin: members
 
+/**
+ * The code a member is waiting for, on the screen the staff member already has
+ * open. Pilot mode only: outside it the member has the code in their inbox and
+ * nobody else should be able to read it.
+ */
+function PilotOtp({ member }) {
+  const { data, error, busy, reload } = useResource(`/members/${member.id}`);
+  if (busy || error) return null;
+  return <section className="card pilot-otp">
+    <h2>รหัสเข้าใช้งานล่าสุด</h2>
+    {data.pilot_otp
+      ? <><p className="otp-code">{data.pilot_otp.code}</p>
+          <p className="fine">ใช้ได้ถึง {formatDateTime(data.pilot_otp.expires_at)} · บอกรหัสนี้ให้สมาชิกทางโทรศัพท์หรือ LINE</p></>
+      : <p className="muted">ยังไม่มีรหัสที่ใช้ได้ ให้สมาชิกกด “ขอรหัสเข้าใช้งาน” ในแอปก่อน แล้วกดปุ่มด้านล่าง</p>}
+    <button onClick={() => reload().catch(() => {})}>โหลดรหัสล่าสุด</button>
+  </section>;
+}
+
+/** Hands a member a package outright: no order to pay, no slip, no QR. */
+function GrantPackage({ member, onGranted, onAuthError }) {
+  const { data, error } = useResource('/packages');
+  const [packageId, setPackageId] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false), [grantError, setGrantError] = useState(null);
+  const choices = (data?.items ?? []).filter(item => item.price_satang !== null);
+
+  async function grant() {
+    setBusy(true); setGrantError(null);
+    try {
+      await api(`/members/${member.id}/grant`, { method: 'POST', body: { package_id: packageId, note } });
+      onGranted('มอบแพ็กเกจแล้ว');
+    } catch (e) { setGrantError(e); onAuthError(e); } finally { setBusy(false); }
+  }
+
+  return <section className="card"><h2>มอบแพ็กเกจ</h2>
+    <p className="muted">ให้สิทธิ์กับสมาชิกรายนี้โดยตรง ไม่ผ่านการชำระเงิน ยอดนี้จะไม่ถูกนับเป็นรายได้ในสรุปยอดขาย</p>
+    <Notice error={error}/>
+    {!choices.length ? <p className="muted">ยังไม่มีแพ็กเกจที่กรอกราคาไว้ กรุณาตั้งราคาในหน้าแพ็กเกจก่อน</p> : <>
+      <label className="field">แพ็กเกจที่จะมอบ
+        <select aria-label="แพ็กเกจที่จะมอบ" value={packageId} onChange={e => setPackageId(e.target.value)}>
+          <option value="">— เลือกแพ็กเกจ —</option>
+          {choices.map(item => <option key={item.id} value={item.id}>
+            {item.name_th} · {item.price_thb === 0 ? 'ไม่มีค่าใช้จ่าย' : formatPrice(item.price_thb)}</option>)}
+        </select></label>
+      <Field name="grant-note" label="เหตุผล (บันทึกไว้ในประวัติ)" value={note} onChange={setNote} maxLength={300}
+        placeholder="เช่น ทดลองใช้ในช่วง pilot"/>
+      <Notice error={grantError}/>
+      <button className="primary" disabled={!packageId || !note.trim() || busy} onClick={grant}>
+        {busy ? 'กำลังมอบสิทธิ์…' : 'มอบแพ็กเกจให้สมาชิกรายนี้'}</button>
+    </>}
+  </section>;
+}
+
+/** Every code requested recently, so the counter can answer "what is mine?". */
+function PilotOtpBoard() {
+  const { data, error, busy, reload } = useResource('/admin/pilot/otp-codes');
+  return <><div className="page-heading"><div><span className="eyebrow">โหมดทดลอง</span>
+    <h1>รหัสเข้าใช้งานล่าสุด</h1>
+    <p className="muted">ระบบยังไม่ส่งอีเมล บอกรหัสให้สมาชิกที่เคาน์เตอร์หรือทาง LINE</p></div>
+    <button onClick={() => reload().catch(() => {})} disabled={busy}>{busy ? 'กำลังโหลด…' : 'โหลดใหม่'}</button></div>
+    <Notice error={error}/>
+    <section className="card">
+      {busy ? <p role="status" className="empty">กำลังโหลด…</p>
+        : !data?.items.length ? <p className="muted">ยังไม่มีใครขอรหัสในช่วง 5 นาทีที่ผ่านมา</p>
+          : <div className="member-list">{data.items.map(item => <div className="member-row" key={`${item.email}-${item.created_at}`}>
+            <span className="member-name"><strong>{item.email}</strong>
+              <small>ขอเมื่อ {formatDateTime(item.created_at)} · ใช้ได้ถึง {formatDateTime(item.expires_at)}</small></span>
+            <span className={`otp-code ${item.used ? 'used' : ''}`}>{item.used ? 'ใช้ไปแล้ว' : item.code}</span>
+          </div>)}</div>}
+    </section>
+    <p className="fine">รหัสหายไปเมื่อหมดอายุหรือเมื่อเซิร์ฟเวอร์รีสตาร์ต ไม่ได้ถูกบันทึกลงฐานข้อมูล</p></>;
+}
+
 function MemberEditor({ member, onCancel, onSaved, onAuthError }) {
+  const pilot = usePilot();
   const [value, setValue] = useState(member ? { ...blank, ...member } : { ...blank });
   const [error, setError] = useState(null), [busy, setBusy] = useState(false), [audit, setAudit] = useState(null);
   async function save(e) {
@@ -199,10 +283,12 @@ function MemberEditor({ member, onCancel, onSaved, onAuthError }) {
   }
   return <section className="card narrow"><button onClick={onCancel} disabled={busy}>← กลับรายชื่อสมาชิก</button><h1>{member ? 'ข้อมูลสมาชิก' : 'เพิ่มสมาชิก'}</h1>
     {member && <p className="muted">{member.member_code}</p>}
+    {member && pilot && <PilotOtp member={member}/>}
     <form onSubmit={save}><ProfileFields value={value} setValue={setValue} includeEmail errors={error?.fields}/>
       <label className="field">สถานะสมาชิก<select aria-label="สถานะสมาชิก" value={value.status} onChange={e => setValue({ ...value, status: e.target.value })}>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <Notice error={error}/><div className="actions"><button className="primary" disabled={busy}>{busy ? 'กำลังบันทึก…' : 'บันทึกสมาชิก'}</button><button type="button" onClick={onCancel} disabled={busy}>ยกเลิก</button></div>
     </form>
+    {member && <GrantPackage member={member} onAuthError={onAuthError} onGranted={onSaved}/>}
     {member && <div className="secondary-actions"><button className="danger" onClick={deactivate} disabled={busy || member.status === 'suspended'}>ระงับสมาชิก</button>
       <button disabled={busy} onClick={async () => { try { setAudit(await api(`/members/${member.id}/audit`)); } catch(e) { setError(e); onAuthError(e); } }}>ดูประวัติการแก้ไข</button></div>}
     {audit && <section className="audit"><h2>ประวัติการแก้ไข</h2>{audit.items.map(item => <div key={item.id}><strong>{{ 'member.create': 'สร้างสมาชิก', 'member.update': 'แก้ไขข้อมูล', 'member.deactivate': 'ระงับสมาชิก' }[item.action] ?? item.action}</strong><span className="muted"> · {formatDate(item.created_at)}</span>
@@ -421,8 +507,11 @@ function GymSettings({ onAuthError }) {
 }
 
 function Staff({ onAuthError }) {
+  const pilot = usePilot();
   const [tab, setTab] = useState('scan');
-  const tabs = [['scan', 'สแกนเช็คอิน'], ['history', 'ประวัติเช็คอิน'], ['queue', 'คิวสลิป']];
+  // No payments in pilot mode, so no queue of slips to look at.
+  const tabs = [['scan', 'สแกนเช็คอิน'], ['history', 'ประวัติเช็คอิน'],
+    ...(pilot ? [] : [['queue', 'คิวสลิป']])];
   return <>
     <nav className="tabs" aria-label="เมนูพนักงาน">{tabs.map(([key, label]) =>
       <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
@@ -433,12 +522,18 @@ function Staff({ onAuthError }) {
 }
 
 function Admin({ onAuthError }) {
+  const pilot = usePilot();
   const [tab, setTab] = useState('members');
-  const tabs = [['members', 'สมาชิก'], ['review', 'ตรวจสลิป'], ['checkin', 'เช็คอิน'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
+  // The slip queue is replaced by the list of OTP codes, because in pilot mode
+  // reading a code out is the job that actually happens at the counter.
+  const tabs = [['members', 'สมาชิก'],
+    ...(pilot ? [['codes', 'รหัส OTP']] : [['review', 'ตรวจสลิป']]),
+    ['checkin', 'เช็คอิน'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
   return <>
     <nav className="tabs" aria-label="เมนูผู้ดูแลระบบ">{tabs.map(([key, label]) =>
       <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
     {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
+    {tab === 'codes' && <PilotOtpBoard/>}
     {tab === 'review' && <PaymentReview onAuthError={onAuthError}/>}
     {tab === 'checkin' && <><div className="page-heading"><div><span className="eyebrow">เช็คอิน</span>
       <h1>การเข้าใช้บริการ</h1><p className="muted">ดูว่าใครเข้ายิมเมื่อไร และใครถูกปฏิเสธเพราะอะไร</p></div></div>
@@ -449,26 +544,44 @@ function Admin({ onAuthError }) {
   </>;
 }
 
+/** Always on screen while piloting, so nobody mistakes this for the real thing. */
+function PilotBanner() {
+  return <div className="pilot-banner" role="status">
+    <strong>โหมดทดลอง</strong>
+    <span>ยังไม่ส่งอีเมลและยังไม่รับชำระเงิน — รหัสเข้าใช้งานดูได้ในแท็บ “รหัส OTP”
+      และมอบแพ็กเกจให้สมาชิกได้จากหน้าสมาชิกรายคน</span>
+  </div>;
+}
+
 function App() {
   const [user, setUser] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(null);
-  const [gym, setGym] = useState(null);
+  const [gym, setGym] = useState(null), [pilot, setPilot] = useState(false);
   async function refresh() { const result = await api('/me'); setUser(result); return result; }
   const onAuthError = e => { if (e.status === 401) setUser(null); };
   useEffect(() => { refresh().catch(e => { if (e.status !== 401) setError(e); }).finally(() => setLoading(false)); }, []);
+  // Read before anyone signs in: the login screen is one of the screens that
+  // changes, and it is the first thing a member sees.
+  useEffect(() => { api('/public/config').then(config => setPilot(!!config.pilot_mode)).catch(() => setPilot(false)); }, []);
   // Gym facts are shown on several member screens; load them once per session.
   useEffect(() => { if (user) api('/gym').then(setGym).catch(() => setGym(null)); else setGym(null); }, [user]);
   const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); setUser(null); } catch(e) { setError(e); onAuthError(e); } };
   if (loading) return <main className="empty" role="status">กำลังเปิดยิมของเรา…</main>;
-  if (!user) return <><Notice error={error}/><Login onLogin={u => { setError(null); setUser(u); }}/></>;
+  if (!user) {
+    return <PilotContext.Provider value={pilot}>
+      <Notice error={error}/><Login onLogin={u => { setError(null); setUser(u); }}/>
+    </PilotContext.Provider>;
+  }
   const brand = gym?.profile?.brand_name_th || gym?.profile?.name || 'ยิมของเรา';
-  return <><header><div className="brand"><span className="brand-symbol" aria-hidden="true">G</span><strong>{brand}</strong>
+  return <PilotContext.Provider value={pilot}>
+    <header><div className="brand"><span className="brand-symbol" aria-hidden="true">G</span><strong>{brand}</strong>
     <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'staff' ? 'พนักงาน' : 'สมาชิก'}</span></div>
     <button onClick={logout}>ออกจากระบบ</button></header>
-    <main><Notice error={error}/>{user.role === 'admin' ? <Admin onAuthError={onAuthError}/>
+    <main>{pilot && user.role !== 'member' && <PilotBanner/>}
+      <Notice error={error}/>{user.role === 'admin' ? <Admin onAuthError={onAuthError}/>
       : user.role === 'staff' ? <Staff onAuthError={onAuthError}/>
       : user.member ? <MemberApp member={user.member} gym={gym} onLogout={logout}
           refresh={async () => { try { await refresh(); } catch(e) { onAuthError(e); throw e; } }}/>
         : <Onboarding onSaved={refresh}/>}</main>
-    <footer>{brand} · ทุกวันเป็นวันเริ่มต้นที่ดี</footer></>;
+    <footer>{brand} · ทุกวันเป็นวันเริ่มต้นที่ดี</footer></PilotContext.Provider>;
 }
 createRoot(document.getElementById('root')).render(<App/>);

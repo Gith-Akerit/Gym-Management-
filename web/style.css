@@ -164,3 +164,12 @@ table.sales td:last-child,table.sales th:last-child{text-align:right}
    above it stays on screen while somebody is holding up a phone. */
 .camera{margin-bottom:14px}
 .camera-view{display:block;width:100%;max-width:420px;aspect-ratio:4/3;object-fit:cover;background:#000;border:1px solid var(--line);border-radius:12px;margin:0 auto}
+
+/* Pilot mode: loud enough that nobody mistakes a trial for the live gym. */
+.pilot-banner{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;margin-bottom:18px;
+  padding:10px 16px;border-radius:12px;border:1px solid #d9a300;background:#fff6dc;color:#5a4300}
+.pilot-banner strong{letter-spacing:.04em}
+.pilot-banner span{font-size:.92rem}
+.otp-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.6rem;letter-spacing:.32em;margin:6px 0}
+.otp-code.used{font-size:.92rem;letter-spacing:normal;color:var(--muted)}
+.pilot-otp{background:#fff6dc;border:1px solid #e7c96a}

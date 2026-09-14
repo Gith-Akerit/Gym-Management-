@@ -1,4 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+
+/**
+ * Whether the gym is running in pilot mode: no mail provider and no PromptPay
+ * account yet, so OTP codes are read out at the counter and packages are handed
+ * over by an admin. Several screens change wording or disappear entirely, and
+ * one of them is the login screen, which nobody is signed in to see -- hence a
+ * context fed from the public config rather than anything on the session.
+ */
+export const PilotContext = createContext(false);
+export const usePilot = () => useContext(PilotContext);
 
 export const labels = { active: 'ใช้งานอยู่', suspended: 'ถูกระงับ', expired: 'หมดอายุ' };
 export const packageStatusLabels = { draft: 'ร่าง ยังไม่เปิดขาย', active: 'เปิดขาย', archived: 'ปิดการขาย' };
