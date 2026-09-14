@@ -36,7 +36,7 @@ test('an admin creates a staff account, changes a role, and suspends it', async 
   await admin.getByRole('button', { name: 'สร้างบัญชี' }).click();
   await expect(admin.getByRole('status').filter({ hasText: 'สร้างบัญชีแล้ว' })).toBeVisible();
   await admin.getByLabel('ค้นหาบัญชี').fill('newcounter@example.test');
-  const row = admin.locator('.member-row').filter({ hasText: 'newcounter@example.test' });
+  const row = admin.locator('.table-users tbody tr').filter({ hasText: 'newcounter@example.test' });
   await expect(row).toContainText('พนักงาน');
   await admin.screenshot({ path: 'artifacts/admin-users.png', fullPage: true });
 
@@ -66,7 +66,7 @@ test('the gym cannot be left without an administrator', async ({ page }) => {
   await login(page, 'admin11@example.test');
   await page.getByRole('button', { name: 'ผู้ใช้และสิทธิ์' }).click();
   await page.getByLabel('ค้นหาบัญชี').fill('admin11@example.test');
-  const self = page.locator('.member-row').filter({ hasText: 'admin11@example.test' });
+  const self = page.locator('.table-users tbody tr').filter({ hasText: 'admin11@example.test' });
 
   // There are other admins seeded here, so this one is allowed to step down --
   // and doing so signs them straight out, which is the point.
@@ -86,7 +86,7 @@ test('an admin who suspends their own account is told why the screen vanished', 
   await login(admin, 'admin12@example.test');
   await admin.getByRole('button', { name: 'ผู้ใช้และสิทธิ์' }).click();
   await admin.getByLabel('ค้นหาบัญชี').fill('admin12@example.test');
-  const self = admin.locator('.member-row').filter({ hasText: 'admin12@example.test' });
+  const self = admin.locator('.table-users tbody tr').filter({ hasText: 'admin12@example.test' });
   await self.getByRole('button', { name: /ระงับบัญชี admin12@example.test/ }).click();
 
   await expect(admin.getByRole('status').filter({ hasText: 'ระงับบัญชีของคุณแล้ว ออกจากระบบ' })).toBeVisible();

@@ -24,7 +24,7 @@ const seedUsers = (role, addresses) => {
 };
 seedUsers('staff', ['staff-ui@example.test',
   ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
-seedUsers('admin', ['admin@example.test',
+seedUsers('admin', ['layout-admin@example.test', 'admin@example.test',
   ...Array.from({ length: 11 }, (_, i) => `admin${i + 2}@example.test`)]);
 const inbox = new Map();
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
