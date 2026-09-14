@@ -41,13 +41,14 @@ npm run dev               # เว็บที่ http://localhost:5173 (proxy �
 | `npm start` | รัน API และเสิร์ฟไฟล์ที่ build แล้วจาก `dist/` |
 | `npm run dev` | เว็บโหมดพัฒนา |
 | `npm run build` | build เว็บลง `dist/` |
-| `npm test` | ทดสอบ API 94 เคส |
-| `npm run test:ui` | build แล้วทดสอบผ่านเบราว์เซอร์ 14 เส้นทาง (ต้องมี browser ของ Playwright หรือกำหนด `PLAYWRIGHT_CHANNEL=msedge`) |
+| `npm test` | ทดสอบ API 100 เคส |
+| `npm run test:ui` | build แล้วทดสอบผ่านเบราว์เซอร์ 15 เส้นทาง (ต้องมี browser ของ Playwright หรือกำหนด `PLAYWRIGHT_CHANNEL=msedge`) |
 | `npm run db:migrate` | อัปเดตโครงสร้างฐานข้อมูล |
 | `npm run db:rollback` | ย้อน migration ล่าสุด ต้องตั้ง `ALLOW_DESTRUCTIVE_ROLLBACK=yes` |
 | `npm run db:seed` | ข้อมูลยิมและแพ็กเกจร่าง ปลอดภัยที่จะรันซ้ำบน production |
 | `npm run db:seed:demo` | บัญชีตัวอย่างสำหรับทดสอบ ใช้บน production ไม่ได้ |
 | `npm run db:admin` | ตั้ง `ADMIN_EMAIL` ให้เป็นผู้ดูแลระบบ |
+| `npm run env:set -- KEY=VALUE` | เขียนค่าลับลง `.env` บนเซิร์ฟเวอร์ด้วยคำสั่งเดียวโดยไม่พิมพ์ค่ากลับออกมา (`-- --list` ดูว่าตั้งอะไรไว้แล้ว) |
 | `npm run slips:prune` | ลบรูปสลิปที่เกินระยะเก็บ (`SLIP_RETENTION_DAYS` ค่าเริ่มต้น 365 วัน) |
 
 ## ค่าคอนฟิก

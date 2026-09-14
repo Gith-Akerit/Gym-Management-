@@ -27,8 +27,8 @@
 | `APP_ORIGIN` | ✔ | URL ของเว็บแบบเต็ม เช่น `https://app.suklutaifitness.com` **ต้องตรงเป๊ะ** ไม่มี `/` ปิดท้าย ถ้าผิดเบราว์เซอร์จะโดนปฏิเสธด้วย 403 ทุกคำขอที่เขียนข้อมูล |
 | `OTP_SECRET` | ✔ | สุ่ม 32 ไบต์: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` **เปลี่ยนเมื่อไหร่ ทุกคนหลุดออกจากระบบและ OTP ที่ค้างอยู่ใช้ไม่ได้** |
 | `PROMPTPAY_ID` | ✔ | เบอร์มือถือ / เลขบัตรประชาชน 13 หลัก / e-Wallet 15 หลัก ของบัญชีที่รับเงิน **เป็นข้อมูลส่วนตัวของเจ้าของยิม ห้ามคอมมิตลง repo** |
-| `SMTP_HOST` `MAIL_FROM` | ✔ | ดูหัวข้อ "อีเมล OTP" ข้างล่าง |
-| `SMTP_USER` `SMTP_PASSWORD` | ✔ บน production | แอปปฏิเสธ SMTP ที่ไม่มีการยืนยันตัวตนเมื่อ `NODE_ENV=production` |
+| `SMTP_HOST` `MAIL_FROM` | ✔ | `smtp-relay.brevo.com` และที่อยู่ผู้ส่งที่ยืนยันกับ Brevo แล้ว ดูหัวข้อ "อีเมล OTP" ข้างล่าง |
+| `SMTP_USER` `SMTP_PASSWORD` | ✔ บน production | **SMTP login + SMTP key** ของ Brevo ไม่ใช่ API key แอปปฏิเสธ SMTP ที่ไม่มีการยืนยันตัวตนเมื่อ `NODE_ENV=production` |
 | `SMTP_PORT` `SMTP_SECURE` | | `587` + `false` สำหรับ STARTTLS (ปกติใช้อันนี้) หรือ `465` + `true` |
 | `TRUST_PROXY` | | จำนวน proxy ที่อยู่หน้าแอปจริง ๆ `1` ถ้ามี Caddy/nginx/Render/Fly ชั้นเดียว `2` ถ้ามี Cloudflare ซ้อนอีกชั้น **ตั้งผิดแล้วทั้งยิมจะใช้โควตา rate limit ร่วมกันก้อนเดียวจนล็อกอินไม่ได้** |
 | `DATABASE_PATH` | | ต้องอยู่บนดิสก์ถาวร ค่าปริยายใน Docker คือ `/data/gym.sqlite` |
@@ -135,20 +135,52 @@ Push branch ขึ้น GitHub แล้วสร้าง Blueprint ชี้�
 
 ### Brevo (ฟรี 300 ฉบับ/วัน)
 
-สมัครที่ brevo.com ด้วยอีเมลของยิม แล้วไปที่ **SMTP & API → SMTP** จะได้ค่า 3 ตัว
+แอปนี้ส่งอีเมลผ่าน **SMTP** ไม่ได้ใช้ REST API ของ Brevo จึงต้องใช้ **SMTP login + SMTP key** ไม่ใช่ API key (v3 key ที่ขึ้นต้นด้วย `xkeysib-`) — **ใส่ API key ลงไปจะล็อกอินไม่ผ่านและไม่มีใครได้รหัส OTP เลย**
 
-```
-SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=<login ที่ Brevo แสดงไว้>
-SMTP_PASSWORD=<SMTP key ไม่ใช่รหัสผ่านที่ใช้ล็อกอินหน้าเว็บ>
-MAIL_FROM=noreply@suklutaifitness.com
-```
+ขั้นตอน:
+
+1. สมัคร brevo.com **ด้วยอีเมลของยิม** (บัญชีนี้จะเป็นของยิม ไม่ใช่ของทีมพัฒนา)
+2. **ยืนยัน sender**: Senders, Domains & Dedicated IPs → **Senders** → Add a sender → ใส่ที่อยู่ที่จะใช้ส่ง เช่น `noreply@suklutaifitness.com` → Brevo ส่งอีเมลยืนยันไปที่อยู่นั้น ต้องกดยืนยันให้ขึ้นสถานะ verified
+   ที่อยู่นี้คือค่าที่จะใส่ใน `MAIL_FROM` **ถ้ายังไม่ verified จะส่งไม่ออก**
+3. **สร้าง SMTP key**: SMTP & API → แท็บ **SMTP** → Generate a new SMTP key ตั้งชื่อเช่น `gym-pilot` → คัดลอกค่าที่ได้ **ค่านี้แสดงครั้งเดียว**
+4. ในหน้าเดียวกันจะมี **Login** (มักเป็นอีเมลที่ใช้สมัคร หรือรหัสแบบ `8xxxxx001@smtp-brevo.com`) และ **Server** กับ **Port** ให้ใช้ค่าตามนี้
+
+| ตัวแปร | ค่า | หาได้จาก |
+|---|---|---|
+| `SMTP_HOST` | `smtp-relay.brevo.com` | SMTP & API → SMTP → Server |
+| `SMTP_PORT` | `587` | พอร์ต STARTTLS ปกติ (`465` ต้องตั้ง `SMTP_SECURE=true` ด้วย) |
+| `SMTP_SECURE` | `false` | คู่กับพอร์ต 587 |
+| `SMTP_USER` | **SMTP login** | SMTP & API → SMTP → Login |
+| `SMTP_PASSWORD` | **SMTP key** | SMTP & API → SMTP → Generate a new SMTP key |
+| `MAIL_FROM` | ที่อยู่ที่ **verified** แล้วในข้อ 2 | Senders |
 
 ไม่ต้องแก้โค้ดอะไร เพราะแอปคุยกับ SMTP มาตรฐานอยู่แล้ว จะเปลี่ยนไปใช้ Amazon SES, Mailgun, Postmark หรือ SMTP ของโฮสต์ก็ใช้ช่องเดิมทั้งหมด
 
-**ที่อยู่ใน `MAIL_FROM` ต้องถูกยืนยันกับ Brevo ก่อน** ไม่งั้นจะส่งไม่ออก และ **ห้ามใช้ `@gmail.com` เป็นผู้ส่ง** เพราะ DMARC ของ Gmail จะทำให้ถูกปฏิเสธ
+**ห้ามใช้ `@gmail.com` เป็นผู้ส่ง** เพราะ DMARC ของ Gmail จะทำให้ถูกปฏิเสธ
+
+### ใส่ค่าลับลงเซิร์ฟเวอร์โดยไม่ให้ผ่านแชต
+
+เจ้าของยิมเป็นคนถือ PromptPay ID และ SMTP key ทั้งสองค่าไม่ควรผ่านมือใคร วิธีที่ใช้คือเจ้าของยิมรันคำสั่งเองในหน้า Browser Terminal ของ hPanel:
+
+```bash
+cd /srv/gym
+ npm run env:set -- SMTP_USER='ค่าที่ Brevo ให้' SMTP_PASSWORD='SMTP key' MAIL_FROM='noreply@...'
+ npm run env:set -- PROMPTPAY_ID='08xxxxxxxx'
+```
+
+- **เว้นวรรค 1 ตัวหน้าคำสั่ง** อย่างในตัวอย่าง เชลล์ส่วนใหญ่จะไม่เก็บบรรทัดนั้นลง history
+- สคริปต์**ไม่พิมพ์ค่ากลับออกมา** บอกแค่ชื่อตัวแปรว่า added/updated จอที่แชร์อยู่จึงไม่เห็นความลับ
+- เขียนแบบเปลี่ยนเฉพาะบรรทัดของ key นั้น คอมเมนต์และค่าอื่นใน `.env` อยู่ครบ และเขียนผ่านไฟล์ชั่วคราวแล้ว rename ทับ ถ้าเครื่องดับกลางคันไฟล์เดิมยังอยู่ทั้งใบ
+- เขียนเสร็จแล้วอ่านกลับด้วย parser ตัวเดียวกับที่ Node ใช้ ถ้าค่าที่อ่านได้ไม่ตรงกับที่สั่ง จะคืนไฟล์เดิมและแจ้งเตือน แทนที่จะปล่อยให้ key เพี้ยนไปหนึ่งตัวอักษรแล้วไปรู้ตอนสมาชิกไม่ได้รับ OTP
+- ถ้าค่ามีเครื่องหมายแปลก ๆ ให้ใช้ `npm run env:set -- --stdin SMTP_PASSWORD` แล้ววางค่าทีหลัง กด Enter และ Ctrl+D
+
+ดูว่ามีค่าอะไรตั้งไว้แล้วบ้าง (ชื่อตัวแปรอย่างเดียว ไม่แสดงค่า):
+
+```bash
+npm run env:set -- --list
+```
+
+ตั้งค่าเสร็จต้องรีสตาร์ตบริการถึงจะมีผล: `docker compose up -d` หรือ `pm2 restart gym`
 
 ### ตั้ง SPF / DKIM / DMARC
 
