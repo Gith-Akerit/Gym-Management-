@@ -10,6 +10,7 @@ export const MIGRATIONS = [
   { version: 3, name: '003_orders' },
   { version: 4, name: '004_checkin' },
   { version: 5, name: '005_manual_grant' },
+  { version: 6, name: '006_user_status' },
 ];
 
 const sql = (name, direction) =>

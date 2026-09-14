@@ -6,7 +6,7 @@ import { registerCheckInRoutes } from './checkin.js';
 import { otpCodeHash } from './otp.js';
 import { registerPaymentRoutes } from './payments.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
-import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
+import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, roleSchema, updateSchema, userSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
@@ -170,6 +170,8 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     const input = parse(z.object({ challenge_id: z.uuid(), code: z.string().regex(/^\d{6}$/, 'กรอกรหัส 6 หลัก') }).strict(), req.body);
     const c = db.prepare('SELECT * FROM otp_challenges WHERE id=?').get(input.challenge_id);
     const invalid = () => new HttpError(400, 'รหัสไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว กรุณาขอรหัสใหม่');
+    const suspended = c && db.prepare("SELECT 1 FROM users WHERE email=? AND status='suspended'").get(c.email);
+    if (suspended) throw new HttpError(403, 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ');
     if (!c || c.consumed_at !== null || c.expires_at <= now() || c.attempts >= 5) throw invalid();
     assertNotLockedOut(c.email);
     db.prepare('UPDATE otp_challenges SET attempts=attempts+1 WHERE id=?').run(c.id);
@@ -200,6 +202,9 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     const user = db.prepare(`SELECT u.*,s.token_hash FROM sessions s JOIN users u ON u.id=s.user_id
       WHERE s.token_hash=? AND s.expires_at>?`).get(digest(token), now());
     if (!user) return next(new HttpError(401, 'กรุณาเข้าสู่ระบบอีกครั้ง'));
+    // Suspending deletes the sessions it can see, but a token issued a second
+    // earlier would otherwise keep working until it expired.
+    if (user.status === 'suspended') return next(new HttpError(403, 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ'));
     req.user = user;
     next();
   });
@@ -320,6 +325,92 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   // --------------------------------------------------------------- gym profile
 
   // Every signed-in user may read the gym's public facts; only admins edit them.
+  // --------------------------------------------------------- users and roles
+  //
+  // Separate from the members screen on purpose: that one is about people who
+  // train here, this one is about who may sign in and what they may do. Until
+  // this existed there was no way at all to create a staff account -- a gym
+  // could be installed with nobody able to work the scanner (QA smoke test).
+
+  const publicUser = row => ({
+    id: row.id, email: row.email, role: row.role, status: row.status,
+    created_at: row.created_at, email_verified_at: row.email_verified_at,
+    member_id: row.member_id ?? null, member_name: row.member_name ?? null,
+  });
+  const userWithMember = () => `SELECT u.*, m.id AS member_id, m.name AS member_name
+    FROM users u LEFT JOIN members m ON m.user_id=u.id`;
+  const activeAdmins = (exceptId = '') =>
+    db.prepare("SELECT count(*) AS n FROM users WHERE role='admin' AND status='active' AND id<>?").get(exceptId).n;
+  /**
+   * The one rule that cannot be broken: somebody must still be able to
+   * administer the gym afterwards. Locking every admin out of a live system
+   * needs a terminal and a person who knows where the database is.
+   */
+  const keepAnAdmin = (before, becomes) => {
+    const wasAdmin = before.role === 'admin' && before.status === 'active';
+    const stays = becomes.role === 'admin' && becomes.status === 'active';
+    if (wasAdmin && !stays && activeAdmins(before.id) === 0) {
+      throw new HttpError(409, 'นี่คือผู้ดูแลระบบคนสุดท้ายที่ใช้งานได้ กรุณาตั้งผู้ดูแลระบบคนอื่นก่อน');
+    }
+  };
+
+  app.get('/api/users', admin, (req, res) => {
+    const { q = '', page = 1 } = parse(z.object({
+      q: z.string().trim().max(120).optional(),
+      page: z.coerce.number().int().min(1).max(10000).optional(),
+    }).strict(), req.query);
+    const where = q ? `WHERE (u.email LIKE ? ESCAPE '\\' OR m.name LIKE ? ESCAPE '\\')` : '';
+    const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
+    const args = q ? [like, like] : [];
+    const total = db.prepare(`SELECT count(*) AS n FROM users u LEFT JOIN members m ON m.user_id=u.id ${where}`).get(...args).n;
+    const rows = db.prepare(`${userWithMember()} ${where}
+      ORDER BY CASE u.role WHEN 'admin' THEN 0 WHEN 'staff' THEN 1 ELSE 2 END, u.email
+      LIMIT 20 OFFSET ?`).all(...args, (page - 1) * 20);
+    res.json({ items: rows.map(publicUser), total, page, admins: activeAdmins() });
+  });
+
+  app.post('/api/users', admin, (req, res) => {
+    const input = parse(userSchema, req.body);
+    const created = transaction(db, () => {
+      if (db.prepare('SELECT 1 FROM users WHERE email=?').get(input.email)) {
+        throw new HttpError(409, 'อีเมลนี้มีบัญชีอยู่แล้ว เปลี่ยนสิทธิ์ของบัญชีเดิมแทนได้');
+      }
+      const id = randomUUID();
+      db.prepare('INSERT INTO users(id,email,role,created_at) VALUES(?,?,?,?)').run(id, input.email, input.role, now());
+      const after = db.prepare(`${userWithMember()} WHERE u.id=?`).get(id);
+      audit(db, req.user.id, 'user.create', id, null, publicUser(after), now(), 'user');
+      return after;
+    });
+    res.status(201).json(publicUser(created));
+  });
+
+  function changeUser(req, changes) {
+    return transaction(db, () => {
+      const before = db.prepare(`${userWithMember()} WHERE u.id=?`).get(req.params.id);
+      if (!before) throw new HttpError(404, 'ไม่พบบัญชีนี้');
+      const becomes = { ...before, ...changes };
+      keepAnAdmin(before, becomes);
+      db.prepare('UPDATE users SET role=?,status=? WHERE id=?').run(becomes.role, becomes.status, before.id);
+      // Anything that reduces what an account may do takes effect now, not
+      // whenever the browser tab it is open in happens to be closed.
+      if (becomes.status !== 'active' || becomes.role !== before.role) {
+        db.prepare('DELETE FROM sessions WHERE user_id=?').run(before.id);
+      }
+      const after = db.prepare(`${userWithMember()} WHERE u.id=?`).get(before.id);
+      audit(db, req.user.id, changes.role !== undefined ? 'user.role' : `user.${changes.status === 'active' ? 'restore' : 'suspend'}`,
+        before.id, publicUser(before), publicUser(after), now(), 'user');
+      return publicUser(after);
+    });
+  }
+
+  app.put('/api/users/:id/role', admin, (req, res) => res.json(changeUser(req, parse(roleSchema, req.body))));
+  app.post('/api/users/:id/suspend', admin, (req, res) => res.json(changeUser(req, { status: 'suspended' })));
+  app.post('/api/users/:id/restore', admin, (req, res) => res.json(changeUser(req, { status: 'active' })));
+  app.get('/api/users/:id/audit', admin, (req, res) => {
+    const rows = db.prepare('SELECT * FROM audit_logs WHERE entity_id=? AND entity_type=\'user\' ORDER BY created_at DESC,id LIMIT 50').all(req.params.id);
+    res.json({ items: rows });
+  });
+
   app.get('/api/gym', (req, res) => res.json(req.user.role === 'admin' ? getGym(db) : publicGym(db)));
 
   app.put('/api/gym', admin, (req, res) => {

@@ -226,6 +226,22 @@ export const manualGrantSchema = z.object({
   note: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่มอบแพ็กเกจนี้').max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร'),
 }).strict();
 
+export const ROLES = ['member', 'staff', 'admin'];
+
+/**
+ * A staff or admin account, created by an admin rather than by signing up.
+ * There is no password to set: whoever holds the mailbox gets a code, which is
+ * the same rule every other account follows.
+ */
+export const userSchema = z.object({
+  email,
+  role: z.enum(['staff', 'admin'], { error: 'เลือกได้เฉพาะพนักงานหรือผู้ดูแลระบบ' }),
+}).strict();
+
+export const roleSchema = z.object({
+  role: z.enum(ROLES, { error: 'สิทธิ์ไม่ถูกต้อง' }),
+}).strict();
+
 export const rejectSchema = z.object({
   version: z.coerce.number().int().positive(),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ปฏิเสธ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
