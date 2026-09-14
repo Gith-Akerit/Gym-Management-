@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { registerCheckInRoutes } from './checkin.js';
+import { otpCodeHash } from './otp.js';
 import { registerPaymentRoutes } from './payments.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
 import { email, gymSchema, hoursSchema, HttpError, memberSchema, packageSchema, packageUpdateSchema, parse, profileSchema, updateSchema } from './validation.js';
@@ -144,7 +145,7 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     transaction(db, () => {
       db.prepare('UPDATE otp_challenges SET consumed_at=? WHERE email=? AND consumed_at IS NULL').run(now(), input.email);
       db.prepare('INSERT INTO otp_challenges(id,email,code_hash,created_at,expires_at) VALUES(?,?,?,?,?)')
-        .run(id, input.email, hmac(`${id}:${code}`), now(), now() + 300000);
+        .run(id, input.email, otpCodeHash(secret, id, code), now(), now() + 300000);
     });
     if (pilotMode) {
       rememberPilotCode({ id, email: input.email, code, created_at: now(), expires_at: now() + 300000 });
@@ -172,7 +173,7 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     if (!c || c.consumed_at !== null || c.expires_at <= now() || c.attempts >= 5) throw invalid();
     assertNotLockedOut(c.email);
     db.prepare('UPDATE otp_challenges SET attempts=attempts+1 WHERE id=?').run(c.id);
-    if (!timingSafeEqual(Buffer.from(c.code_hash, 'hex'), Buffer.from(hmac(`${c.id}:${input.code}`), 'hex'))) {
+    if (!timingSafeEqual(Buffer.from(c.code_hash, 'hex'), Buffer.from(otpCodeHash(secret, c.id, input.code), 'hex'))) {
       recordOtpFailure(c.email);
       throw invalid();
     }

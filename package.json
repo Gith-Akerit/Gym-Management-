@@ -18,7 +18,8 @@
     "db:admin": "node --env-file-if-exists=.env server/manage.js admin",
     "db:seed:demo": "node --env-file-if-exists=.env server/manage.js seed:demo",
     "slips:prune": "node --env-file-if-exists=.env server/prune-slips.js",
-    "env:set": "node server/env-set.js"
+    "env:set": "node server/env-set.js",
+    "pilot:code": "node --env-file-if-exists=.env server/pilot-code.js"
   },
   "dependencies": {
     "express": "^5.2.1",
