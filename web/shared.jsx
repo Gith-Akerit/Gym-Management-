@@ -91,6 +91,72 @@ export function Notice({ error }) {
   </div>;
 }
 
+/**
+ * The four shapes every screen shows while it has nothing to show, from the
+ * Designer's state set. Three rules run through all of them: never leave the
+ * screen blank while loading, say why there is nothing rather than only that
+ * there is nothing, and always offer the way forward.
+ */
+
+/** A grey outline the shape of the thing being fetched, not a spinner. */
+export function Skeleton({ rows = 3, avatar = false }) {
+  return <div aria-hidden="true">{Array.from({ length: rows }, (_, i) =>
+    <div className="sk-row" key={i}>
+      {avatar && <span className="skeleton sk-avatar"/>}
+      <span style={{ flex: 1 }}>
+        <span className="skeleton sk-line t" style={{ display: 'block' }}/>
+        <span className="skeleton sk-line s xs" style={{ display: 'block' }}/>
+      </span>
+    </div>)}</div>;
+}
+
+/** Cards rather than rows: the catalogue and the package screens load into this. */
+export function SkeletonCards({ count = 2 }) {
+  return <div aria-hidden="true">{Array.from({ length: count }, (_, i) =>
+    <div className="card" key={i}>
+      <span className="skeleton sk-line t" style={{ display: 'block' }}/>
+      <span className="skeleton sk-line s" style={{ display: 'block' }}/>
+      <span className="skeleton sk-line xs" style={{ display: 'block' }}/>
+    </div>)}</div>;
+}
+
+/** What is being waited for, in words, under the grey shapes. */
+export function Loading({ label, rows, cards, avatar }) {
+  return <>
+    {cards ? <SkeletonCards count={cards}/> : <Skeleton rows={rows} avatar={avatar}/>}
+    <p className="loading-note" role="status">{label}</p>
+  </>;
+}
+
+/**
+ * Nothing here, and why. An empty queue is a good state and gets no button; an
+ * empty list somebody can fill gets exactly one.
+ */
+export function Empty({ title, children, action }) {
+  return <div className="empty"><b>{title}</b><p>{children}</p>{action}</div>;
+}
+
+/**
+ * A request that did not come back. Losing the network is not the system's
+ * fault and is drawn in the warning colour with what the member should try;
+ * anything else is an error, and never shows a raw message or a stack trace.
+ */
+export function StateBox({ error, onRetry, children }) {
+  if (!error) return null;
+  const offline = !!error.offline;
+  return <div className={`state-box ${offline ? 'offline' : 'error'}`} role="alert">
+    <div>
+      <h3>{offline ? 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' : 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง'}</h3>
+      <p>{offline
+        ? 'กรุณาตรวจอินเทอร์เน็ตแล้วกดลองใหม่ ข้อมูลที่กรอกไว้ยังอยู่ ไม่ต้องกรอกซ้ำ'
+        : 'ถ้ายังไม่ได้ กรุณาติดต่อพนักงานที่เคาน์เตอร์หรือทาง LINE'}
+        {error.requestId && <span className="fine"> (รหัสอ้างอิงสำหรับแจ้งปัญหา: {error.requestId})</span>}</p>
+      {children}
+      {onRetry && <button onClick={() => onRetry()}>ลองใหม่</button>}
+    </div>
+  </div>;
+}
+
 /** Loads a resource, exposing the three states every screen has to render. */
 export function useResource(path, enabled = true) {
   const [state, setState] = useState({ data: null, error: null, busy: enabled });

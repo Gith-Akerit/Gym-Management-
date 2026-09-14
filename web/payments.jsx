@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
-  api, Field, formatDateTime, formatPhone, formatPrice, MISMATCH_NOTE_MIN, Notice,
-  orderStatusLabels, upload, useCountdown, useResource,
+  api, Empty, Field, formatDateTime, formatPhone, formatPrice, Loading, MISMATCH_NOTE_MIN,
+  Notice, orderStatusLabels, StateBox, upload, useCountdown, useResource,
 } from './shared.jsx';
 
 const describe = pkg => (pkg.type === 'unlimited' || pkg.package_type_snapshot === 'unlimited'
@@ -26,33 +26,39 @@ export function MemberPackages({ onBuy }) {
     catch (e) { setBuyError(e); } finally { setPending(null); }
   }
 
-  if (busy) return <p role="status" className="empty">กำลังโหลดแพ็กเกจ…</p>;
-  if (error) return <><Notice error={error}/><button onClick={() => reload().catch(() => {})}>ลองใหม่</button></>;
+  if (busy) return <Loading label="กำลังโหลดแพ็กเกจ…" cards={2}/>;
+  if (error) return <StateBox error={error} onRetry={() => reload().catch(() => {})}/>;
   if (!data.items.length) {
     return <div className="empty"><h2>ยังไม่เปิดขายแพ็กเกจ</h2>
       <p>ยิมกำลังจัดเตรียมแพ็กเกจและราคา สอบถามได้ที่เคาน์เตอร์</p></div>;
   }
-  return <><h1>แพ็กเกจ</h1><Notice error={buyError}/>
-    {data.items.map(item => {
+  // Two to a row on a computer, one on a phone, and the buy button pinned to
+  // the bottom of every card so a long description cannot leave one card's
+  // button floating halfway up its neighbour (Designer, page 8).
+  return <>
+    <div className="page-heading"><div><h1>แพ็กเกจ</h1></div></div>
+    <Notice error={buyError}/>
+    <div className="grid-2">{data.items.map(item => {
       // A free package showing '฿0.00' reads like a price somebody forgot to
       // fill in. Say what it is instead.
       const price = item.price_thb === 0 ? 'ไม่มีค่าใช้จ่าย' : formatPrice(item.price_thb);
       return <div className="pkg-card" key={item.id}>
-        <div className="pkg-head"><div><h3>{item.name_th}</h3><p className="muted">{describe(item)}</p></div>
-          <span className={price ? 'price' : 'price tbd'}>{price ?? 'รอประกาศราคา'}</span></div>
+        <div className="pkg-head"><h3>{item.name_th}</h3></div>
+        <span className={price ? 'price' : 'price tbd'}>{price ?? 'รอประกาศราคา'}</span>
+        <p className="muted">{describe(item)}</p>
         {item.description && <p className="muted">{item.description}</p>}
-        <button className="primary full" disabled={!price || pending === item.id} onClick={() => buy(item)}>
+        <button className="primary full pkg-buy" disabled={!price || pending === item.id} onClick={() => buy(item)}>
           {pending === item.id ? 'กำลังสร้างคำสั่งซื้อ…' : 'ซื้อแพ็กเกจนี้'}</button>
       </div>;
-    })}</>;
+    })}</div></>;
 }
 
 /** Pay screen, status screen and slip form — one order, all of its states. */
 export function MemberOrder({ orderId, onBack }) {
   const { data, error, busy, reload, setData } = useResource(`/orders/${orderId}`);
-  if (busy) return <p role="status" className="empty">กำลังโหลดคำสั่งซื้อ…</p>;
+  if (busy) return <Loading label="กำลังโหลดคำสั่งซื้อ…" cards={1}/>;
   if (error) {
-    return <><button onClick={onBack}>← กลับ</button><Notice error={error}/>
+    return <><button className="back" onClick={onBack}>← กลับ</button><Notice error={error}/>
       <button onClick={() => reload().catch(() => {})}>ลองใหม่</button></>;
   }
   return <OrderScreen view={data} onBack={onBack} onChange={setData} onReload={() => reload().catch(() => {})}/>;
@@ -68,35 +74,34 @@ function OrderScreen({ view, onBack, onChange, onReload }) {
   const canSendSlip = !view.free
     && ['pending_payment', 'awaiting_review', 'rejected'].includes(order.status) && stillOpen;
 
-  return <>
-    <button onClick={onBack}>← กลับไปหน้าแพ็กเกจ</button>
-    <h1>ชำระเงิน</h1>
-    <section className="card">
-      <div className="pkg-head"><div><h2>{order.package_name_snapshot}</h2>
-        <p className="muted">{describe(order)}</p></div><span className="price">{price}</span></div>
-      <span className={`tag ${order.status === 'paid' ? 'active' : 'draft'}`}>{orderStatusLabels[order.status]}</span>
-    </section>
+  const payable = view.promptpay_payload !== null;
 
+  // The QR on the left, everything the member does next on the right. On a
+  // phone they stack in that order, which is also the order the job happens in
+  // (Designer, page 9).
+  const qrCard = <section className="card">
+    {order.status === 'pending_payment' && <p className="countdown">{countdown.expired
+      ? 'คำสั่งซื้อหมดอายุแล้ว กรุณากดซื้อใหม่'
+      : `คำสั่งซื้อนี้หมดอายุใน ${countdown.text} นาที`}</p>}
+    <h2 style={{ textAlign: 'center' }}>PromptPay</h2>
+    <p className="pay-amount">{price}</p>
+    <div className="pay-qr">
+      <img className="qr-image" alt={`QR พร้อมเพย์ จำนวน ${price}`} src={`/api/orders/${order.id}/qr.png`}/>
+    </div>
+    <a className="button secondary full" href={`/api/orders/${order.id}/qr.png`} download>บันทึกรูป QR</a>
+    <ol className="steps-num">
+      <li>เปิดแอปธนาคาร แล้วสแกน QR นี้ (หรือบันทึกรูปแล้วเลือกจากคลังภาพ)</li>
+      <li>ตรวจว่ายอดเงินตรงกับ {price} แล้วโอน</li>
+      <li>กลับมาที่หน้านี้ แล้วส่งสลิปด้านล่าง</li>
+    </ol>
+    {order.status === 'rejected' && <p className="fine">โอนตามยอดนี้แล้วส่งสลิปใหม่ได้เลย ไม่ต้องสั่งซื้อใหม่</p>}
+  </section>;
+
+  const aside = <>
     {view.free && ['pending_payment', 'awaiting_review'].includes(order.status) && <div className="notice">
       <strong>แพ็กเกจนี้ไม่มีค่าใช้จ่าย</strong>
       <p>ไม่ต้องโอนเงินและไม่ต้องส่งสลิป รอพนักงานกดมอบสิทธิ์ให้{sla ? ` ${sla}` : ''}</p>
     </div>}
-
-    {view.promptpay_payload !== null && <section className="card">
-      <h2 style={{ textAlign: 'center' }}>PromptPay</h2>
-      <img className="qr-image" alt={`QR พร้อมเพย์ จำนวน ${price}`} src={`/api/orders/${order.id}/qr.png`}/>
-      <p className="qr-amount">{price}</p>
-      <p className="muted">
-        1. เปิดแอปธนาคาร แล้วสแกน QR นี้ (หรือบันทึกรูปแล้วเลือกจากคลังภาพ)<br/>
-        2. ตรวจว่ายอดเงินตรงกับ {price} แล้วโอน<br/>
-        3. กลับมาที่หน้านี้ แล้วส่งสลิปด้านล่าง
-      </p>
-      <a className="button secondary" href={`/api/orders/${order.id}/qr.png`} download>บันทึกรูป QR</a>
-      {order.status === 'pending_payment' && <p className="fine">{countdown.expired
-        ? 'คำสั่งซื้อหมดอายุแล้ว กรุณากดซื้อใหม่'
-        : `คำสั่งซื้อนี้หมดอายุใน ${countdown.text} นาที`}</p>}
-      {order.status === 'rejected' && <p className="fine">โอนตามยอดนี้แล้วส่งสลิปใหม่ได้เลย ไม่ต้องสั่งซื้อใหม่</p>}
-    </section>}
 
     {order.status === 'awaiting_review' && <div className="notice warn">
       <strong>รอตรวจสอบการชำระเงิน</strong>
@@ -127,6 +132,23 @@ function OrderScreen({ view, onBack, onChange, onReload }) {
       <img className="slip-preview" alt="สลิปที่ส่งไว้" src={`/api/slips/${slip.id}/image`}/>
       <button onClick={onReload}>รีเฟรชสถานะ</button></section>}
   </>;
+
+  return <>
+    <button className="back" onClick={onBack}>← กลับไปหน้าแพ็กเกจ</button>
+    <div className="page-heading">
+      <div><h1>ชำระเงิน</h1>
+        <p className="muted">{order.package_name_snapshot} · {describe(order)}</p></div>
+      <div className="heading-side">
+        {/* Payable orders carry the amount under the QR, where it is read off
+            and typed into a banking app. Everywhere else it belongs up here,
+            because nothing else on the screen states the price. */}
+        {!payable && <span className="price">{price}</span>}
+        <span className={`tag ${order.status === 'paid' ? 'active' : 'draft'}`}>{orderStatusLabels[order.status]}</span>
+      </div>
+    </div>
+
+    {payable ? <div className="pay-layout">{qrCard}<div>{aside}</div></div> : aside}
+  </>;
 }
 
 function SlipForm({ order, slip, onSaved }) {
@@ -145,15 +167,20 @@ function SlipForm({ order, slip, onSaved }) {
     form.append('reference_no', reference);
     form.append('transferred_at', transferred);
     form.append('amount_thb', amount);
+    // Only the error is set on a failure: the photo, the reference number, the
+    // time and the amount all stay exactly as typed. A member whose upload died
+    // on a weak signal must not be sent to find the slip again (กติกาข้อบังคับ).
     try { onSaved(await upload(`/orders/${order.id}/slip`, form)); }
     catch (e) { setError(e); } finally { setBusy(false); }
   }
 
   return <section className="card"><h2>{slip ? 'ส่งสลิปใหม่' : 'ส่งสลิปการโอนเงิน'}</h2>
     <form onSubmit={submit}>
-      <label className="field">รูปสลิป (JPG, PNG หรือ WEBP ไม่เกิน 5 MB)
-        <input type="file" name="slip" accept="image/jpeg,image/png,image/webp"
-          onChange={e => { setFile(e.target.files?.[0] ?? null); setError(null); }}/></label>
+      <label className="field"><span>รูปสลิป (JPG, PNG หรือ WEBP ไม่เกิน 5 MB)</span>
+        <span className="dropzone">
+          <b>{file ? file.name : 'เลือกรูป หรือถ่ายภาพสลิป'}</b>
+          <input type="file" name="slip" accept="image/jpeg,image/png,image/webp"
+            onChange={e => { setFile(e.target.files?.[0] ?? null); setError(null); }}/></span></label>
       <Field name="reference_no" label="เลขอ้างอิงในสลิป" value={reference} onChange={setReference}
         error={errors.reference_no} required maxLength={40} placeholder="เช่น 202609141030ABC"/>
       <label className="field">วันและเวลาที่โอน
@@ -170,8 +197,8 @@ function SlipForm({ order, slip, onSaved }) {
 
 export function MemberOrderHistory({ onOpen }) {
   const { data, error, busy, reload } = useResource('/orders');
-  if (busy) return <p role="status" className="empty">กำลังโหลดประวัติ…</p>;
-  if (error) return <><Notice error={error}/><button onClick={() => reload().catch(() => {})}>ลองใหม่</button></>;
+  if (busy) return <Loading label="กำลังโหลดประวัติ…" rows={3}/>;
+  if (error) return <StateBox error={error} onRetry={() => reload().catch(() => {})}/>;
   if (!data.items.length) return <p className="muted">ยังไม่มีประวัติการสั่งซื้อ</p>;
   return <div className="member-list">{data.items.map(order =>
     <button key={order.id} className="member-row" onClick={() => onOpen(order.id)}>
@@ -183,7 +210,7 @@ export function MemberOrderHistory({ onOpen }) {
 
 export function MemberEntitlements() {
   const { data, error, busy } = useResource('/entitlements');
-  if (busy) return <p role="status" className="muted">กำลังโหลดสิทธิ์…</p>;
+  if (busy) return <Loading label="กำลังโหลดสิทธิ์…" rows={2}/>;
   if (error) return <Notice error={error}/>;
   if (!data.items.length) {
     return <p className="muted">ยังไม่มีแพ็กเกจที่ใช้งานได้ เลือกซื้อได้ที่แท็บแพ็กเกจ</p>;
@@ -202,31 +229,47 @@ export function PaymentReview({ onAuthError, readOnly = false }) {
   const { data, error, busy, reload } = useResource(`/admin/orders?status=${status}`);
   const [openId, setOpenId] = useState(null), [notice, setNotice] = useState('');
 
-  if (openId) {
-    return <ReviewDetail id={openId} onAuthError={onAuthError} readOnly={readOnly} onBack={() => setOpenId(null)}
-      onDone={message => { setOpenId(null); setNotice(message); reload().catch(() => {}); }}/>;
-  }
   const filters = [['awaiting_review', 'รอตรวจสอบ'], ['paid', 'อนุมัติแล้ว'], ['rejected', 'ถูกปฏิเสธ'], ['all', 'ทั้งหมด']];
-  return <>
-    <div className="page-heading"><div><span className="eyebrow">ตรวจสลิป</span><h1>คำสั่งซื้อ</h1>
-      <p className="muted">เรียงจากที่รอนานที่สุดก่อน</p></div>
-      {data && <span className="badge active">รอตรวจสอบ {data.awaiting_review} รายการ</span>}</div>
-    {notice && <div className="notice" role="status">{notice}</div>}
-    <nav className="tabs" aria-label="กรองตามสถานะ">{filters.map(([key, label]) =>
-      <button key={key} onClick={() => setStatus(key)} aria-current={status === key ? 'page' : undefined}>{label}</button>)}</nav>
-    <Notice error={error}/>{error && <button onClick={() => reload().catch(() => {})}>ลองใหม่</button>}
-    {busy ? <p role="status" className="empty">กำลังโหลดคำสั่งซื้อ…</p> : !error && (
-      !data.items.length ? <div className="empty"><h2>ไม่มีรายการในสถานะนี้</h2></div>
-        : <section className="card">{data.items.map(order => <button key={order.id} className="member-row"
-          onClick={() => { setOpenId(order.id); setNotice(''); }}
-          aria-label={`${order.price_thb === 0 ? 'มอบสิทธิ์ให้' : 'ตรวจสลิปของ'} ${order.member_name}`}>
-          <span className="member-name"><strong>{order.member_name}</strong>
-            <small>{order.package_name_snapshot} · {order.price_thb === 0 ? 'ไม่มีค่าใช้จ่าย' : formatPrice(order.price_thb)}
-              {' · '}ส่งเมื่อ {formatDateTime(order.waiting_since)}</small></span>
-          <span className={`tag ${order.status === 'paid' ? 'active' : 'draft'}`}>{orderStatusLabels[order.status]}</span>
-          <span aria-hidden="true">›</span>
-        </button>)}</section>)}
-  </>;
+  // No role overrides on the queue buttons: role="listitem" would take the
+  // button role away, and with it every way of finding or announcing them.
+  // The queue runs across the top rather than down a third column. Subtract a
+  // 220px sidebar from a 1100px page and there is no room left to put the slip
+  // photo beside the numbers it has to be checked against -- which is the whole
+  // job of this screen, so the column is what gives way (Designer, page 7).
+  return <div className="queue-layout">
+    <div>
+      <div className="page-heading"><div><span className="eyebrow">ตรวจสลิป</span><h1>คำสั่งซื้อ</h1>
+        <p className="muted">เรียงจากที่รอนานที่สุดก่อน</p></div>
+        {data && <span className="badge active">รอตรวจสอบ {data.awaiting_review} รายการ</span>}</div>
+      {notice && <div className="notice" role="status">{notice}</div>}
+      <nav className="tabs" aria-label="กรองตามสถานะ">{filters.map(([key, label]) =>
+        <button key={key} onClick={() => setStatus(key)} aria-current={status === key ? 'page' : undefined}>{label}</button>)}</nav>
+      <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
+      {busy ? <Loading label="กำลังโหลดคำสั่งซื้อ…" cards={1}/> : !error && (
+        !data.items.length
+          ? <Empty title={status === 'awaiting_review' ? 'ยังไม่มีสลิป' : 'ไม่มีรายการในสถานะนี้'}>
+              {status === 'awaiting_review'
+                ? 'เมื่อสมาชิกส่งสลิปมาแล้ว รายการจะขึ้นที่นี่โดยเรียงจากที่รอนานที่สุด'
+                : 'ลองเลือกสถานะอื่นด้านบน'}</Empty>
+          : <div className="queue-list" aria-label="คิวสลิป">{data.items.map(order =>
+            <button key={order.id} className="queue-item"
+              aria-current={order.id === openId ? 'true' : undefined}
+              onClick={() => { setOpenId(order.id); setNotice(''); }}
+              aria-label={`${order.price_thb === 0 ? 'มอบสิทธิ์ให้' : 'ตรวจสลิปของ'} ${order.member_name}`}>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <b>{order.member_name}</b>
+                <small>{order.package_name_snapshot} · {order.price_thb === 0 ? 'ไม่มีค่าใช้จ่าย' : formatPrice(order.price_thb)}</small>
+                <small>ส่งเมื่อ {formatDateTime(order.waiting_since)}</small></span>
+              <span className={`tag ${order.status === 'paid' ? 'active' : 'draft'}`}>{orderStatusLabels[order.status]}</span>
+            </button>)}</div>)}
+    </div>
+    {openId
+      ? <ReviewDetail key={openId} id={openId} onAuthError={onAuthError} readOnly={readOnly} onBack={() => setOpenId(null)}
+          onDone={message => { setOpenId(null); setNotice(message); reload().catch(() => {}); }}/>
+      : !busy && !error && data?.items.length
+        ? <p className="muted">เลือกรายการจากคิวด้านบนเพื่อดูสลิปและตัดสิน</p>
+        : null}
+  </div>;
 }
 
 function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
@@ -234,8 +277,8 @@ function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
   const [checked, setChecked] = useState(false), [note, setNote] = useState(''), [reason, setReason] = useState('');
   const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null);
 
-  if (busy) return <p role="status" className="empty">กำลังโหลด…</p>;
-  if (error) return <><button onClick={onBack}>← กลับ</button><Notice error={error}/></>;
+  if (busy) return <Loading label="กำลังโหลด…" rows={3}/>;
+  if (error) return <><button className="back" onClick={onBack}>← กลับ</button><Notice error={error}/></>;
 
   // A package that costs nothing has no transfer behind it, so this screen
   // stops being a slip check and becomes "give this member the package".
@@ -247,7 +290,7 @@ function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
     catch (e) { setActionError(e); onAuthError(e); reload().catch(() => {}); } finally { setWorking(false); }
   }
 
-  return <section className="card"><button onClick={onBack} disabled={working}>← กลับรายการ</button>
+  return <section className="card"><button className="back" onClick={onBack} disabled={working}>← กลับรายการ</button>
     <h1>{free ? 'มอบสิทธิ์แพ็กเกจฟรี' : 'ตรวจสลิป'}</h1>
     <div className="review-grid">
       <div>{slip
@@ -327,7 +370,7 @@ function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
 
 export function SalesReport() {
   const { data, error, busy } = useResource('/admin/sales');
-  if (busy) return <p role="status" className="muted">กำลังโหลดยอดขาย…</p>;
+  if (busy) return <Loading label="กำลังโหลดยอดขาย…" rows={3}/>;
   if (error) return <Notice error={error}/>;
   if (!data.items.length) return <p className="muted">ยังไม่มียอดขายที่อนุมัติแล้ว</p>;
   return <table className="sales"><thead><tr><th>วันที่</th><th>จำนวนคำสั่งซื้อ</th><th>ยอดรวม</th></tr></thead>

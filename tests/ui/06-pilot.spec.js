@@ -82,6 +82,9 @@ test('the admin reads out the code, grants a package, and never sees a slip queu
   // Only packages with a price appear: the ten-visit one is still unpriced and
   // is not offered, because there would be no number to record.
   const choices = admin.getByLabel('แพ็กเกจที่จะมอบ');
+  // The list of packages is its own request, and until it lands there is no
+  // select at all -- so wait for the control before reading what is in it.
+  await expect(choices).toBeVisible({ timeout: 15000 });
   await expect(choices.locator('option')).toContainText(['เลือกแพ็กเกจ', 'รายเดือน Unlimited', 'ทดลองเล่นฟรี']);
   await choices.selectOption({ index: 1 });
   await admin.getByLabel('เหตุผล (บันทึกไว้ในประวัติ)').fill('ผู้ทดลองใช้รอบ pilot');

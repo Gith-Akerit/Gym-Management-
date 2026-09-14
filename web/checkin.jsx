@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { api, Field, formatDateTime, Notice, useResource } from './shared.jsx';
+import { api, Field, formatDateTime, Loading, Notice, StateBox, useResource } from './shared.jsx';
 import { CameraScanner } from './camera.jsx';
 
 const resultLabels = { allowed: 'เข้าใช้บริการได้', duplicate: 'เช็คอินไปแล้ว', denied: 'เข้าใช้บริการไม่ได้' };
@@ -43,17 +43,26 @@ export function MemberCheckInQr() {
     return () => clearInterval(timer.current);
   }, [state.expiresAt, issue]);
 
-  if (state.error) {
-    return <>
-      <Notice error={state.error}/>
-      <button className="full" onClick={issue}>ลองใหม่</button>
-    </>;
-  }
+  // Nothing to show: a code we could not fetch is not a code. The offline
+  // wording lives in StateBox, so a member who lost signal is told that rather
+  // than being handed the system's own error.
+  if (state.error) return <StateBox error={state.error} onRetry={issue}/>;
+
+  // A code whose minute has run out must never sit on the screen looking
+  // ready. Offline, the renewal never comes back, the countdown reaches zero
+  // and the member walks to the counter holding something the scanner will
+  // refuse — so it is greyed out and said so in words (กติกาข้อบังคับ).
+  const expired = !!state.image && left === 0;
   return <>
     {state.image
-      ? <img className="checkin-qr" alt="QR สำหรับเช็คอินที่เคาน์เตอร์" src={state.image}/>
+      ? <img className={`checkin-qr${expired ? ' is-stale' : ''}`}
+          alt="QR สำหรับเช็คอินที่เคาน์เตอร์" src={state.image}/>
       : <div className="qr-frame" role="status">กำลังสร้างรหัส…</div>}
-    <p className="qr-hint">ยื่นจอนี้ให้พนักงานสแกน{state.image ? ` · รหัสใหม่ใน ${left} วินาที` : ''}</p>
+    {expired && <div className="state-box offline" role="alert"><div>
+      <h3>รหัสนี้หมดอายุแล้ว ใช้เข้ายิมไม่ได้</h3>
+      <p>กำลังขอรหัสใหม่ ถ้าไม่ขึ้นภายในไม่กี่วินาที กรุณาตรวจอินเทอร์เน็ตแล้วกดขอรหัสใหม่</p>
+      <button onClick={issue}>ขอรหัสใหม่</button></div></div>}
+    <p className="qr-hint">ยื่นจอนี้ให้พนักงานสแกน{state.image && !expired ? ` · รหัสใหม่ใน ${left} วินาที` : ''}</p>
     <p className="fine">เปิดความสว่างหน้าจอให้สุดจะสแกนง่ายขึ้น รหัสเปลี่ยนเองทุกนาทีและใช้ได้ครั้งเดียว
       การส่งภาพหน้าจอให้คนอื่นจึงใช้เข้ายิมไม่ได้</p>
   </>;
@@ -61,7 +70,7 @@ export function MemberCheckInQr() {
 
 export function MemberCheckInHistory() {
   const { data, error, busy } = useResource('/me/check-ins');
-  if (busy) return <p role="status" className="muted">กำลังโหลดประวัติ…</p>;
+  if (busy) return <Loading label="กำลังโหลดประวัติ…" rows={3}/>;
   if (error) return <Notice error={error}/>;
   if (!data.items.length) return <p className="muted">ยังไม่มีประวัติการเข้าใช้บริการ</p>;
   return <div className="member-list">{data.items.slice(0, 10).map(item =>
@@ -191,8 +200,8 @@ export function CheckInLog({ compact = false }) {
         <span className="muted">{data ? `${data.total.toLocaleString('th-TH')} รายการ` : ''}</span>
       </div>
     </>}
-    <Notice error={error}/>{error && <button onClick={() => reload().catch(() => {})}>ลองใหม่</button>}
-    {busy ? <p role="status" className="empty">กำลังโหลด…</p> : !error && (
+    <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
+    {busy ? <Loading label="กำลังโหลด…" rows={3}/> : !error && (
       !data.items.length ? <p className="muted">ยังไม่มีรายการ</p>
         : <div className="member-list">{data.items.slice(0, compact ? 5 : 20).map(item =>
           <div className="member-row" key={item.id}>
@@ -206,7 +215,7 @@ export function CheckInLog({ compact = false }) {
 
 export function CheckInSummary() {
   const { data, error, busy } = useResource('/check-ins/summary');
-  if (busy) return <p role="status" className="muted">กำลังโหลดสรุป…</p>;
+  if (busy) return <Loading label="กำลังโหลดสรุป…" rows={2}/>;
   if (error) return <Notice error={error}/>;
   if (!data.items.length) return <p className="muted">ยังไม่มีการเช็คอิน</p>;
   return <table className="sales"><thead><tr><th>วันที่</th><th>เข้าใช้บริการ</th><th>ซ้ำ</th><th>ถูกปฏิเสธ</th></tr></thead>

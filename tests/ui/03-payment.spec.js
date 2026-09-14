@@ -73,6 +73,25 @@ test('buy by QR, wait for review, get approved, see the membership', async ({ br
   await expect(member.getByText(/หมดอายุใน \d+:\d\d นาที/)).toBeVisible();
   await member.screenshot({ path: 'artifacts/member-payment.png', fullPage: true });
 
+  // กติกาข้อบังคับ: ส่งไม่สำเร็จ ห้ามล้างค่าที่กรอก. Somebody who has already
+  // moved the money must never be sent back to the banking app to read the
+  // reference number off the slip a second time.
+  await member.getByLabel('เลขอ้างอิงในสลิป').fill('REF-UI-0001');
+  await member.getByRole('button', { name: 'ส่งสลิป', exact: true }).click();
+  await expect(member.getByText('กรุณาแนบรูปสลิปการโอนเงิน')).toBeVisible();
+  await expect(member.getByLabel('เลขอ้างอิงในสลิป')).toHaveValue('REF-UI-0001');
+
+  // And when the upload itself dies on the way out, the chosen photo survives
+  // with it — reopening the picker is the part members get wrong.
+  await member.route('**/api/orders/*/slip', route => route.abort());
+  await member.getByLabel('รูปสลิป', { exact: false })
+    .setInputFiles({ name: 'slip.jpg', mimeType: 'image/jpeg', buffer: jpegBuffer() });
+  await member.getByRole('button', { name: 'ส่งสลิป', exact: true }).click();
+  await expect(member.locator('.notice.error')).toBeVisible();
+  await expect(member.getByLabel('เลขอ้างอิงในสลิป')).toHaveValue('REF-UI-0001');
+  await expect(member.locator('.dropzone b')).toHaveText('slip.jpg');
+  await member.unroute('**/api/orders/*/slip');
+
   await sendSlip(member, 'REF-UI-0001');
 
   await expect(member.getByText('รอตรวจสอบการชำระเงิน')).toBeVisible();

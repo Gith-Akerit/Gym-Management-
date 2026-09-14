@@ -116,6 +116,19 @@ test('a member with a package checks in, and the counter sees who walked in', as
 
   expect(await member.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   expect(errors).toEqual([]);
+
+  // With no way to reach the server there is no code, and the screen says so
+  // rather than leaving the last one on display. A member who walks to the
+  // counter holding an expired QR is turned away by a scanner that cannot
+  // explain itself (กติกาข้อบังคับ: ออฟไลน์ห้ามแสดง QR เดิมว่าพร้อมใช้).
+  await member.route('**/api/me/check-in-token', route => route.abort());
+  await member.getByRole('button', { name: 'หน้าแรก' }).click();
+  await member.reload();
+  await expect(member.getByText('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')).toBeVisible();
+  await expect(member.getByRole('img', { name: /QR สำหรับเช็คอิน/ })).toHaveCount(0);
+  await expect(member.getByText(/รหัสใหม่ใน \d+ วินาที/)).toHaveCount(0);
+  await member.screenshot({ path: 'artifacts/member-checkin-offline.png', fullPage: true });
+  await member.unroute('**/api/me/check-in-token');
 });
 
 test('a member with no package is turned away with a reason they can act on', async ({ browser }) => {

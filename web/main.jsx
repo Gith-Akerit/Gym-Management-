@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import {
-  api, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Notice,
-  packageStatusLabels, PilotContext, useResource, usePilot,
+  api, Empty, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Loading,
+  Notice, packageStatusLabels, PilotContext, StateBox, useResource, usePilot,
 } from './shared.jsx';
 import {
   MemberEntitlements, MemberOrder, MemberOrderHistory, MemberPackages,
@@ -30,6 +30,7 @@ const icons = {
   key: 'M15 7a4 4 0 1 1-3.9 5H9v2H7v2H4v-3l6.1-6.1A4 4 0 0 1 15 7',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M5 21v-1a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v1',
   out: 'M15 17l5-5-5-5M20 12H9M13 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h7',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
 };
 const Icon = ({ name }) => <svg className="ico" viewBox="0 0 24 24" aria-hidden="true"><path d={icons[name]}/></svg>;
 
@@ -306,7 +307,7 @@ function PilotOtpBoard() {
     <button onClick={() => reload().catch(() => {})} disabled={busy}>{busy ? 'กำลังโหลด…' : 'โหลดใหม่'}</button></div>
     <Notice error={error}/>
     <section className="card">
-      {busy ? <p role="status" className="empty">กำลังโหลด…</p>
+      {busy ? <Loading label="กำลังโหลด…" rows={3}/>
         : !data?.items.length ? <p className="muted">ยังไม่มีใครขอรหัสในช่วง 5 นาทีที่ผ่านมา</p>
           : <div className="member-list">{data.items.map(item => <div className="member-row" key={`${item.email}-${item.created_at}`}>
             <span className="member-name"><strong>{item.email}</strong>
@@ -369,8 +370,8 @@ function MemberAdmin({ onAuthError }) {
     {notice && <div className="notice" role="status">{notice}</div>}
     <section className="card"><div className="search-row"><Field name="search" label="ค้นหาสมาชิก" type="search" value={q} onChange={v => { setQ(v); setPage(1); }} placeholder="ชื่อ เบอร์โทร อีเมล หรือรหัสสมาชิก" maxLength={120}/>
       <span className="muted">{data ? `${data.total.toLocaleString('th-TH')} คน` : ''}</span></div>
-      <Notice error={error}/>{error && <button onClick={() => setRevision(n => n + 1)}>ลองใหม่</button>}
-      {busy ? <p role="status" className="empty">กำลังโหลดสมาชิก…</p> : !error && <>
+      <StateBox error={error} onRetry={() => setRevision(n => n + 1)}/>
+      {busy ? <Loading label="กำลังโหลดสมาชิก…" rows={4} avatar/> : !error && <>
         {!data?.items.length ? <div className="empty"><h2>{q ? 'ไม่พบสมาชิกที่ค้นหา' : 'ยังไม่มีสมาชิก'}</h2><p className="muted">{q ? 'ลองค้นหาด้วยชื่อ เบอร์โทร หรืออีเมลอื่น' : 'เริ่มด้วยปุ่ม “เพิ่มสมาชิก” หรือให้สมาชิกสมัครผ่านแอป'}</p></div>
           : <div className="table-wrap"><table className="table table-members">
             {/* A table on a desktop and a stack of cards on a phone, from one
@@ -470,8 +471,8 @@ function PackageAdmin({ onAuthError }) {
     <p className="muted">ตั้งราคาและเปิดขายได้เอง ไม่ต้องแก้โค้ด</p></div>
     <button className="primary" onClick={() => { setEditor({}); setNotice(''); }}>＋ เพิ่มแพ็กเกจ</button></div>
     {notice && <div className="notice" role="status">{notice}</div>}
-    <Notice error={error}/>{error && <button onClick={() => reload().catch(() => {})}>ลองใหม่</button>}
-    {busy ? <p role="status" className="empty">กำลังโหลดแพ็กเกจ…</p> : !error && (
+    <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
+    {busy ? <Loading label="กำลังโหลดแพ็กเกจ…" cards={2}/> : !error && (
       !data.items.length ? <div className="empty"><h2>ยังไม่มีแพ็กเกจ</h2><p>เริ่มด้วยปุ่ม “เพิ่มแพ็กเกจ”</p></div>
         : <section className="card">{data.items.map(item => {
           const price = formatPrice(item.price_thb);
@@ -497,8 +498,8 @@ function GymSettings({ onAuthError }) {
       phone_primary: data.profile.phone_primary ?? '', phone_secondary: data.profile.phone_secondary ?? '' });
     setHours(data.hours);
   }, [data]);
-  if (busy) return <p role="status" className="empty">กำลังโหลดข้อมูลยิม…</p>;
-  if (error) return <><Notice error={error}/><button onClick={() => reload().catch(() => {})}>ลองใหม่</button></>;
+  if (busy) return <Loading label="กำลังโหลดข้อมูลยิม…" cards={2}/>;
+  if (error) return <StateBox error={error} onRetry={() => reload().catch(() => {})}/>;
   if (!data.profile) return <div className="empty"><h2>ยังไม่ได้ตั้งค่าข้อมูลยิม</h2><p>รัน <code>npm run db:seed</code> เพื่อสร้างค่าเริ่มต้น</p></div>;
   if (!form || !hours) return null;
   const set = (name, v) => setForm(current => ({ ...current, [name]: v }));
@@ -542,19 +543,31 @@ function GymSettings({ onAuthError }) {
         <Field name="hours_note" label="หมายเหตุเวลาเปิดทำการ (ภายใน)" value={form.hours_note} onChange={v => set('hours_note', v)} error={errors.hours_note} maxLength={200}/>
         <label className="check-row"><input type="checkbox" checked={form.hours_confirmed} onChange={e => set('hours_confirmed', e.target.checked)}/>
           <span>ยืนยันเวลาเปิดทำการแล้ว (เอาคำเตือนออกจากแอปสมาชิก)</span></label>
-        <h3 style={{ marginTop: 20 }}>การชำระเงิน</h3>
+        <div className="actions"><button className="primary" disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึกข้อมูลยิม'}</button></div>
+      </form></section>
+
+    {/* Three cards, three saves. One long form with a single button at the
+        bottom made the gym owner scroll past settings they were not changing
+        to reach the one they were, and gave no sign which part they had just
+        saved (Designer, page 10). All three write the same profile. */}
+    <section className="card"><h2>การชำระเงิน</h2>
+      <form onSubmit={saveProfile}>
         <Field name="payment_sla_text" label="ข้อความแจ้งสมาชิกว่าจะตรวจสลิปเมื่อไร" value={form.payment_sla_text}
           onChange={v => set('payment_sla_text', v)} error={errors.payment_sla_text} required maxLength={200}/>
         <Field name="order_ttl_minutes" label="เวลาที่ให้ชำระเงินต่อคำสั่งซื้อ (นาที)" value={form.order_ttl_minutes}
           onChange={v => set('order_ttl_minutes', v)} error={errors.order_ttl_minutes} type="number" min={5} max={1440}/>
-        <h3 style={{ marginTop: 20 }}>การเช็คอิน</h3>
+        <p className="fine">บัญชี PromptPay ที่รับเงินตั้งค่าที่ตัวแปร PROMPTPAY_ID ตอน deploy ไม่ได้เก็บไว้ในหน้านี้หรือในโค้ด</p>
+        <div className="actions"><button className="primary" disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึกการชำระเงิน'}</button></div>
+      </form></section>
+
+    <section className="card"><h2>การเช็คอิน</h2>
+      <form onSubmit={saveProfile}>
         <Field name="check_in_token_seconds" label="อายุ QR เช็คอิน (วินาที)" value={form.check_in_token_seconds}
           onChange={v => set('check_in_token_seconds', v)} error={errors.check_in_token_seconds} type="number" min={15} max={600}/>
         <Field name="check_in_window_minutes" label="สแกนซ้ำภายในกี่นาทีถือเป็นครั้งเดียวกัน" value={form.check_in_window_minutes}
           onChange={v => set('check_in_window_minutes', v)} error={errors.check_in_window_minutes} type="number" min={1} max={720}/>
         <p className="fine">QR ยิ่งอายุสั้นยิ่งแชร์กันยาก แต่ต้องพอให้สมาชิกเดินจากประตูถึงเคาน์เตอร์</p>
-        <p className="fine">บัญชี PromptPay ที่รับเงินตั้งค่าที่ตัวแปร PROMPTPAY_ID ตอน deploy ไม่ได้เก็บไว้ในหน้านี้หรือในโค้ด</p>
-        <div className="actions"><button className="primary" disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึกข้อมูลยิม'}</button></div>
+        <div className="actions"><button className="primary" disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึกการเช็คอิน'}</button></div>
       </form></section>
 
     <section className="card"><h2>เวลาเปิดทำการ</h2>
@@ -639,8 +652,8 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
           placeholder="อีเมล หรือชื่อสมาชิก" maxLength={120}/>
         <span className="muted">{data ? `${data.total.toLocaleString('th-TH')} บัญชี · ผู้ดูแลระบบที่ใช้งานได้ ${data.admins} คน` : ''}</span>
       </div>
-      <Notice error={error}/>{error && <button onClick={() => reload().catch(() => {})}>ลองใหม่</button>}
-      {busy ? <p role="status" className="empty">กำลังโหลด…</p> : !error && (
+      <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
+      {busy ? <Loading label="กำลังโหลด…" rows={3}/> : !error && (
         !data.items.length ? <p className="muted">ไม่พบบัญชีที่ค้นหา</p>
           : <div className="table-wrap"><table className="table table-users">
             <thead><tr><th>บัญชี</th><th>สถานะ</th><th>สิทธิ์</th><th/></tr></thead>
@@ -685,9 +698,28 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
  * structure at all -- everything floated at the top left and nothing lined up.
  */
 function SideNav({ label, tabs, tab, setTab }) {
-  return <nav className="sidenav" aria-label={label}>{tabs.map(([key, text, icon]) =>
-    <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>
-      <Icon name={icon}/>{text}</button>)}</nav>;
+  const [more, setMore] = useState(false);
+  // Seven items across a 390px bar leaves each one 55px wide, which is two
+  // syllables of Thai. The four that get used every day stay on the bar; the
+  // rest move behind "เพิ่มเติม" (Designer, approved). On a desktop sidebar
+  // there is room for all of them and the extra button is hidden by the kit.
+  const primary = tabs.slice(0, 4);
+  const secondary = tabs.slice(4);
+  const item = ([key, text, icon], className) =>
+    <button key={key} className={className} onClick={() => { setTab(key); setMore(false); }}
+      aria-current={tab === key ? 'page' : undefined}><Icon name={icon}/>{text}</button>;
+
+  return <>
+    {more && <button className="nav-scrim" aria-label="ปิดเมนูเพิ่มเติม" onClick={() => setMore(false)}/>}
+    <nav className="sidenav" aria-label={label}>
+      {primary.map(t => item(t))}
+      <span className={`sidenav-group${more ? ' is-open' : ''}`}>
+        {secondary.map(t => item(t, 'nav-secondary'))}
+      </span>
+      {secondary.length > 0 && <button className="nav-mobile-only" aria-expanded={more}
+        onClick={() => setMore(!more)}><Icon name="more"/>เพิ่มเติม</button>}
+    </nav>
+  </>;
 }
 
 function Console({ nav, notice, children }) {
