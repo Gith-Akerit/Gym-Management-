@@ -173,3 +173,7 @@ table.sales td:last-child,table.sales th:last-child{text-align:right}
 .otp-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.6rem;letter-spacing:.32em;margin:6px 0}
 .otp-code.used{font-size:.92rem;letter-spacing:normal;color:var(--muted)}
 .pilot-otp{background:#fff6dc;border:1px solid #e7c96a}
+
+/* The role picker sits inside a list row, so it must not take the full width. */
+.inline-field{margin:0;min-width:180px}
+.inline-field select{min-height:40px}

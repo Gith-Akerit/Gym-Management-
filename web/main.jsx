@@ -531,6 +531,87 @@ function GymSettings({ onAuthError }) {
       <SalesReport/></section></>;
 }
 
+// ------------------------------------------------------- admin: users/roles
+
+const roleLabels = { admin: 'ผู้ดูแลระบบ', staff: 'พนักงาน', member: 'สมาชิก' };
+
+/**
+ * Who may sign in, and what they may do. Separate from the members screen:
+ * that one is about people who train here, this one is about access. Without
+ * it a freshly installed gym had one account and no way to make a second, so
+ * nobody could work the scanner.
+ */
+function UserAdmin({ onAuthError }) {
+  const [q, setQ] = useState(''), [page, setPage] = useState(1);
+  const { data, error, busy, reload } = useResource(`/users?q=${encodeURIComponent(q)}&page=${page}`);
+  const [email, setEmail] = useState(''), [role, setRole] = useState('staff');
+  const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null), [notice, setNotice] = useState('');
+
+  async function act(path, options, message) {
+    setWorking(true); setActionError(null); setNotice('');
+    try { await api(path, options); setNotice(message); await reload(); }
+    catch (e) { setActionError(e); onAuthError(e); } finally { setWorking(false); }
+  }
+  const invite = () => act('/users', { method: 'POST', body: { email, role } }, 'สร้างบัญชีแล้ว')
+    .then(() => setEmail(''));
+
+  return <>
+    <div className="page-heading"><div><span className="eyebrow">ผู้ใช้และสิทธิ์</span><h1>บัญชีผู้ใช้</h1>
+      <p className="muted">ใครเข้าระบบได้บ้าง และเข้าได้ในฐานะอะไร</p></div></div>
+    {notice && <div className="notice" role="status">{notice}</div>}
+
+    <section className="card"><h2>เพิ่มบัญชีพนักงานหรือผู้ดูแลระบบ</h2>
+      <p className="muted">ไม่มีรหัสผ่านให้ตั้ง เจ้าของอีเมลนี้จะเข้าระบบด้วยรหัสที่ส่งไปเหมือนทุกบัญชี
+        ส่วนสมาชิกให้สมัครเองในแอปหรือเพิ่มที่หน้าสมาชิก</p>
+      <div className="search-row">
+        <Field name="new-user-email" label="อีเมล" type="email" value={email} onChange={setEmail}
+          placeholder="staff@example.com" error={actionError?.fields?.email}/>
+        <label className="field">สิทธิ์
+          <select aria-label="สิทธิ์ของบัญชีใหม่" value={role} onChange={e => setRole(e.target.value)}>
+            <option value="staff">พนักงาน — สแกนเช็คอินและดูประวัติ</option>
+            <option value="admin">ผู้ดูแลระบบ — จัดการทุกอย่าง</option>
+          </select></label>
+      </div>
+      <Notice error={actionError}/>
+      <button className="primary" disabled={!email.trim() || working} onClick={invite}>
+        {working ? 'กำลังบันทึก…' : 'สร้างบัญชี'}</button>
+    </section>
+
+    <section className="card">
+      <div className="search-row">
+        <Field name="user-search" label="ค้นหาบัญชี" type="search" value={q} onChange={v => { setQ(v); setPage(1); }}
+          placeholder="อีเมล หรือชื่อสมาชิก" maxLength={120}/>
+        <span className="muted">{data ? `${data.total.toLocaleString('th-TH')} บัญชี · ผู้ดูแลระบบที่ใช้งานได้ ${data.admins} คน` : ''}</span>
+      </div>
+      <Notice error={error}/>{error && <button onClick={() => reload().catch(() => {})}>ลองใหม่</button>}
+      {busy ? <p role="status" className="empty">กำลังโหลด…</p> : !error && (
+        !data.items.length ? <p className="muted">ไม่พบบัญชีที่ค้นหา</p>
+          : <div className="member-list">{data.items.map(user => <div className="member-row" key={user.id}>
+            <span className="member-name"><strong>{user.email}</strong>
+              <small>{user.member_name ? `${user.member_name} · ` : ''}{roleLabels[user.role]}
+                {user.status === 'suspended' ? ' · ถูกระงับ' : ''}</small></span>
+            <label className="field inline-field">เปลี่ยนสิทธิ์
+              <select aria-label={`สิทธิ์ของ ${user.email}`} value={user.role} disabled={working}
+                onChange={e => act(`/users/${user.id}/role`, { method: 'PUT', body: { role: e.target.value } },
+                  `เปลี่ยนสิทธิ์ของ ${user.email} แล้ว`)}>
+                {Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select></label>
+            <button className={user.status === 'suspended' ? '' : 'danger'} disabled={working}
+              aria-label={`${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email}`}
+              onClick={() => act(`/users/${user.id}/${user.status === 'suspended' ? 'restore' : 'suspend'}`,
+                { method: 'POST', body: {} },
+                `${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email} แล้ว`)}>
+              {user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับบัญชี'}</button>
+          </div>)}</div>)}
+      <div className="pagination"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</button>
+        <span>หน้า {page} / {Math.max(1, Math.ceil((data?.total || 0) / 20))}</span>
+        <button disabled={page * 20 >= (data?.total || 0)} onClick={() => setPage(page + 1)}>ถัดไป</button></div>
+    </section>
+    <p className="fine">ระงับบัญชีคือห้ามเข้าสู่ระบบ ไม่ใช่การระงับสมาชิกภาพ — สถานะสมาชิกแก้ที่หน้า “สมาชิก”
+      ระบบไม่ยอมให้ลดสิทธิ์หรือระงับจนไม่เหลือผู้ดูแลระบบที่ใช้งานได้เลย</p>
+  </>;
+}
+
 function Staff({ onAuthError }) {
   const pilot = usePilot();
   const [tab, setTab] = useState('scan');
@@ -551,13 +632,17 @@ function Admin({ onAuthError }) {
   const [tab, setTab] = useState('members');
   // The slip queue is replaced by the list of OTP codes, because in pilot mode
   // reading a code out is the job that actually happens at the counter.
-  const tabs = [['members', 'สมาชิก'],
+  const tabs = [['members', 'สมาชิก'], ['users', 'ผู้ใช้และสิทธิ์'],
     ...(pilot ? [['codes', 'รหัส OTP']] : [['review', 'ตรวจสลิป']]),
-    ['checkin', 'เช็คอิน'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
+    ['scan', 'สแกนเช็คอิน'], ['checkin', 'เช็คอิน'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
   return <>
     <nav className="tabs" aria-label="เมนูผู้ดูแลระบบ">{tabs.map(([key, label]) =>
       <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
     {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
+    {tab === 'users' && <UserAdmin onAuthError={onAuthError}/>}
+    {/* The same counter screen staff get: on a small gym the owner is often the
+        one at the desk, and until now they had no way to scan anybody in. */}
+    {tab === 'scan' && <StaffScanner/>}
     {tab === 'codes' && <PilotOtpBoard/>}
     {tab === 'review' && <PaymentReview onAuthError={onAuthError}/>}
     {tab === 'checkin' && <><div className="page-heading"><div><span className="eyebrow">เช็คอิน</span>

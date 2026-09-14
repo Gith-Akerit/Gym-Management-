@@ -149,7 +149,7 @@ test('staff may read the slip queue but are told they cannot decide it', async (
 
 test('the admin can see who came in and who was turned away', async ({ page }) => {
   await login(page, 'admin5@example.test');
-  await page.getByRole('button', { name: 'เช็คอิน' }).click();
+  await page.getByRole('button', { name: 'เช็คอิน', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'การเข้าใช้บริการ' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'ประวัติการเช็คอิน' })).toBeVisible();
   await expect(page.getByText('เข้าใช้บริการได้').first()).toBeVisible();
@@ -180,7 +180,7 @@ test('a scan that matches no member is kept out of the member history', async ({
 
   const admin = await (await browser.newContext()).newPage();
   await login(admin, 'admin7@example.test');
-  await admin.getByRole('button', { name: 'เช็คอิน' }).click();
+  await admin.getByRole('button', { name: 'เช็คอิน', exact: true }).click();
   const tab = admin.getByRole('button', { name: /QR ไม่ถูกต้อง/ });
   await expect(tab).toContainText(/\(\d+\)/);
   await tab.click();
