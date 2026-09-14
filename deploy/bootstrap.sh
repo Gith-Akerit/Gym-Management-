@@ -113,6 +113,9 @@ ufw allow 443/tcp
 ufw --force enable
 # Docker published ports bypass UFW. This project's only published ports are 80/443.
 docker compose up -d --wait --wait-timeout 180
+# Read before the next line blanks it. In pilot mode there is no email, so this
+# is the account the first sign-in code has to be issued for.
+admin_email=$(sed -n "s/^ADMIN_EMAIL='\(.*\)'\$/\1/p" .env | head -n1)
 python3 deploy/bootstrap-env.py --clear-admin
 docker compose up -d --wait --wait-timeout 120 app
 install -d -m 700 /var/backups/gym
@@ -135,10 +138,21 @@ echo 'HTTPS health: OK'
 echo 'URL: https://srv1979069.hstgr.cloud'
 if [ "$pilot" = 1 ]; then
   echo 'PILOT MODE: no email is sent and no payment is taken.'
-  echo 'Sign in with the administrator email, then read the code from the admin console:'
-  echo '  the "รหัส OTP" tab, or the member card on each member page.'
   echo 'Grant packages from a member page ("มอบแพ็กเกจ"); there is no purchase screen.'
+  echo 'After this first sign-in, every code is on the "รหัส OTP" tab of the admin console.'
   echo 'To go live later, rerun the same command WITHOUT --pilot.'
+  # The first administrator has nowhere to read their own code: the screen that
+  # shows codes is behind the login they are trying to pass. Issue one here.
+  if [ -n "$admin_email" ]; then
+    echo
+    echo '--- FIRST SIGN-IN (valid 5 minutes from now) ---------------------------'
+    docker compose exec -T app npm --silent run pilot:code -- "$admin_email" \
+      || echo "Could not issue the code. Run: cd /srv/gym && docker compose exec app npm run pilot:code -- $admin_email"
+    echo '------------------------------------------------------------------------'
+  else
+    echo 'Issue the first sign-in code with:'
+    echo '  cd /srv/gym && docker compose exec app npm run pilot:code -- <administrator email>'
+  fi
 else
   echo 'Sign in with the reporter admin email and the OTP delivered by email.'
 fi

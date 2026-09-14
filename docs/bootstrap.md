@@ -23,6 +23,15 @@ cannot send anybody a code.
 curl -fsSL https://raw.githubusercontent.com/Gith-Akerit/Gym-Management-/COMMIT_SHA/deploy/bootstrap.sh | bash -s -- --revision COMMIT_SHA
 ```
 
+A `--pilot` install ends by printing the first administrator's sign-in code and
+a one-time link, valid for five minutes. That is the way in: pilot mode shows
+codes on the admin console, and the first administrator cannot reach the console
+until they are signed in. Later codes are read from the "รหัส OTP" tab instead.
+If the code expires, issue another with
+`cd /srv/gym && docker compose exec app npm run pilot:code -- <email>`, which
+works only while `PILOT_MODE=1` and only for an account that is already an
+admin, and records the issue in the audit log.
+
 Everything created during the pilot -- members, packages, granted memberships,
 check-in history -- keeps working across that switch. Rerunning with `--pilot`
 puts a live installation back into pilot mode without touching the saved
