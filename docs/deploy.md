@@ -152,6 +152,10 @@ Push branch ขึ้น GitHub แล้วสร้าง Blueprint ชี้�
 
 ### เปิด
 
+ถ้าติดตั้งด้วยตัว bootstrap ของ Hostinger ให้ใส่ `--pilot` ในคำสั่งติดตั้ง (ดู [docs/bootstrap.md](bootstrap.md)) สคริปต์จะถามแค่อีเมลแอดมิน สุ่ม `OTP_SECRET` ให้ และข้ามคำถาม PromptPay/SMTP ทั้งหมด
+
+ถ้าติดตั้งเองด้วยวิธีอื่น:
+
 ```bash
  npm run env:set -- PILOT_MODE=1
 # แล้วรีสตาร์ตบริการ: docker compose up -d  หรือ  pm2 restart gym
@@ -160,6 +164,10 @@ Push branch ขึ้น GitHub แล้วสร้าง Blueprint ชี้�
 ค่าที่ต้องมีเหลือแค่ `APP_ORIGIN`, `OTP_SECRET` และ `ADMIN_EMAIL` สำหรับบัญชีแอดมินคนแรก
 
 ### ปิดเพื่อเปิดใช้จริง
+
+ถ้าติดตั้งด้วย bootstrap ให้รันคำสั่งเดิม **โดยไม่ใส่ `--pilot`** สคริปต์จะถามค่าที่ขาด ตรวจ SMTP ให้ผ่านก่อน แล้วจึงปิดโหมดทดลองและรีสตาร์ตให้เอง ถ้า SMTP ไม่ผ่าน `.env` ไม่ถูกแตะและยังอยู่ในโหมดทดลองเหมือนเดิม
+
+ถ้าตั้งค่าเอง:
 
 ```bash
  npm run env:set -- PILOT_MODE= PROMPTPAY_ID='08xxxxxxxx' SMTP_HOST='smtp-relay.brevo.com' SMTP_PORT=587 SMTP_USER='...' SMTP_PASSWORD='...' MAIL_FROM='noreply@...'

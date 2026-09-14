@@ -7,22 +7,34 @@ set -eu
 set -o pipefail
 umask 077
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-case "${1:-}" in
-  --dry-run)
-    printf '%s\n' 'DRY RUN: no writes, network calls or secret prompts.' \
-      'Check Ubuntu/root, existing services and SSH port; lock installer.' \
-      'Add dedicated SSH public key; upgrade OS without automatic reboot.' \
-      'Install official Docker + Compose; clone release/pilot into /srv/gym.' \
-      'Prompt hidden credentials via /dev/tty; verify STARTTLS SMTP auth before saving.' \
-      'Preserve existing OTP_SECRET, credentials and persistent volume on rerun.' \
-      'Build app; allow only TCP 22/80/443 on a dedicated host; start Caddy/app.' \
-      'Install daily consistent backup and monthly prune; check HTTPS health.'
-    return 0 ;;
-  --revision)
-    revision=${2:-}
-    [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo 'A full commit SHA is required.' >&2; return 2; } ;;
-  *) echo 'Usage: bootstrap.sh --revision COMMIT_SHA | --dry-run' >&2; return 2 ;;
-esac
+usage='Usage: bootstrap.sh --revision COMMIT_SHA [--pilot] | --dry-run'
+revision=''
+pilot=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run)
+      printf '%s\n' 'DRY RUN: no writes, network calls or secret prompts.' \
+        'Check Ubuntu/root, existing services and SSH port; lock installer.' \
+        'Add dedicated SSH public key; upgrade OS without automatic reboot.' \
+        'Install official Docker + Compose; clone release/pilot into /srv/gym.' \
+        'Prompt hidden credentials via /dev/tty; verify STARTTLS SMTP auth before saving.' \
+        'With --pilot: ask only for the administrator email, set PILOT_MODE=1 and' \
+        'skip PromptPay/SMTP entirely; OTP codes are read from the admin console.' \
+        'Rerunning the same command without --pilot asks for the missing PromptPay' \
+        'and SMTP values, verifies SMTP, then clears PILOT_MODE and restarts.' \
+        'Preserve existing OTP_SECRET, credentials and persistent volume on rerun.' \
+        'Build app; allow only TCP 22/80/443 on a dedicated host; start Caddy/app.' \
+        'Install daily consistent backup and monthly prune; check HTTPS health.'
+      return 0 ;;
+    --pilot) pilot=1; shift ;;
+    --revision)
+      revision=${2:-}
+      [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo 'A full commit SHA is required.' >&2; return 2; }
+      shift 2 ;;
+    *) echo "$usage" >&2; return 2 ;;
+  esac
+done
+[ -n "$revision" ] || { echo "$usage" >&2; return 2; }
 [ "$(id -u)" = 0 ] || { echo 'Run as root in hPanel Web Console.' >&2; return 1; }
 . /etc/os-release
 [ "$ID" = ubuntu ] || { echo 'Ubuntu is required.' >&2; return 1; }
@@ -80,7 +92,10 @@ cd /srv/gym
 # Do not git pull on reruns: preserve the installed revision and local settings.
 [ "$(git rev-parse HEAD)" = "$revision" ] || { echo 'Installed revision differs. Use its bootstrap command or perform a reviewed upgrade.' >&2; return 1; }
 chmod 700 /srv/gym
-python3 deploy/bootstrap-env.py
+# --pilot asks only for the administrator email and writes PILOT_MODE=1.
+# Without it, an environment created by --pilot is asked for what it is missing,
+# checked, and then taken out of pilot mode.
+if [ "$pilot" = 1 ]; then python3 deploy/bootstrap-env.py --pilot; else python3 deploy/bootstrap-env.py; fi
 docker compose config --quiet
 docker compose build --pull app
 docker compose run --rm --no-deps --entrypoint node app -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a!==24||b<15)process.exit(1)'
@@ -115,7 +130,15 @@ done
 [ "$healthy" = 1 ] || { echo 'HTTPS health failed. Check DNS A/AAAA, ports 80/443 and docker compose logs caddy.' >&2; return 1; }
 echo 'HTTPS health: OK'
 echo 'URL: https://srv1979069.hstgr.cloud'
-echo 'Sign in with the reporter admin email and the OTP delivered by email.'
+if [ "$pilot" = 1 ]; then
+  echo 'PILOT MODE: no email is sent and no payment is taken.'
+  echo 'Sign in with the administrator email, then read the code from the admin console:'
+  echo '  the "รหัส OTP" tab, or the member card on each member page.'
+  echo 'Grant packages from a member page ("มอบแพ็กเกจ"); there is no purchase screen.'
+  echo 'To go live later, rerun the same command WITHOUT --pilot.'
+else
+  echo 'Sign in with the reporter admin email and the OTP delivered by email.'
+fi
 echo 'Daily local backup: /var/backups/gym (7 days). Copy off-server for disaster recovery.'
 echo 'SSH host fingerprint (safe to share):'
 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub

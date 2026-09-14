@@ -57,13 +57,46 @@ def write_env(path, values, template):
         if os.path.exists(name):
             os.unlink(name)
 
+def ask_credentials():
+    """The values a live gym needs and a pilot one does not have yet."""
+    promptpay = ask('PromptPay ID')
+    provider = ask('SMTP preset: enter gmail or brevo').lower()
+    if provider not in ('gmail', 'brevo'):
+        raise ValueError('Choose gmail or brevo.')
+    user = ask('Gmail address' if provider == 'gmail' else 'Brevo SMTP login')
+    password = ask('Gmail App Password' if provider == 'gmail' else 'Brevo SMTP key')
+    sender = user if provider == 'gmail' else ask('Brevo verified sender email')
+    if provider == 'gmail':
+        password = password.replace(' ', '')
+    if not re.fullmatch(r'(0\d{9}|66\d{9}|\d{13}|\d{15})', promptpay):
+        raise ValueError('Invalid PromptPay ID format.')
+    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', sender):
+        raise ValueError('Invalid sender email format.')
+    return dict(PROMPTPAY_ID=promptpay,
+                SMTP_HOST='smtp.gmail.com' if provider == 'gmail' else 'smtp-relay.brevo.com',
+                SMTP_PORT='587', SMTP_SECURE='false', SMTP_USER=user,
+                SMTP_PASSWORD=password, MAIL_FROM=sender)
+
+
+def check_smtp(values):
+    try:
+        with smtplib.SMTP(values['SMTP_HOST'], int(values['SMTP_PORT']), timeout=20) as smtp:
+            smtp.ehlo()
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.ehlo()
+            smtp.login(values['SMTP_USER'], values['SMTP_PASSWORD'])
+    except Exception:
+        raise ValueError('SMTP TLS/login failed. Check credentials and outbound port 587; .env was not changed.') from None
+    print('SMTP TLS/login: OK (email delivery still needs a real OTP test).')
+
+
 def ask(label):
     value = getpass.getpass(label + ' (hidden): ').strip()
     if not value:
         raise ValueError('A required value was empty; rerun setup.')
     return value
 
-def configure(root, clear_admin=False):
+def configure(root, clear_admin=False, pilot=False):
     path = root / '.env'
     template = (root / '.env.example').read_text(encoding='utf-8')
     if path.exists():
@@ -75,46 +108,48 @@ def configure(root, clear_admin=False):
         with open('/dev/tty', 'r+'):
             pass
         admin = ask('Reporter email for administrator login')
-        promptpay = ask('PromptPay ID')
-        provider = ask('SMTP preset: enter gmail or brevo').lower()
-        if provider not in ('gmail', 'brevo'):
-            raise ValueError('Choose gmail or brevo.')
-        user = ask('Gmail address' if provider == 'gmail' else 'Brevo SMTP login')
-        password = ask('Gmail App Password' if provider == 'gmail' else 'Brevo SMTP key')
-        sender = user if provider == 'gmail' else ask('Brevo verified sender email')
-        if provider == 'gmail':
-            password = password.replace(' ', '')
-        if not re.fullmatch(r'(0\d{9}|66\d{9}|\d{13}|\d{15})', promptpay):
-            raise ValueError('Invalid PromptPay ID format.')
-        if not all(re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', v) for v in (admin, sender)):
-            raise ValueError('Invalid administrator or sender email format.')
+        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', admin):
+            raise ValueError('Invalid administrator email format.')
         values = dict(NODE_ENV='production', HOST='0.0.0.0', PORT='3000',
                       APP_DOMAIN='srv1979069.hstgr.cloud',
                       APP_ORIGIN='https://srv1979069.hstgr.cloud', TRUST_PROXY='1',
                       DATABASE_PATH='/data/gym.sqlite', SLIP_STORAGE_PATH='/data/slips',
                       SLIP_RETENTION_DAYS='365', OTP_SECRET=secrets.token_hex(32),
-                      ADMIN_EMAIL=admin, PROMPTPAY_ID=promptpay,
-                      SMTP_HOST='smtp.gmail.com' if provider == 'gmail' else 'smtp-relay.brevo.com',
-                      SMTP_PORT='587', SMTP_SECURE='false', SMTP_USER=user,
-                      SMTP_PASSWORD=password, MAIL_FROM=sender, ALLOW_DESTRUCTIVE_ROLLBACK='')
+                      ADMIN_EMAIL=admin, ALLOW_DESTRUCTIVE_ROLLBACK='')
+        # A pilot has no merchant account and no mailbox. The keys are written
+        # empty rather than left to the template, whose development defaults
+        # would otherwise look like real configuration the app is ignoring.
+        values.update(PILOT_MODE='1', PROMPTPAY_ID='', SMTP_HOST='', SMTP_PORT='',
+                      SMTP_SECURE='', SMTP_USER='', SMTP_PASSWORD='', MAIL_FROM='')
+        if not pilot:
+            values.update(PILOT_MODE='', **ask_credentials())
     if clear_admin:
         values['ADMIN_EMAIL'] = ''
+    elif pilot:
+        # Rerunning with --pilot on a live environment puts it back into pilot
+        # mode without touching the credentials already saved.
+        values['PILOT_MODE'] = '1'
+        print('Pilot mode: OTP codes appear in the admin console; no email is sent.')
     else:
-        try:
-            with smtplib.SMTP(values['SMTP_HOST'], int(values['SMTP_PORT']), timeout=20) as smtp:
-                smtp.ehlo()
-                smtp.starttls(context=ssl.create_default_context())
-                smtp.ehlo()
-                smtp.login(values['SMTP_USER'], values['SMTP_PASSWORD'])
-        except Exception:
-            raise ValueError('SMTP TLS/login failed. Check credentials and outbound port 587; .env was not changed.') from None
-        print('SMTP TLS/login: OK (email delivery still needs a real OTP test).')
+        # Leaving pilot mode: ask for whatever the pilot never collected, and
+        # only clear the flag once the mail server has actually accepted a
+        # login. A failure here leaves .env exactly as it was.
+        if not values.get('SMTP_HOST') or not values.get('PROMPTPAY_ID'):
+            with open('/dev/tty', 'r+'):
+                pass
+            print('Going live: PromptPay and email are needed before payments and OTP mail work.')
+            values.update(ask_credentials())
+        check_smtp(values)
+        values['PILOT_MODE'] = ''
     write_env(path, values, template)
     print('Environment saved securely; values are not displayed.')
 
 if __name__ == '__main__':
     try:
-        configure(Path('/srv/gym'), sys.argv[1:] == ['--clear-admin'])
+        flags = sys.argv[1:]
+        if flags and flags not in (['--clear-admin'], ['--pilot']):
+            raise ValueError('Usage: bootstrap-env.py [--pilot | --clear-admin]')
+        configure(Path('/srv/gym'), flags == ['--clear-admin'], flags == ['--pilot'])
     except Exception as error:
         # Only our fixed validation messages are safe to display.
         print(str(error) if isinstance(error, ValueError) else 'Environment setup failed; check file permissions and terminal.', file=sys.stderr)
