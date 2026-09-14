@@ -541,17 +541,29 @@ const roleLabels = { admin: 'ผู้ดูแลระบบ', staff: 'พน�
  * it a freshly installed gym had one account and no way to make a second, so
  * nobody could work the scanner.
  */
-function UserAdmin({ onAuthError }) {
+function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
   const [q, setQ] = useState(''), [page, setPage] = useState(1);
   const { data, error, busy, reload } = useResource(`/users?q=${encodeURIComponent(q)}&page=${page}`);
   const [email, setEmail] = useState(''), [role, setRole] = useState('staff');
   const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null), [notice, setNotice] = useState('');
 
-  async function act(path, options, message) {
+  /**
+   * @param farewell shown on the login screen when the action just ended this
+   *   admin's own session. Without it the console simply vanishes mid-click and
+   *   the login page gives no reason (QA PM-17).
+   */
+  async function act(path, options, message, farewell) {
     setWorking(true); setActionError(null); setNotice('');
-    try { await api(path, options); setNotice(message); await reload(); }
-    catch (e) { setActionError(e); onAuthError(e); } finally { setWorking(false); }
+    try {
+      await api(path, options);
+      // Reloading the list would only 401 and report itself as an error.
+      if (farewell) return onSignedOut(farewell);
+      setNotice(message);
+      await reload();
+    } catch (e) { setActionError(e); onAuthError(e); } finally { setWorking(false); }
   }
+  /** Changing your own role or suspending yourself ends your session server-side. */
+  const endsMyOwnSession = user => user.email === signedInAs;
   const invite = () => act('/users', { method: 'POST', body: { email, role } }, 'สร้างบัญชีแล้ว')
     .then(() => setEmail(''));
 
@@ -593,14 +605,18 @@ function UserAdmin({ onAuthError }) {
             <label className="field inline-field">เปลี่ยนสิทธิ์
               <select aria-label={`สิทธิ์ของ ${user.email}`} value={user.role} disabled={working}
                 onChange={e => act(`/users/${user.id}/role`, { method: 'PUT', body: { role: e.target.value } },
-                  `เปลี่ยนสิทธิ์ของ ${user.email} แล้ว`)}>
+                  `เปลี่ยนสิทธิ์ของ ${user.email} แล้ว`,
+                  endsMyOwnSession(user) && e.target.value !== user.role
+                    ? 'เปลี่ยนสิทธิ์ของบัญชีคุณแล้ว ออกจากระบบ' : undefined)}>
                 {Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
               </select></label>
             <button className={user.status === 'suspended' ? '' : 'danger'} disabled={working}
               aria-label={`${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email}`}
               onClick={() => act(`/users/${user.id}/${user.status === 'suspended' ? 'restore' : 'suspend'}`,
                 { method: 'POST', body: {} },
-                `${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email} แล้ว`)}>
+                `${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email} แล้ว`,
+                endsMyOwnSession(user) && user.status !== 'suspended'
+                  ? 'ระงับบัญชีของคุณแล้ว ออกจากระบบ' : undefined)}>
               {user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับบัญชี'}</button>
           </div>)}</div>)}
       <div className="pagination"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</button>
@@ -627,7 +643,7 @@ function Staff({ onAuthError }) {
   </>;
 }
 
-function Admin({ onAuthError }) {
+function Admin({ onAuthError, signedInAs, onSignedOut }) {
   const pilot = usePilot();
   const [tab, setTab] = useState('members');
   // The slip queue is replaced by the list of OTP codes, because in pilot mode
@@ -639,7 +655,7 @@ function Admin({ onAuthError }) {
     <nav className="tabs" aria-label="เมนูผู้ดูแลระบบ">{tabs.map(([key, label]) =>
       <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
     {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
-    {tab === 'users' && <UserAdmin onAuthError={onAuthError}/>}
+    {tab === 'users' && <UserAdmin onAuthError={onAuthError} signedInAs={signedInAs} onSignedOut={onSignedOut}/>}
     {/* The same counter screen staff get: on a small gym the owner is often the
         one at the desk, and until now they had no way to scan anybody in. */}
     {tab === 'scan' && <StaffScanner/>}
@@ -665,7 +681,7 @@ function PilotBanner() {
 
 function App() {
   const [user, setUser] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(null);
-  const [gym, setGym] = useState(null), [pilot, setPilot] = useState(false);
+  const [gym, setGym] = useState(null), [pilot, setPilot] = useState(false), [farewell, setFarewell] = useState('');
   async function refresh() { const result = await api('/me'); setUser(result); return result; }
   const onAuthError = e => { if (e.status === 401) setUser(null); };
   useEffect(() => { refresh().catch(e => { if (e.status !== 401) setError(e); }).finally(() => setLoading(false)); }, []);
@@ -678,7 +694,8 @@ function App() {
   if (loading) return <main className="empty" role="status">กำลังเปิดยิมของเรา…</main>;
   if (!user) {
     return <PilotContext.Provider value={pilot}>
-      <Notice error={error}/><Login onLogin={u => { setError(null); setUser(u); }}/>
+      {farewell && <div className="notice" role="status">{farewell}</div>}
+      <Notice error={error}/><Login onLogin={u => { setError(null); setFarewell(''); setUser(u); }}/>
     </PilotContext.Provider>;
   }
   const brand = gym?.profile?.brand_name_th || gym?.profile?.name || 'ยิมของเรา';
@@ -687,7 +704,9 @@ function App() {
     <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'staff' ? 'พนักงาน' : 'สมาชิก'}</span></div>
     <button onClick={logout}>ออกจากระบบ</button></header>
     <main>{pilot && user.role !== 'member' && <PilotBanner/>}
-      <Notice error={error}/>{user.role === 'admin' ? <Admin onAuthError={onAuthError}/>
+      <Notice error={error}/>{user.role === 'admin'
+        ? <Admin onAuthError={onAuthError} signedInAs={user.email}
+            onSignedOut={message => { setFarewell(message); setError(null); setUser(null); }}/>
       : user.role === 'staff' ? <Staff onAuthError={onAuthError}/>
       : user.member ? <MemberApp member={user.member} gym={gym} onLogout={logout}
           refresh={async () => { try { await refresh(); } catch(e) { onAuthError(e); throw e; } }}/>

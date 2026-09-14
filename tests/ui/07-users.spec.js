@@ -77,3 +77,23 @@ test('the gym cannot be left without an administrator', async ({ page }) => {
   // see, so they get the login page rather than a console full of dead buttons.
   await expect(page.getByRole('button', { name: 'รับรหัสทางอีเมล' })).toBeVisible();
 });
+
+test('an admin who suspends their own account is told why the screen vanished', async ({ browser }) => {
+  // Allowed as long as somebody else can still administer the gym. Without a
+  // word on the way out the console simply disappears mid-click and the login
+  // page offers no explanation (QA PM-17).
+  const admin = await (await browser.newContext()).newPage();
+  await login(admin, 'admin12@example.test');
+  await admin.getByRole('button', { name: 'ผู้ใช้และสิทธิ์' }).click();
+  await admin.getByLabel('ค้นหาบัญชี').fill('admin12@example.test');
+  const self = admin.locator('.member-row').filter({ hasText: 'admin12@example.test' });
+  await self.getByRole('button', { name: /ระงับบัญชี admin12@example.test/ }).click();
+
+  await expect(admin.getByRole('status').filter({ hasText: 'ระงับบัญชีของคุณแล้ว ออกจากระบบ' })).toBeVisible();
+  await expect(admin.getByRole('button', { name: 'รับรหัสทางอีเมล' })).toBeVisible();
+  await admin.screenshot({ path: 'artifacts/admin-self-suspend.png', fullPage: true });
+
+  // That the door is really shut is checked where it can be: the sixty second
+  // cooldown makes signing straight back in a different test, and
+  // tests/users.test.js covers the refusal against the real code.
+});
