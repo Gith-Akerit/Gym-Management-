@@ -14,7 +14,18 @@ export const profileFields = {
 };
 export const profileSchema = z.object(profileFields).strict();
 export const status = z.enum(['active', 'suspended', 'expired'], { error: 'กรุณาเลือกสถานะที่ถูกต้อง' });
-export const memberSchema = z.object({ ...profileFields, email, status: status.default('active') }).strict();
+/**
+ * A member's email address, which they no longer need. Nobody signs in as a
+ * member any more, so an address is a way to reach somebody and nothing else --
+ * and the person at the counter should not have to invent one to finish
+ * signing up a walk-in.
+ */
+export const optionalEmail = z.union([z.literal(''), z.null(), email]).optional()
+  .transform(value => value || null);
+
+export const memberSchema = z.object({
+  ...profileFields, email: optionalEmail, status: status.default('active'),
+}).strict();
 /**
  * Editing a member. date_of_birth and emergency_contact are optional *without*
  * a default: a client that omits them leaves the stored values alone. Giving
@@ -25,7 +36,7 @@ export const updateSchema = z.object({
   ...profileFields,
   date_of_birth: dob.optional(),
   emergency_contact: z.string().trim().max(200, 'ข้อมูลติดต่อฉุกเฉินยาวได้ไม่เกิน 200 ตัวอักษร').optional(),
-  email,
+  email: optionalEmail,
   status: status.default('active'),
   version: z.number().int().positive(),
 }).strict();
@@ -216,26 +227,55 @@ export const grantSchema = z.object({
 }).strict();
 
 /**
- * Handing a member a package with no money involved. The note is required
- * rather than optional: a membership nobody paid for is exactly the entry
- * somebody will ask about in six months, and "because the owner said so" is
- * only useful if it is written down at the time.
+ * Selling a package across the counter.
+ *
+ * Arrives as multipart, because a slip photo may come with it, so every field
+ * is a string on the wire. A reason is only demanded when nobody paid: a
+ * membership given away is exactly the entry somebody asks about in six months,
+ * and "because the owner said so" is only useful written down at the time. A
+ * sale that was paid for explains itself.
  */
-export const manualGrantSchema = z.object({
+export const counterSaleSchema = z.object({
   package_id: z.uuid('กรุณาเลือกแพ็กเกจ'),
-  note: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่มอบแพ็กเกจนี้').max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร'),
-}).strict();
+  payment_method: z.enum(['cash', 'transfer', 'none'], { error: 'กรุณาเลือกวิธีชำระเงิน' }).default('cash'),
+  note: z.string().trim().max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร').default(''),
+  reference_no: z.string().trim().max(40, 'เลขอ้างอิงยาวได้ไม่เกิน 40 ตัวอักษร').optional(),
+}).strict().refine(value => value.payment_method !== 'none' || value.note.length > 0, {
+  error: 'กรุณาระบุเหตุผลที่มอบแพ็กเกจโดยไม่เก็บเงิน',
+  path: ['note'],
+});
 
 export const ROLES = ['member', 'staff', 'admin'];
 
 /**
+ * Twelve characters, not eight with a digit and a capital.
+ *
+ * The staff of a gym share a counter tablet and will write whatever they choose
+ * on a sticky note beside it. Length is the only rule that buys real resistance
+ * to guessing and the only one a person can satisfy with a phrase they can
+ * actually remember; composition rules mostly produce Gym@2026.
+ */
+export const password = z.string()
+  .min(12, 'รหัสผ่านต้องยาวอย่างน้อย 12 ตัวอักษร')
+  .max(200, 'รหัสผ่านยาวได้ไม่เกิน 200 ตัวอักษร')
+  .refine(value => value.trim().length >= 12, 'รหัสผ่านต้องยาวอย่างน้อย 12 ตัวอักษร');
+
+export const loginSchema = z.object({
+  email,
+  password: z.string().min(1, 'กรุณากรอกรหัสผ่าน').max(200, 'รหัสผ่านยาวได้ไม่เกิน 200 ตัวอักษร'),
+}).strict();
+
+export const passwordSchema = z.object({ password }).strict();
+
+/**
  * A staff or admin account, created by an admin rather than by signing up.
- * There is no password to set: whoever holds the mailbox gets a code, which is
- * the same rule every other account follows.
+ * The password is optional here so an owner can add the person now and hand
+ * them a password when they arrive; until then the account opens nothing.
  */
 export const userSchema = z.object({
   email,
   role: z.enum(['staff', 'admin'], { error: 'เลือกได้เฉพาะพนักงานหรือผู้ดูแลระบบ' }),
+  password: password.optional(),
 }).strict();
 
 export const roleSchema = z.object({

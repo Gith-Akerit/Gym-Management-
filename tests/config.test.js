@@ -5,13 +5,15 @@ import { httpClient } from './http.js';
 import { openDatabase, migrate } from '../server/db.js';
 import { createApp } from '../server/app.js';
 import { seedConfiguration, PACKAGE_DRAFTS } from '../server/seed.js';
+import { hashPassword } from '../server/passwords.js';
+
+const PASSWORD = 'counter-test-password';
+const HASH = hashPassword(PASSWORD);
 
 function fixture(t, { seed = true } = {}) {
   const db = openDatabase(); migrate(db); if (seed) seedConfiguration(db, Date.now());
-  const inbox = new Map();
   let time = Date.now();
-  const app = createApp({ db, secret: randomBytes(32).toString('hex'), now: () => time,
-    sendOtp: async ({ email, code }) => inbox.set(email, code) });
+  const app = createApp({ db, secret: randomBytes(32).toString('hex'), now: () => time });
   t.after(() => { app.locals.stopSweeper?.(); db.close(); });
   const http = httpClient(app, t);
   const call = (method, path, token, body) => {
@@ -19,18 +21,19 @@ function fixture(t, { seed = true } = {}) {
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
-  async function login(email, role = 'member') {
-    if (role !== 'member') db.prepare('INSERT INTO users(id,email,role,created_at) VALUES(?,?,?,?)').run(randomUUID(), email, role, time);
-    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-    const verified = await call('post', '/auth/verify-otp', null, { challenge_id: start.body.challenge_id, code: inbox.get(email) }).expect(200);
-    return verified.body.token;
+  async function login(email, role = 'staff') {
+    if (!db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) {
+      db.prepare('INSERT INTO users(id,email,role,password_hash,password_set_at,created_at) VALUES(?,?,?,?,?,?)')
+        .run(randomUUID(), email, role, HASH, time, time);
+    }
+    return (await call('post', '/auth/login', null, { email, password: PASSWORD }).expect(200)).body.token;
   }
   /** Strips the fields the API computes so a GET response can be PUT back. */
   const editable = profile => {
     const { id, timezone, currency, updated_at, ...rest } = profile;
     return rest;
   };
-  return { db, call, login, inbox, editable, tick: ms => { time += ms; } };
+  return { db, call, login, editable, tick: ms => { time += ms; } };
 }
 
 test('seed loads gym profile, hours and package drafts and never overwrites edits', t => {
@@ -52,10 +55,10 @@ test('seed loads gym profile, hours and package drafts and never overwrites edit
 
 test('members read gym facts, admins edit them, and the phone shown is configurable', async t => {
   const { call, login, editable } = fixture(t);
-  const memberToken = await login('gymreader@example.test');
+  const staffToken = await login('gymreader@example.test');
   const adminToken = await login('gymadmin@example.test', 'admin');
 
-  const seen = await call('get', '/gym', memberToken).expect(200);
+  const seen = await call('get', '/gym', staffToken).expect(200);
   assert.equal(seen.body.profile.phone, '038541029');
   assert.equal(seen.body.profile.hours_confirmed, false);
   assert.equal(seen.body.hours.length, 7);
@@ -68,7 +71,7 @@ test('members read gym facts, admins edit them, and the phone shown is configura
   const body = { ...editable(full.body.profile), phone_display: 'secondary', hours_confirmed: true };
   await call('put', '/gym', adminToken, body).expect(200);
 
-  const after = await call('get', '/gym', memberToken).expect(200);
+  const after = await call('get', '/gym', staffToken).expect(200);
   assert.equal(after.body.profile.phone, '0863307368');
   assert.equal(after.body.profile.hours_confirmed, true);
 
@@ -76,14 +79,13 @@ test('members read gym facts, admins edit them, and the phone shown is configura
   await call('put', '/gym', adminToken, body).expect(409);
 
   await call('put', '/gym', adminToken, { ...body, version: body.version + 1, phone_display: 'hidden' }).expect(200);
-  assert.equal((await call('get', '/gym', memberToken).expect(200)).body.profile.phone, null);
+  assert.equal((await call('get', '/gym', staffToken).expect(200)).body.profile.phone, null);
 });
 
-test('members cannot write gym settings or opening hours', async t => {
+test('staff cannot write gym settings or opening hours', async t => {
   const { call, login } = fixture(t);
-  const memberToken = await login('nosy@example.test');
   const staffToken = await login('staff@example.test', 'staff');
-  for (const token of [null, memberToken, staffToken]) {
+  for (const token of [null, staffToken]) {
     await call('put', '/gym', token, { name: 'ยึดยิม', phone_display: 'primary', version: 1 }).expect(token ? 403 : 401);
     await call('put', '/gym/hours', token, { hours: [] }).expect(token ? 403 : 401);
   }
@@ -108,22 +110,23 @@ test('opening hours round-trip and reject impossible ranges', async t => {
 
 test('package catalogue hides drafts from members and enforces admin-only writes', async t => {
   const { call, login, db } = fixture(t);
-  const memberToken = await login('shopper@example.test');
+  const staffToken = await login('shopper@example.test');
   const adminToken = await login('pkgadmin@example.test', 'admin');
 
-  assert.equal((await call('get', '/packages', memberToken).expect(200)).body.items.length, 0);
+  assert.equal((await call('get', '/packages', staffToken).expect(200)).body.items.length, 0);
   assert.equal((await call('get', '/packages', adminToken).expect(200)).body.items.length, PACKAGE_DRAFTS.length);
 
-  await call('post', '/packages', memberToken, { code: 'HACK_1', name_th: 'ของฟรี', type: 'unlimited', duration_days: 1 }).expect(403);
+  await call('post', '/packages', staffToken, { code: 'HACK_1', name_th: 'ของฟรี', type: 'unlimited', duration_days: 1 }).expect(403);
   const draft = db.prepare("SELECT * FROM packages WHERE code='UNLIMITED_30D'").get();
-  await call('put', `/packages/${draft.id}`, memberToken,
+  await call('put', `/packages/${draft.id}`, staffToken,
     { version: draft.version, code: 'UNLIMITED_30D', name_th: 'x', type: 'unlimited', duration_days: 1 }).expect(403);
-  await call('get', `/packages/${draft.id}`, memberToken).expect(403);
+  await call('get', `/packages/${draft.id}`, staffToken).expect(403);
 });
 
 test('a package cannot go on sale without a price, and prices survive as exact satang', async t => {
   const { call, login } = fixture(t);
   const adminToken = await login('pricing@example.test', 'admin');
+  const staffToken = await login('browse@example.test');
 
   const created = await call('post', '/packages', adminToken,
     { code: 'visit_10_180d', name_th: '10 ครั้ง 180 วัน', type: 'limited_sessions', duration_days: 180, session_limit: 10 }).expect(201);
@@ -139,12 +142,11 @@ test('a package cannot go on sale without a price, and prices survive as exact s
   assert.equal(priced.body.price_satang, 129950);
   assert.equal(priced.body.price_thb, 1299.5);
 
-  const memberToken = await login('browse@example.test');
-  assert.deepEqual((await call('get', '/packages', memberToken).expect(200)).body.items.map(p => p.code), ['VISIT_10_180D']);
+  assert.deepEqual((await call('get', '/packages', staffToken).expect(200)).body.items.map(p => p.code), ['VISIT_10_180D']);
 
   // Archiving keeps the row so Phase 2 orders still resolve.
   await call('delete', `/packages/${created.body.id}`, adminToken, { version: priced.body.version }).expect(200);
-  assert.equal((await call('get', '/packages', memberToken).expect(200)).body.items.length, 0);
+  assert.equal((await call('get', '/packages', staffToken).expect(200)).body.items.length, 0);
   assert.equal((await call('get', `/packages/${created.body.id}`, adminToken).expect(200)).body.status, 'archived');
 });
 
@@ -181,57 +183,4 @@ test('gym and package changes are written to the audit trail', async t => {
   const actions = db.prepare('SELECT action, entity_type FROM audit_logs ORDER BY created_at').all();
   assert.ok(actions.some(a => a.action === 'package.create' && a.entity_type === 'package'));
   assert.ok(actions.some(a => a.action === 'gym.update' && a.entity_type === 'gym_profile'));
-});
-
-test('five wrong OTP codes lock the address across new challenges', async t => {
-  const { call, inbox, tick } = fixture(t, { seed: false });
-  const email = 'brute@example.test';
-  // Spread guesses over fresh challenges: the per-challenge cap alone allows this.
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-    const correct = inbox.get(email), wrong = correct === '000000' ? '000001' : '000000';
-    await call('post', '/auth/verify-otp', null, { challenge_id: start.body.challenge_id, code: wrong }).expect(400);
-    tick(61000);
-  }
-  const locked = await call('post', '/auth/request-otp', null, { email }).expect(429);
-  assert.match(locked.body.error, /15 นาที/);
-
-  tick(300000);
-  const blocked = await call('post', '/auth/request-otp', null, { email }).expect(429);
-  assert.equal(blocked.body.challenge_id, undefined);
-
-  tick(900001);
-  const fresh = await call('post', '/auth/request-otp', null, { email }).expect(202);
-  await call('post', '/auth/verify-otp', null, { challenge_id: fresh.body.challenge_id, code: inbox.get(email) }).expect(200);
-});
-
-test('a successful login clears earlier OTP failures', async t => {
-  const { call, inbox, db, tick } = fixture(t, { seed: false });
-  const email = 'recover@example.test';
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-    const correct = inbox.get(email), wrong = correct === '000000' ? '000001' : '000000';
-    await call('post', '/auth/verify-otp', null, { challenge_id: start.body.challenge_id, code: wrong }).expect(400);
-    tick(61000);
-  }
-  assert.equal(db.prepare('SELECT failures FROM otp_lockouts WHERE email=?').get(email).failures, 3);
-  const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-  await call('post', '/auth/verify-otp', null, { challenge_id: start.body.challenge_id, code: inbox.get(email) }).expect(200);
-  assert.equal(db.prepare('SELECT count(*) n FROM otp_lockouts WHERE email=?').get(email).n, 0);
-});
-
-test('OTP codes never reach the logs or any response body', async t => {
-  const { call, inbox } = fixture(t, { seed: false });
-  const email = 'quiet@example.test';
-  const written = [];
-  const original = console.error;
-  console.error = (...args) => written.push(args.join(' '));
-  try {
-    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-    const code = inbox.get(email);
-    assert.ok(!JSON.stringify(start.body).includes(code));
-    const bad = await call('post', '/auth/verify-otp', null, { challenge_id: start.body.challenge_id, code: '999999' });
-    assert.ok(!JSON.stringify(bad.body).includes(code));
-  } finally { console.error = original; }
-  assert.ok(!written.join('\n').includes(inbox.get(email)));
 });

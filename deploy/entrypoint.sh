@@ -7,13 +7,14 @@
 # price or an opening hour the owner has edited.
 set -e
 
-mkdir -p "$(dirname "${DATABASE_PATH:-./data/gym.sqlite}")" "${SLIP_STORAGE_PATH:-./data/slips}"
+mkdir -p "$(dirname "${DATABASE_PATH:-./data/gym.sqlite}")" "${SLIP_STORAGE_PATH:-./data/slips}" \n  "${PHOTO_STORAGE_PATH:-./data/photos}"
 
 node server/manage.js migrate
 node server/manage.js seed
 
-# One address is promoted to admin so somebody can get in on a fresh install.
-# Leave ADMIN_EMAIL unset after the first boot; it is not needed again.
+# One address is promoted to admin and given the password the installer asked
+# for, so somebody can get in on a fresh install without a terminal. Leave both
+# unset after the first boot; neither is needed again.
 if [ -n "$ADMIN_EMAIL" ]; then
   node server/manage.js admin
 fi

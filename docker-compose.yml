@@ -18,6 +18,7 @@ services:
       PORT: "3000"
       DATABASE_PATH: /data/gym.sqlite
       SLIP_STORAGE_PATH: /data/slips
+      PHOTO_STORAGE_PATH: /data/photos
       # Caddy is the one hop in front of the app. Get this wrong and every
       # member shares one rate-limit budget, which locks the gym out of login.
       TRUST_PROXY: "1"

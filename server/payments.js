@@ -1,14 +1,15 @@
-// Buying a package: PromptPay QR, slip upload, admin review, entitlement.
+// Money, all of it taken at the counter.
 //
-// There is no payment provider in this design — the gym receives the transfer
-// directly and a human confirms it. That has two consequences the code has to
-// take seriously: the approval is the only record that money arrived, so it is
-// audited in full; and approving twice would hand out a free membership, so it
-// is guarded both in the transaction and by a UNIQUE constraint underneath.
+// There is no payment provider and no customer-facing checkout: the member pays
+// the person at the desk, who records which way, and the package is handed over
+// on the spot. The slip queue further down belongs to orders the old member app
+// created, and is kept so those can still be finished.
+//
+// Granting twice would hand out a free membership, so it is guarded both in the
+// transaction and by a UNIQUE constraint underneath.
 
 import { randomUUID } from 'node:crypto';
 import multer from 'multer';
-import QRCode from 'qrcode';
 import { z } from 'zod';
 import {
   activeEntitlements, audit, currentSlip, getOrder, getPackage,
@@ -17,36 +18,17 @@ import {
 import { buildPromptPayPayload } from './promptpay.js';
 import { MAX_SLIP_BYTES, SlipError } from './slips.js';
 import {
-  approveMismatchSchema, approveSchema, bangkokLocalToEpoch, grantSchema, HttpError, manualGrantSchema,
-  orderSchema, parse, rejectSchema, reverseSchema, slipSchema,
+  approveMismatchSchema, approveSchema, counterSaleSchema, grantSchema, HttpError,
+  parse, rejectSchema, reverseSchema,
 } from './validation.js';
 
 const DAY_MS = 86400000;
 
-export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId, pilotMode = false }) {
-  /**
-   * Pilot mode has no PromptPay account and no mail, so there is nothing for a
-   * member to pay into. The buy, QR and slip routes say so in Thai instead of
-   * failing obscurely, and the admin hands packages over directly.
-   */
-  const notWhilePiloting = (req, res, next) => (pilotMode
-    ? next(new HttpError(403, 'ขณะนี้อยู่ในโหมดทดลอง ยังไม่เปิดการชำระเงิน กรุณาติดต่อเจ้าหน้าที่เพื่อรับแพ็กเกจ'))
-    : next());
-  // Staff at the counter can see what is waiting, so they can tell a member
-  // whether their slip has been looked at. Deciding it stays with an admin.
-  const readQueue = (req, res, next) => (['staff', 'admin'].includes(req.user.role)
-    ? next() : next(new HttpError(403, 'เฉพาะพนักงานและผู้ดูแลระบบเท่านั้น')));
+export function registerPaymentRoutes({ app, db, now, admin, counter, slipStore, promptPayId, pilotMode = false }) {
+  // Staff at the counter sell packages and can see what is waiting. Deciding a
+  // slip somebody transferred against the old member app stays with an admin.
+  const readQueue = counter;
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_SLIP_BYTES, files: 1 } });
-
-  /** The signed-in member's own profile row, or 403 for staff and admins. */
-  function requireMember(req) {
-    const member = db.prepare('SELECT * FROM members WHERE user_id=?').get(req.user.id);
-    if (!member) throw new HttpError(403, 'สำหรับบัญชีสมาชิกเท่านั้น');
-    if (member.status !== 'active') {
-      throw new HttpError(403, 'บัญชีสมาชิกถูกระงับหรือหมดอายุ กรุณาติดต่อพนักงานที่ยิม');
-    }
-    return member;
-  }
 
   const settings = () => db.prepare('SELECT payment_sla_text, order_ttl_minutes FROM gym_profile WHERE id=1').get()
     ?? { payment_sla_text: 'ภายใน 30 นาทีในเวลาทำการ', order_ttl_minutes: 60 };
@@ -77,129 +59,15 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
     };
   }
 
-  // ------------------------------------------------------------------ member
+  // ----------------------------------------------------------------- counter
 
-  app.post('/api/orders', notWhilePiloting, (req, res) => {
-    const member = requireMember(req);
-    const input = parse(orderSchema, req.body);
-    const result = transaction(db, () => {
-        const pkg = getPackage(db, input.package_id);
-      if (!pkg || pkg.status !== 'active') throw new HttpError(404, 'ไม่พบแพ็กเกจนี้ หรือแพ็กเกจปิดการขายแล้ว');
-      // Trusting a price from the client would let anyone buy for 1 baht.
-      if (pkg.price_satang === null) throw new HttpError(409, 'แพ็กเกจนี้ยังไม่ได้กำหนดราคา กรุณาติดต่อพนักงาน');
-
-      // Tapping buy five times in a row must not create five orders to pay.
-      // A pending order past its deadline is not a live one, so it is not reused.
-      const open = db.prepare(`SELECT * FROM orders WHERE member_id=? AND package_id=?
-        AND (status='awaiting_review' OR (status='pending_payment' AND expires_at>?))
-        ORDER BY created_at DESC LIMIT 1`).get(member.id, input.package_id, now());
-      if (open) return { order: open, reused: true };
-
-      const id = randomUUID();
-      const ttl = settings().order_ttl_minutes * 60000;
-      db.prepare(`INSERT INTO orders(id,member_id,package_id,package_code_snapshot,package_name_snapshot,
-        package_type_snapshot,duration_days_snapshot,session_limit_snapshot,price_satang_snapshot,
-        created_at,expires_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-        .run(id, member.id, pkg.id, pkg.code, pkg.name_th, pkg.type, pkg.duration_days,
-          pkg.session_limit, pkg.price_satang, now(), now() + ttl, now());
-      // A free package has nothing to transfer and no slip to check, so it goes
-      // straight into the admin's queue to be granted (QA P2-BUG-04). Building a
-      // PromptPay QR for ฿0 is not possible and used to crash the request.
-      if (pkg.price_satang === 0) {
-        db.prepare("UPDATE orders SET status='awaiting_review', version=version+1, updated_at=? WHERE id=?")
-          .run(now(), id);
-      }
-      const order = getOrder(db, id);
-      audit(db, req.user.id, 'order.create', id, null, order, now(), 'order');
-      return { order, reused: false };
-    });
-    res.status(result.reused ? 200 : 201).json(orderView(result.order));
-  });
-
-  app.get('/api/orders', (req, res) => {
-    const member = requireMember(req);
-    const rows = db.prepare('SELECT * FROM orders WHERE member_id=? ORDER BY created_at DESC LIMIT 50').all(member.id);
-    res.json({ items: rows.map(row => publicOrder(row, now())) });
-  });
-
-  /** A member may only ever read their own order. */
-  function memberOrder(req) {
-    const member = requireMember(req);
-    const order = getOrder(db, req.params.id);
-    if (!order || order.member_id !== member.id) throw new HttpError(404, 'ไม่พบคำสั่งซื้อ');
-    return { member, order };
-  }
-
-  app.get('/api/orders/:id', (req, res) => res.json(orderView(memberOrder(req).order)));
-
-  app.get('/api/orders/:id/qr.png', notWhilePiloting, async (req, res) => {
-    const { order } = memberOrder(req);
-    if (order.price_satang_snapshot === 0) throw new HttpError(409, 'แพ็กเกจนี้ไม่มีค่าใช้จ่าย ไม่ต้องโอนเงิน');
-    if (!owesMoney(order) || order.expires_at <= now()) {
-      throw new HttpError(409, 'คำสั่งซื้อนี้ไม่อยู่ในสถานะที่ต้องชำระเงินแล้ว');
-    }
-    const png = await QRCode.toBuffer(buildPromptPayPayload(promptPayId, order.price_satang_snapshot),
-      { type: 'png', width: 512, margin: 2, errorCorrectionLevel: 'M' });
-    res.set('Content-Type', 'image/png');
-    res.set('Content-Disposition', `attachment; filename="promptpay-${order.id.slice(0, 8)}.png"`);
-    res.send(png);
-  });
-
-  app.post('/api/orders/:id/cancel', (req, res) => {
-    const { order } = memberOrder(req);
-    if (order.status !== 'pending_payment') throw new HttpError(409, 'ยกเลิกได้เฉพาะคำสั่งซื้อที่ยังไม่ได้ส่งสลิป');
-    transaction(db, () => {
-      db.prepare("UPDATE orders SET status='cancelled',version=version+1,updated_at=? WHERE id=? AND status='pending_payment'")
-        .run(now(), order.id);
-      audit(db, req.user.id, 'order.cancel', order.id, order, getOrder(db, order.id), now(), 'order');
-    });
-    res.json(orderView(getOrder(db, order.id)));
-  });
-
-  app.post('/api/orders/:id/slip', notWhilePiloting, upload.single('slip'), (req, res) => {
-    const { order } = memberOrder(req);
-    if (!['pending_payment', 'awaiting_review', 'rejected'].includes(order.status)) {
-      throw new HttpError(409, 'คำสั่งซื้อนี้ส่งสลิปเพิ่มไม่ได้แล้ว');
-    }
-    // The deadline only binds an order nobody has paid for. Once a slip exists
-    // the money has left the member's account and the order stays workable.
-    if (order.status === 'pending_payment' && order.expires_at <= now()) {
-      throw new HttpError(409, 'คำสั่งซื้อหมดอายุแล้ว กรุณาสั่งซื้อใหม่');
-    }
-    if (!req.file) throw new HttpError(400, 'กรุณาแนบรูปสลิปการโอนเงิน');
-    const input = parse(slipSchema, req.body);
-
-    const transferredAt = bangkokLocalToEpoch(input.transferred_at);
-    if (transferredAt > now() + 300000) throw new HttpError(400, 'เวลาที่โอนอยู่ในอนาคต กรุณาตรวจสอบอีกครั้ง');
-    if (transferredAt < now() - 30 * DAY_MS) throw new HttpError(400, 'เวลาที่โอนเก่าเกิน 30 วัน กรุณาตรวจสอบอีกครั้ง');
-
-    let stored;
-    try { stored = slipStore.save(req.file.buffer); }
-    catch (e) { throw e instanceof SlipError ? new HttpError(400, e.message) : e; }
-
-    try {
-      transaction(db, () => {
-        // Replacing a slip keeps the old one: the admin may need to compare.
-        db.prepare('UPDATE payment_slips SET superseded_at=? WHERE order_id=? AND superseded_at IS NULL')
-          .run(now(), order.id);
-        db.prepare(`INSERT INTO payment_slips(id,order_id,stored_name,content_type,byte_size,file_hash,
-          reference_no,transferred_at,amount_satang_claimed,uploaded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`)
-          .run(randomUUID(), order.id, stored.storedName, stored.contentType, stored.byteSize,
-            stored.fileHash, input.reference_no, transferredAt, input.amount_thb, now());
-        db.prepare(`UPDATE orders SET status='awaiting_review',rejection_reason=NULL,
-          version=version+1,updated_at=? WHERE id=?`).run(now(), order.id);
-        audit(db, req.user.id, 'order.slip_upload', order.id, order, getOrder(db, order.id), now(), 'order');
-      });
-    } catch (e) {
-      // Never leave an orphan file behind when the row could not be written.
-      slipStore.remove(stored.storedName);
-      throw e;
-    }
-    res.status(201).json(orderView(getOrder(db, order.id)));
-  });
-
-  app.get('/api/entitlements', (req, res) => {
-    const member = requireMember(req);
+  /**
+   * What is still good, for the member page and the card. Staff read it while
+   * the member is standing there asking how many visits are left.
+   */
+  app.get('/api/members/:id/entitlements', readQueue, (req, res) => {
+    const member = db.prepare('SELECT id FROM members WHERE id=?').get(req.params.id);
+    if (!member) throw new HttpError(404, 'ไม่พบสมาชิก');
     res.json({ items: activeEntitlements(db, member.id, now()).map(publicEntitlement) });
   });
 
@@ -248,12 +116,12 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
   app.get('/api/admin/orders/:id', readQueue, (req, res) => {
     const order = adminOrder(req);
     const slip = currentSlip(db, order.id);
-    const member = db.prepare('SELECT m.*, u.email FROM members m JOIN users u ON u.id=m.user_id WHERE m.id=?')
+    const member = db.prepare('SELECT m.*, u.email FROM members m LEFT JOIN users u ON u.id=m.user_id WHERE m.id=?')
       .get(order.member_id);
-    const { user_id, ...memberView } = member;
+    const { user_id, photo_stored_name, photo_content_type, ...memberView } = member;
     res.json({
       ...orderView(order, { includePayload: false }),
-      member: memberView,
+      member: { ...memberView, has_photo: !!photo_stored_name },
       duplicates: duplicatesOf(slip),
       // Flagged, not blocked: only the admin can judge a partial payment.
       amount_mismatch: slip?.amount_satang_claimed != null
@@ -261,15 +129,10 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
     });
   });
 
-  /** The slip image, for the admin or the member it belongs to — nobody else. */
-  app.get('/api/slips/:id/image', (req, res) => {
+  /** The slip image, for whoever is working the counter and nobody else. */
+  app.get('/api/slips/:id/image', readQueue, (req, res) => {
     const slip = db.prepare('SELECT * FROM payment_slips WHERE id=?').get(req.params.id);
     if (!slip) throw new HttpError(404, 'ไม่พบสลิป');
-    if (req.user.role !== 'admin') {
-      const member = db.prepare('SELECT id FROM members WHERE user_id=?').get(req.user.id);
-      const order = getOrder(db, slip.order_id);
-      if (!member || order.member_id !== member.id) throw new HttpError(404, 'ไม่พบสลิป');
-    }
     res.set('Content-Type', slip.content_type);
     res.set('Content-Security-Policy', "default-src 'none'; sandbox");
     res.set('X-Content-Type-Options', 'nosniff');
@@ -300,40 +163,64 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
   }
 
   /**
-   * The admin hands a member a package directly: no order to pay, no slip, no
-   * QR. In pilot mode this is the only way in; outside it, it is how a gym
-   * comps a membership or fixes a payment that arrived by some other route.
+   * Taking the money and handing over the package, in one action at the desk.
    *
-   * The order it writes is a real one and looks like any other everywhere the
-   * member can see, but it is flagged manual_grant so the daily sales total --
-   * the number reconciled against the bank statement -- leaves it out.
+   * This is now the only way a membership is sold. The member paid in cash or
+   * transferred while standing there, and staff record which -- a slip photo is
+   * welcome but optional, because a gym that takes notes across a counter has
+   * no slip to photograph.
+   *
+   * `payment_method: 'none'` is the old manual grant: a comped membership with
+   * nobody paying. It still demands a written reason and is still flagged
+   * manual_grant, so the daily total reconciled against the bank leaves it out.
+   * A sale that was actually paid is real revenue and is counted.
    */
-  app.post('/api/members/:id/grant', admin, (req, res) => {
-    const input = parse(manualGrantSchema, req.body);
-    const result = transaction(db, () => {
-      const member = db.prepare('SELECT * FROM members WHERE id=?').get(req.params.id);
-      if (!member) throw new HttpError(404, 'ไม่พบสมาชิก');
-      if (member.status !== 'active') throw new HttpError(409, 'สมาชิกรายนี้ถูกระงับ กรุณาแก้สถานะสมาชิกก่อนมอบแพ็กเกจ');
-      const pkg = getPackage(db, input.package_id);
-      if (!pkg) throw new HttpError(404, 'ไม่พบแพ็กเกจนี้');
-      // The price is recorded even though nobody paid it: it is what the
-      // membership would have cost, and the report needs it to say what was
-      // given away. A package with no price yet has no such number.
-      if (pkg.price_satang === null) throw new HttpError(409, 'แพ็กเกจนี้ยังไม่ได้กำหนดราคา กรุณากรอกราคาก่อน');
+  app.post('/api/members/:id/grant', counter, upload.single('slip'), (req, res) => {
+    const input = parse(counterSaleSchema, req.body);
+    const withSlip = !!req.file;
+    let stored = null;
+    if (withSlip) {
+      try { stored = slipStore.save(req.file.buffer); }
+      catch (e) { throw e instanceof SlipError ? new HttpError(400, e.message) : e; }
+    }
+    try {
+      const result = transaction(db, () => {
+        const member = db.prepare('SELECT * FROM members WHERE id=?').get(req.params.id);
+        if (!member) throw new HttpError(404, 'ไม่พบสมาชิก');
+        if (member.status !== 'active') throw new HttpError(409, 'สมาชิกรายนี้ถูกระงับ กรุณาแก้สถานะสมาชิกก่อนมอบแพ็กเกจ');
+        const pkg = getPackage(db, input.package_id);
+        if (!pkg) throw new HttpError(404, 'ไม่พบแพ็กเกจนี้');
+        // The price is recorded even when nobody paid it: it is what the
+        // membership would have cost, and the report needs it to say what was
+        // given away. A package with no price yet has no such number.
+        if (pkg.price_satang === null) throw new HttpError(409, 'แพ็กเกจนี้ยังไม่ได้กำหนดราคา กรุณากรอกราคาก่อน');
 
-      const id = randomUUID();
-      db.prepare(`INSERT INTO orders(id,member_id,package_id,package_code_snapshot,package_name_snapshot,
-        package_type_snapshot,duration_days_snapshot,session_limit_snapshot,price_satang_snapshot,
-        status,manual_grant,reviewed_by,reviewed_at,review_note,created_at,expires_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,'paid',1,?,?,?,?,?,?)`)
-        .run(id, member.id, pkg.id, pkg.code, pkg.name_th, pkg.type, pkg.duration_days,
-          pkg.session_limit, pkg.price_satang, req.user.id, now(), input.note, now(), now(), now());
-      const order = getOrder(db, id);
-      grantEntitlement(order);
-      audit(db, req.user.id, 'order.grant_manual', id, null, order, now(), 'order');
-      return order;
-    });
-    res.status(201).json(orderView(result, { includePayload: false }));
+        const comped = input.payment_method === 'none';
+        const id = randomUUID();
+        db.prepare(`INSERT INTO orders(id,member_id,package_id,package_code_snapshot,package_name_snapshot,
+          package_type_snapshot,duration_days_snapshot,session_limit_snapshot,price_satang_snapshot,
+          status,manual_grant,payment_method,reviewed_by,reviewed_at,review_note,created_at,expires_at,updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?,?,?)`)
+          .run(id, member.id, pkg.id, pkg.code, pkg.name_th, pkg.type, pkg.duration_days,
+            pkg.session_limit, pkg.price_satang, comped ? 1 : 0, input.payment_method,
+            req.user.id, now(), input.note, now(), now(), now());
+        if (stored) {
+          db.prepare(`INSERT INTO payment_slips(id,order_id,stored_name,content_type,byte_size,file_hash,
+            reference_no,transferred_at,amount_satang_claimed,uploaded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`)
+            .run(randomUUID(), id, stored.storedName, stored.contentType, stored.byteSize,
+              stored.fileHash, input.reference_no ?? '', now(), pkg.price_satang, now());
+        }
+        const order = getOrder(db, id);
+        grantEntitlement(order);
+        audit(db, req.user.id, comped ? 'order.grant_manual' : 'order.counter_sale', id, null, order, now(), 'order');
+        return order;
+      });
+      res.status(201).json(orderView(result, { includePayload: false }));
+    } catch (e) {
+      // Never leave an orphan file behind when the row could not be written.
+      if (stored) slipStore.remove(stored.storedName);
+      throw e;
+    }
   });
 
   /**

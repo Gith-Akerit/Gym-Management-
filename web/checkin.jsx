@@ -1,85 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import QRCode from 'qrcode';
-import { api, Field, formatDateTime, Loading, Notice, StateBox, useResource } from './shared.jsx';
+import React, { useEffect, useRef, useState } from 'react';
+import { Field, formatDateTime, Loading, Notice, StateBox, useResource } from './shared.jsx';
 import { CameraScanner } from './camera.jsx';
 
 const resultLabels = { allowed: 'เข้าใช้บริการได้', duplicate: 'เช็คอินไปแล้ว', denied: 'เข้าใช้บริการไม่ได้' };
-
-// ------------------------------------------------------------------- member
-
-/**
- * The QR the member shows at the counter. It refreshes itself before it runs
- * out, so the code on screen is always the live one — which is also what makes
- * a screenshot sent to a friend worthless.
- */
-export function MemberCheckInQr() {
-  const [state, setState] = useState({ busy: true, error: null, image: null, expiresAt: null });
-  const [left, setLeft] = useState(0);
-  const timer = useRef(null);
-
-  const issue = useCallback(async () => {
-    setState(current => ({ ...current, busy: true, error: null }));
-    try {
-      const token = await api('/me/check-in-token', { method: 'POST', body: {} });
-      const image = await QRCode.toDataURL(token.qr, { width: 480, margin: 1, errorCorrectionLevel: 'M' });
-      setState({ busy: false, error: null, image, expiresAt: token.expires_at });
-    } catch (error) {
-      setState({ busy: false, error, image: null, expiresAt: null });
-    }
-  }, []);
-
-  useEffect(() => { issue(); }, [issue]);
-
-  useEffect(() => {
-    if (!state.expiresAt) return undefined;
-    const tick = () => {
-      const seconds = Math.max(0, Math.round((state.expiresAt - Date.now()) / 1000));
-      setLeft(seconds);
-      // Renew a few seconds early so the member is never holding a dead code.
-      if (seconds <= 3) issue();
-    };
-    tick();
-    timer.current = setInterval(tick, 1000);
-    return () => clearInterval(timer.current);
-  }, [state.expiresAt, issue]);
-
-  // Nothing to show: a code we could not fetch is not a code. The offline
-  // wording lives in StateBox, so a member who lost signal is told that rather
-  // than being handed the system's own error.
-  if (state.error) return <StateBox error={state.error} onRetry={issue}/>;
-
-  // A code whose minute has run out must never sit on the screen looking
-  // ready. Offline, the renewal never comes back, the countdown reaches zero
-  // and the member walks to the counter holding something the scanner will
-  // refuse — so it is greyed out and said so in words (กติกาข้อบังคับ).
-  const expired = !!state.image && left === 0;
-  return <>
-    {state.image
-      ? <img className={`checkin-qr${expired ? ' is-stale' : ''}`}
-          alt="QR สำหรับเช็คอินที่เคาน์เตอร์" src={state.image}/>
-      : <div className="qr-frame" role="status">กำลังสร้างรหัส…</div>}
-    {expired && <div className="state-box offline" role="alert"><div>
-      <h3>รหัสนี้หมดอายุแล้ว ใช้เข้ายิมไม่ได้</h3>
-      <p>กำลังขอรหัสใหม่ ถ้าไม่ขึ้นภายในไม่กี่วินาที กรุณาตรวจอินเทอร์เน็ตแล้วกดขอรหัสใหม่</p>
-      <button onClick={issue}>ขอรหัสใหม่</button></div></div>}
-    <p className="qr-hint">ยื่นจอนี้ให้พนักงานสแกน{state.image && !expired ? ` · รหัสใหม่ใน ${left} วินาที` : ''}</p>
-    <p className="fine">เปิดความสว่างหน้าจอให้สุดจะสแกนง่ายขึ้น รหัสเปลี่ยนเองทุกนาทีและใช้ได้ครั้งเดียว
-      การส่งภาพหน้าจอให้คนอื่นจึงใช้เข้ายิมไม่ได้</p>
-  </>;
-}
-
-export function MemberCheckInHistory() {
-  const { data, error, busy } = useResource('/me/check-ins');
-  if (busy) return <Loading label="กำลังโหลดประวัติ…" rows={3}/>;
-  if (error) return <Notice error={error}/>;
-  if (!data.items.length) return <p className="muted">ยังไม่มีประวัติการเข้าใช้บริการ</p>;
-  return <div className="member-list">{data.items.slice(0, 10).map(item =>
-    <div className="member-row" key={item.id}>
-      <span className="member-name"><strong>{formatDateTime(item.checked_in_at)}</strong>
-        {item.failure_reason && <small>{item.failure_reason}</small>}</span>
-      <span className={`tag ${item.result === 'allowed' ? 'active' : 'draft'}`}>{resultLabels[item.result]}</span>
-    </div>)}</div>;
-}
 
 // -------------------------------------------------------------------- staff
 
@@ -134,11 +57,21 @@ export function StaffScanner() {
 
   return <>
     <div className="page-heading"><div><span className="eyebrow">เคาน์เตอร์</span><h1>สแกนเช็คอิน</h1>
-      <p className="muted">ให้สมาชิกเปิด QR ในแอป แล้วสแกนหรือวางรหัสในช่องด้านล่าง</p></div></div>
+      <p className="muted">ให้สมาชิกเปิดรูปบัตรในแชต แล้วสแกนหรือวางรหัสในช่องด้านล่าง</p></div></div>
 
+    {/* The photograph is the check, so it is the biggest thing on the screen
+        and it arrives before the verdict does. A card is a picture in a chat
+        app and can be forwarded; only the person at the counter can tell that
+        the face is somebody else's, and only if looking is easier than not
+        looking (Designer). "ไม่ใช่คนนี้" sits beside it so refusing is an
+        ordinary thing to do rather than something to go and find. */}
     {outcome && <section className={`scan-result ${outcome.result}`} role="status" aria-live="assertive">
-      <span className="scan-icon" aria-hidden="true">{outcome.result === 'allowed' ? '✓' : outcome.result === 'duplicate' ? '!' : '✕'}</span>
+      {outcome.member?.photo_url
+        ? <img className="scan-photo" src={`${outcome.member.photo_url}?at=${outcome.checked_in_at ?? ''}`}
+            alt={`รูปถ่ายของ ${outcome.member.name}`}/>
+        : <span className="scan-photo empty-photo" aria-hidden="true">ไม่มีรูป</span>}
       <div>
+        <span className="scan-icon" aria-hidden="true">{outcome.result === 'allowed' ? '✓' : outcome.result === 'duplicate' ? '!' : '✕'}</span>
         <h2>{resultLabels[outcome.result]}</h2>
         {outcome.member && <p className="scan-member">{outcome.member.name} · {outcome.member.member_code}</p>}
         {outcome.failure_reason && <p className="scan-reason">{outcome.failure_reason}</p>}
@@ -146,6 +79,10 @@ export function StaffScanner() {
           {outcome.remaining.sessions_remaining === null
             ? `ใช้ได้ไม่จำกัดครั้ง ถึง ${formatDateTime(outcome.remaining.expires_at)}`
             : `เหลืออีก ${outcome.remaining.sessions_remaining} ครั้ง ถึง ${formatDateTime(outcome.remaining.expires_at)}`}</p>}
+        {outcome.result === 'allowed' && <>
+          <p className="scan-check">ดูรูปเทียบกับคนตรงหน้าก่อนให้เข้า</p>
+          <button type="button" className="danger" onClick={() => setOutcome(null)}>ไม่ใช่คนนี้</button>
+        </>}
       </div>
     </section>}
 

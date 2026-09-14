@@ -18,15 +18,16 @@
     "db:admin": "node server/manage.js admin",
     "db:seed:demo": "node server/manage.js seed:demo",
     "slips:prune": "node server/prune-slips.js",
-    "env:set": "node server/env-set.js",
-    "pilot:code": "node server/pilot-code.js"
+    "env:set": "node server/env-set.js"
   },
   "dependencies": {
+    "@fontsource/noto-sans-thai": "^5.3.0",
+    "@napi-rs/canvas": "^1.0.9",
+    "bcryptjs": "^3.0.3",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "jsqr": "^1.4.0",
     "multer": "^2.3.0",
-    "nodemailer": "^10.0.9",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -35,7 +36,6 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "smtp-server": "^3.19.12",
     "supertest": "^7.2.2",
     "vite": "^8.3.0"
   }

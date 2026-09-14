@@ -55,10 +55,10 @@ export async function api(path, options = {}) {
 }
 
 /** Multipart variant: the browser sets its own Content-Type with the boundary. */
-export async function upload(path, formData) {
+export async function upload(path, formData, method = 'POST') {
   let response;
   try {
-    response = await fetch(`/api${path}`, { method: 'POST', credentials: 'include',
+    response = await fetch(`/api${path}`, { method, credentials: 'include',
       headers: { 'X-Gym-Client': 'web' }, body: formData });
   } catch {
     const error = new Error('อัปโหลดไม่สำเร็จ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่');

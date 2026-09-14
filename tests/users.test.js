@@ -9,14 +9,16 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { httpClient } from './http.js';
 import { openDatabase, migrate } from '../server/db.js';
 import { createApp } from '../server/app.js';
+import { hashPassword } from '../server/passwords.js';
 import { seedConfiguration } from '../server/seed.js';
+
+const PASSWORD = 'counter-test-password';
+const HASH = hashPassword(PASSWORD);
 
 function fixture(t) {
   const db = openDatabase(); migrate(db); seedConfiguration(db, Date.now());
   let time = Date.parse('2026-09-15T09:00:00+07:00');
-  const inbox = new Map();
-  const app = createApp({ db, secret: randomBytes(32).toString('hex'), now: () => time,
-    sendOtp: async ({ email, code }) => inbox.set(email, code) });
+  const app = createApp({ db, secret: randomBytes(32).toString('hex'), now: () => time });
   t.after(() => { app.locals.stopSweeper?.(); db.close(); });
   const http = httpClient(app, t);
 
@@ -25,28 +27,25 @@ function fixture(t) {
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
-  async function login(email) {
-    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-    const verified = await call('post', '/auth/verify-otp', null,
-      { challenge_id: start.body.challenge_id, code: inbox.get(email) }).expect(200);
-    return verified.body.token;
-  }
+  const login = async (email, password = PASSWORD) =>
+    (await call('post', '/auth/login', null, { email, password }).expect(200)).body.token;
   /** The first admin, the way db:admin makes one on a fresh install. */
   function seedAdmin(email) {
-    db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)").run(randomUUID(), email, time);
+    db.prepare("INSERT INTO users(id,email,role,password_hash,password_set_at,created_at) VALUES(?,?,'admin',?,?,?)")
+      .run(randomUUID(), email, HASH, time, time);
     return login(email);
   }
   const userRow = email => db.prepare('SELECT * FROM users WHERE email=?').get(email);
   const auditFor = id => db.prepare("SELECT * FROM audit_logs WHERE entity_id=? AND entity_type='user' ORDER BY created_at").all(id);
 
-  return { db, call, login, seedAdmin, userRow, auditFor, inbox, tick: ms => { time += ms; } };
+  return { db, call, login, seedAdmin, userRow, auditFor, tick: ms => { time += ms; } };
 }
 
 test('an admin can create the staff account the gym could not make before', async t => {
   const { call, login, seedAdmin, userRow, auditFor, tick } = fixture(t);
   const owner = await seedAdmin('owner@example.test');
 
-  const created = await call('post', '/users', owner, { email: 'Counter@Example.Test', role: 'staff' }).expect(201);
+  const created = await call('post', '/users', owner, { email: 'Counter@Example.Test', role: 'staff', password: PASSWORD }).expect(201);
   assert.equal(created.body.role, 'staff');
   assert.equal(created.body.email, 'counter@example.test', 'addresses are stored as one case');
   assert.equal(created.body.status, 'active');
@@ -58,7 +57,7 @@ test('an admin can create the staff account the gym could not make before', asyn
   assert.equal(entry.actor_id, userRow('owner@example.test').id);
   assert.equal(JSON.parse(entry.after_json).role, 'staff');
 
-  // And the account works: they sign in with a code like anybody else and can
+  // And the account works: they sign in with the password the owner set and can
   // do the job the role exists for.
   tick(61000);
   const counter = await login('counter@example.test');
@@ -76,7 +75,7 @@ test('an admin can create the staff account the gym could not make before', asyn
 test('roles move in both directions, and every move is written down', async t => {
   const { call, login, seedAdmin, userRow, auditFor, tick } = fixture(t);
   const owner = await seedAdmin('owner@example.test');
-  const id = (await call('post', '/users', owner, { email: 'promoted@example.test', role: 'staff' }).expect(201)).body.id;
+  const id = (await call('post', '/users', owner, { email: 'promoted@example.test', role: 'staff', password: PASSWORD }).expect(201)).body.id;
 
   for (const role of ['admin', 'member', 'staff']) {
     const changed = await call('put', `/users/${id}/role`, owner, { role }).expect(200);
@@ -118,7 +117,7 @@ test('the last working admin cannot lock the gym out of itself', async t => {
 
   // With somebody else holding the keys it is allowed -- this is how an owner
   // hands the gym over.
-  const second = (await call('post', '/users', owner, { email: 'second@example.test', role: 'admin' }).expect(201)).body;
+  const second = (await call('post', '/users', owner, { email: 'second@example.test', role: 'admin', password: PASSWORD }).expect(201)).body;
   await call('put', `/users/${ownerId}/role`, owner, { role: 'staff' }).expect(200);
   assert.equal(userRow('owner@example.test').role, 'staff');
 
@@ -129,11 +128,10 @@ test('the last working admin cannot lock the gym out of itself', async t => {
 });
 
 test('suspending an account stops it signing in, and restoring lets it back', async t => {
-  const { call, login, seedAdmin, userRow, auditFor, inbox, tick } = fixture(t);
+  const { call, login, seedAdmin, userRow, auditFor } = fixture(t);
   const owner = await seedAdmin('owner@example.test');
-  const created = (await call('post', '/users', owner, { email: 'leaver@example.test', role: 'staff' }).expect(201)).body;
+  const created = (await call('post', '/users', owner, { email: 'leaver@example.test', role: 'staff', password: PASSWORD }).expect(201)).body;
 
-  tick(61000);
   const theirs = await login('leaver@example.test');
   await call('get', '/me', theirs).expect(200);
 
@@ -142,18 +140,15 @@ test('suspending an account stops it signing in, and restoring lets it back', as
   // The session they already had stops working, not just the next one.
   await call('get', '/me', theirs).expect(401);
 
-  // And they cannot get a new one: the code is still delivered, because saying
+  // And they cannot sign in again: the password still matches, because saying
   // "no such account" would tell a stranger which addresses exist, but it opens
   // nothing.
-  tick(61000);
-  const start = await call('post', '/auth/request-otp', null, { email: 'leaver@example.test' }).expect(202);
-  const refused = await call('post', '/auth/verify-otp', null,
-    { challenge_id: start.body.challenge_id, code: inbox.get('leaver@example.test') }).expect(403);
+  const refused = await call('post', '/auth/login', null,
+    { email: 'leaver@example.test', password: PASSWORD }).expect(403);
   assert.match(refused.body.error, /ถูกระงับ/);
 
   await call('post', `/users/${created.id}/restore`, owner, {}).expect(200);
   assert.equal(userRow('leaver@example.test').status, 'active');
-  tick(61000);
   const again = await login('leaver@example.test');
   await call('get', '/me', again).expect(200);
 
@@ -161,25 +156,21 @@ test('suspending an account stops it signing in, and restoring lets it back', as
     ['user.create', 'user.suspend', 'user.restore']);
 });
 
-test('a wrong code says the same thing whoever typed it', async t => {
-  // The suspension check used to run before the code was compared, so a
-  // stranger guessing digits at an address got 403 for a suspended account and
-  // 400 for every other -- a way to sort real accounts from imaginary ones with
-  // no code at all. Only somebody who produced the right code learns why they
-  // cannot get in (QA USR-10).
-  const { call, seedAdmin, userRow, tick } = fixture(t);
+test('a wrong password says the same thing whoever typed it', async t => {
+  // The suspension check used to run before the secret was compared, so a
+  // stranger guessing at an address got 403 for a suspended account and 401 for
+  // every other -- a way to sort real accounts from imaginary ones without
+  // knowing anything. Only somebody who produced the right password learns why
+  // they cannot get in (QA USR-10).
+  const { call, seedAdmin, userRow } = fixture(t);
   const owner = await seedAdmin('owner@example.test');
-  const created = (await call('post', '/users', owner, { email: 'leaver@example.test', role: 'staff' }).expect(201)).body;
+  const created = (await call('post', '/users', owner,
+    { email: 'leaver@example.test', role: 'staff', password: PASSWORD }).expect(201)).body;
   await call('post', `/users/${created.id}/suspend`, owner, {}).expect(200);
   assert.equal(userRow('leaver@example.test').status, 'suspended');
 
-  async function guessWrong(email) {
-    tick(61000);
-    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-    const wrong = (await call('post', '/auth/verify-otp', null,
-      { challenge_id: start.body.challenge_id, code: '000000' })).body;
-    return wrong;
-  }
+  const guessWrong = async email =>
+    (await call('post', '/auth/login', null, { email, password: 'not-the-password' })).body;
 
   // Suspended, active and never-seen addresses are indistinguishable.
   const suspended = await guessWrong('leaver@example.test');
@@ -187,26 +178,25 @@ test('a wrong code says the same thing whoever typed it', async t => {
   const stranger = await guessWrong('nobody@example.test');
   assert.deepEqual(suspended, active);
   assert.deepEqual(suspended, stranger);
-  assert.match(suspended.error, /รหัสไม่ถูกต้อง/);
+  assert.match(suspended.error, /อีเมลหรือรหัสผ่านไม่ถูกต้อง/);
 });
 
-test('the right code on a suspended account is told why it will not open', async t => {
-  const { call, seedAdmin, inbox, tick } = fixture(t);
+test('the right password on a suspended account is told why it will not open', async t => {
+  const { call, seedAdmin } = fixture(t);
   const owner = await seedAdmin('owner@example.test');
-  const created = (await call('post', '/users', owner, { email: 'leaver@example.test', role: 'staff' }).expect(201)).body;
+  const created = (await call('post', '/users', owner,
+    { email: 'leaver@example.test', role: 'staff', password: PASSWORD }).expect(201)).body;
   await call('post', `/users/${created.id}/suspend`, owner, {}).expect(200);
 
-  tick(61000);
-  const start = await call('post', '/auth/request-otp', null, { email: 'leaver@example.test' }).expect(202);
-  const refused = await call('post', '/auth/verify-otp', null,
-    { challenge_id: start.body.challenge_id, code: inbox.get('leaver@example.test') }).expect(403);
+  const refused = await call('post', '/auth/login', null,
+    { email: 'leaver@example.test', password: PASSWORD }).expect(403);
   assert.match(refused.body.error, /ถูกระงับ/);
 
-  // Refused, not consumed: restoring the account and retyping the same code
-  // works, rather than leaving them to ask for another one.
+  // Refused, not spent: restoring the account and typing the same password
+  // works, rather than leaving them to ask for a new one.
   await call('post', `/users/${created.id}/restore`, owner, {}).expect(200);
-  const signedIn = await call('post', '/auth/verify-otp', null,
-    { challenge_id: start.body.challenge_id, code: inbox.get('leaver@example.test') }).expect(200);
+  const signedIn = await call('post', '/auth/login', null,
+    { email: 'leaver@example.test', password: PASSWORD }).expect(200);
   assert.equal(signedIn.body.role, 'staff');
 });
 

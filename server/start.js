@@ -3,31 +3,27 @@ import express from 'express';
 import { resolve } from 'node:path';
 import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
-import { createMailer } from './mail.js';
 import { SlipStore } from './slips.js';
+import { MAX_PHOTO_BYTES } from './cards-routes.js';
 import { loadPromptPayId } from './promptpay.js';
 
 /**
- * Pilot mode lets a gym try the system before it has a mail provider or a
- * PromptPay account: the OTP is read out at the counter and the admin hands
- * packages over directly. Everything else -- members, packages, check-in --
- * works normally, and turning the flag off later changes nothing that was
- * recorded while it was on.
+ * Pilot mode now means one thing: the gym has no PromptPay account yet. Staff
+ * sign in with a password either way, and members never sign in at all, so
+ * nothing here depends on a mail provider any more.
  */
 const pilotMode = process.env.PILOT_MODE === '1';
 if (pilotMode) {
-  // Somebody who has filled in a PromptPay account or a mail server, then left
-  // this flag on, will otherwise wonder for a week why no email ever arrives.
-  const ignored = ['PROMPTPAY_ID', 'SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD']
-    .filter(name => process.env[name]);
+  // Somebody who has filled in a PromptPay account and then left this flag on
+  // will otherwise wonder why the old slip queue never shows a QR.
+  const ignored = ['PROMPTPAY_ID'].filter(name => process.env[name]);
   console.warn(JSON.stringify({
     event: 'pilot_mode',
-    message: 'PILOT_MODE=1: OTP codes are shown in the admin console instead of emailed, '
-      + 'and packages are granted by an admin instead of paid for.',
+    message: 'PILOT_MODE=1: PromptPay is off. Packages are sold across the counter.',
     ...(ignored.length && {
       ignored,
-      warning: `${ignored.join(', ')} ${ignored.length > 1 ? 'are' : 'is'} configured but will NOT be used `
-        + 'while PILOT_MODE=1. Remove PILOT_MODE to go live.',
+      warning: `${ignored.join(', ')} is configured but will NOT be used while PILOT_MODE=1. `
+        + 'Remove PILOT_MODE to go live.',
     }),
   }));
 }
@@ -36,12 +32,15 @@ const db = openDatabase(process.env.DATABASE_PATH || './data/gym.sqlite');
 migrate(db);
 const app = createApp({
   db,
-  sendOtp: pilotMode ? async () => {} : createMailer(),
   secret: process.env.OTP_SECRET,
   origin: process.env.APP_ORIGIN,
   production: process.env.NODE_ENV === 'production',
   trustProxy: Number(process.env.TRUST_PROXY ?? 1),
   slipStore: new SlipStore(process.env.SLIP_STORAGE_PATH || './data/slips'),
+  // Member photographs, kept apart from slips: different people may need to be
+  // given one directory and not the other, and a backup of faces is a different
+  // conversation from a backup of bank slips.
+  photoStore: new SlipStore(process.env.PHOTO_STORAGE_PATH || './data/photos', { maxBytes: MAX_PHOTO_BYTES }),
   promptPayId: pilotMode ? null : loadPromptPayId(),
   pilotMode,
 });

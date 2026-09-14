@@ -3,15 +3,11 @@ import { createRoot } from 'react-dom/client';
 import './style.css';
 import {
   api, Empty, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Loading,
-  Notice, packageStatusLabels, PilotContext, StateBox, useResource, usePilot,
+  Notice, packageStatusLabels, PilotContext, StateBox, upload, useResource, usePilot,
 } from './shared.jsx';
-import {
-  MemberEntitlements, MemberOrder, MemberOrderHistory, MemberPackages,
-  PaymentReview, SalesReport,
-} from './payments.jsx';
-import {
-  CheckInLog, CheckInSummary, MemberCheckInHistory, MemberCheckInQr, StaffScanner,
-} from './checkin.jsx';
+import { PaymentReview, SalesReport } from './payments.jsx';
+import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
+import { PhotoCapture } from './camera.jsx';
 
 /**
  * The line icons the navigation needs. On a phone the menu becomes a bottom
@@ -42,7 +38,9 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
     onChange={v => setValue({ ...value, [name]: v })} error={errors[name]} {...props}/>;
   return <>
     {field('name', 'ชื่อ–นามสกุล', { required: true, maxLength: 120, autoComplete: 'name' })}
-    {includeEmail && field('email', 'อีเมล', { required: true, type: 'email', autoComplete: 'email' })}
+    {/* Optional now: a walk-in has nothing to sign in to, and inventing an
+        address to get past a required field is inventing data. */}
+    {includeEmail && field('email', 'อีเมล (ไม่บังคับ)', { type: 'email', autoComplete: 'email' })}
     {field('phone', 'เบอร์มือถือ', { required: true, type: 'tel', inputMode: 'tel', autoComplete: 'tel', placeholder: '08X-XXX-XXXX' })}
     <details><summary>ข้อมูลเพิ่มเติม (ไม่บังคับ)</summary>
       {field('date_of_birth', 'วันเกิด (ค.ศ.)', { type: 'date', min: '1900-01-01', max: new Date().toISOString().slice(0, 10) })}
@@ -77,210 +75,87 @@ function PublicGymInfo() {
             : `เข้าได้ ${item.session_limit} ครั้ง ภายใน ${item.duration_days} วัน`}</p></div>
           <span className="price">{formatPrice(item.price_thb)}</span></div>
       </div>)}
-    <p className="fine">สมัครสมาชิกด้วยอีเมลที่ช่องด้านบนเพื่อซื้อแพ็กเกจ</p>
+    <p className="fine">สมัครสมาชิกและซื้อแพ็กเกจได้ที่เคาน์เตอร์ของยิม</p>
   </section>;
 }
 
 /**
- * A sign-in the pilot CLI started on the server, handed over as a link.
+ * The counter sign-in.
  *
- * The very first administrator has nowhere to read their own code -- the screen
- * that shows codes is behind the login they are trying to pass -- so somebody
- * with root issues it at the terminal and sends them this. The id alone opens
- * nothing: it still needs the six digits, which expire in five minutes and
- * allow five attempts.
+ * Only the people who work here have an account, so there is no "sign up" and
+ * nothing to explain about codes and mailboxes. A staff member arriving for a
+ * shift types the address and the password the owner gave them.
  */
-function challengeFromLink() {
-  const id = new URLSearchParams(window.location.search).get('challenge');
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id ?? '')) return null;
-  // Out of the address bar, so a shared screenshot or a back button does not
-  // carry it around after it has been used.
-  window.history.replaceState(null, '', window.location.pathname);
-  return { challenge_id: id, from_link: true };
-}
-
 function Login({ onLogin }) {
-  const pilot = usePilot();
-  const [email, setEmail] = useState(''), [challenge, setChallenge] = useState(challengeFromLink), [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false), [error, setError] = useState(null), [remaining, setRemaining] = useState(0);
-  useEffect(() => { if (!remaining) return; const timer = setTimeout(() => setRemaining(remaining - 1), 1000); return () => clearTimeout(timer); }, [remaining]);
-  async function request() {
-    setBusy(true); setError(null);
-    try { setChallenge(await api('/auth/request-otp', { method: 'POST', body: { email } })); setCode(''); setRemaining(60); }
-    catch (e) { setError(e); } finally { setBusy(false); }
-  }
+  const [email, setEmail] = useState(''), [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false), [error, setError] = useState(null);
   async function submit(e) {
-    e.preventDefault(); if (!challenge) return request();
+    e.preventDefault();
     setBusy(true); setError(null);
-    try { onLogin(await api('/auth/verify-otp', { method: 'POST', body: { challenge_id: challenge.challenge_id, code } })); }
+    try { onLogin(await api('/auth/login', { method: 'POST', body: { email, password } })); }
+    // The password is deliberately left in the box: somebody who mistyped one
+    // character should fix that character, not type twelve again.
     catch (e) { setError(e); } finally { setBusy(false); }
   }
-  return <main className="app-main"><div className="container login-layout"><section className="welcome"><span className="eyebrow">ยิมของเรา</span>
-    <h1>เริ่มต้นดูแลตัวเอง<br/>ได้ทุกวัน</h1><p>ข้อมูลสมาชิกของคุณ<br/>อยู่ใกล้แค่ปลายนิ้ว</p><div className="welcome-line"/>
-    <span>เรียบง่าย พร้อมสำหรับวันของคุณ</span></section>
-    <section className="card login-card"><div className="icon-mark" aria-hidden="true">G</div><h2>{challenge ? 'ยืนยันอีเมลของคุณ' : 'ยินดีต้อนรับ'}</h2>
-      <p className="muted">{!challenge
-        ? 'เข้าสู่ระบบหรือสมัครสมาชิกด้วยอีเมล ไม่ต้องจำรหัสผ่าน'
-        : challenge.from_link
-          ? 'กรอกรหัส 6 หลักที่ได้จากหน้าจอผู้ดูแลระบบ รหัสใช้ได้ 5 นาที'
-          : pilot
-            ? `ขอรหัส 6 หลักของ ${email} จากเจ้าหน้าที่ที่เคาน์เตอร์หรือทาง LINE รหัสใช้ได้ 5 นาที`
-            : `ส่งรหัส 6 หลักไปที่ ${email} แล้ว รหัสใช้ได้ 5 นาที`}</p>
+  return <main className="app-main"><div className="container login-layout"><section className="welcome">
+    <span className="eyebrow">สำหรับพนักงาน</span>
+    <h1>เปิดร้าน<br/>แล้วเริ่มงานได้เลย</h1>
+    <p>สมัครสมาชิก ออกบัตร<br/>และสแกนเข้าใช้บริการ</p>
+    <div className="welcome-line"/>
+    <span>ใช้ได้ทั้งคอมพิวเตอร์ แท็บเล็ต และมือถือ</span></section>
+    <section className="card login-card"><div className="icon-mark" aria-hidden="true">G</div>
+      <h2>เข้าสู่ระบบ</h2>
+      <p className="muted">สำหรับพนักงานและเจ้าของยิม สมาชิกไม่ต้องเข้าสู่ระบบ</p>
       <form onSubmit={submit}>
-        {!challenge ? <Field label="อีเมล" name="email" type="email" value={email} onChange={setEmail} required autoComplete="email" error={error?.fields?.email}/>
-          : <Field label="รหัสยืนยัน 6 หลัก" name="code" value={code} onChange={setCode} required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" autoFocus/>}
-        <Notice error={error}/><button className="primary full" disabled={busy}>{busy ? 'กำลังดำเนินการ…' : challenge ? 'ยืนยันและเข้าสู่ระบบ' : pilot ? 'ขอรหัสเข้าใช้งาน' : 'รับรหัสทางอีเมล'}</button>
+        <Field label="อีเมล" name="email" type="email" value={email} onChange={setEmail}
+          required autoComplete="username" error={error?.fields?.email}/>
+        <label className="field">รหัสผ่าน
+          <input name="password" type="password" value={password} autoComplete="current-password" required
+            onChange={e => setPassword(e.target.value)}/></label>
+        <Notice error={error}/>
+        <button className="primary full" disabled={busy}>{busy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}</button>
       </form>
-      {challenge && <><div className="login-actions">
-        {/* Asking again would retire the code the link was issued for, so the
-            only way on from here is forward or back to the email form. */}
-        {!challenge.from_link && <button disabled={busy || remaining > 0} onClick={request}>{remaining ? `ส่งรหัสใหม่ได้ใน ${remaining} วินาที` : 'ส่งรหัสใหม่'}</button>}
-        <button disabled={busy} onClick={() => { setChallenge(null); setError(null); }}>{challenge.from_link ? 'เข้าด้วยอีเมลอื่น' : 'เปลี่ยนอีเมล'}</button></div>
-        <p className="fine">{challenge.from_link
-          ? 'ลิงก์นี้ใช้ได้ครั้งเดียวและหมดอายุใน 5 นาที ถ้าหมดอายุแล้วให้ขอรหัสใหม่จากผู้ดูแลระบบ'
-          : pilot
-            ? 'ขณะนี้ระบบอยู่ในโหมดทดลอง ยังไม่ส่งอีเมล เจ้าหน้าที่จะเป็นผู้แจ้งรหัสให้คุณ'
-            : 'ไม่ได้รับอีเมล? ลองตรวจโฟลเดอร์จดหมายขยะ แล้วกดส่งรหัสใหม่ หากยังไม่ได้รับ กรุณาติดต่อพนักงานที่เคาน์เตอร์'}</p></>}
-      <p className="fine">สมาชิกใหม่กรอกชื่อและเบอร์มือถือหลังยืนยันอีเมล</p>
+      <p className="fine">ลืมรหัสผ่าน? ให้เจ้าของยิมตั้งรหัสใหม่ให้ในหน้า “ผู้ใช้และสิทธิ์”</p>
     </section>
     <PublicGymInfo/></div></main>;
-}
-
-function Onboarding({ onSaved, notice }) {
-  const [value, setValue] = useState({ name: '', phone: '', date_of_birth: '', emergency_contact: '' });
-  const [busy, setBusy] = useState(false), [error, setError] = useState(null);
-  return <main className="app-main"><div className="container">{notice}
-    <section className="card narrow"><span className="eyebrow">อีกนิดเดียว</span><h1>ทำความรู้จักกัน</h1><p className="muted">กรอกชื่อและเบอร์มือถือเพื่อสร้างบัตรสมาชิก</p>
-    <form onSubmit={async e => { e.preventDefault(); setBusy(true); setError(null); try { await api('/me/profile', { method: 'PUT', body: value }); await onSaved(); } catch(e) { setError(e); } finally { setBusy(false); } }}>
-      <ProfileFields value={value} setValue={setValue} errors={error?.fields}/><Notice error={error}/><button className="primary full" disabled={busy}>{busy ? 'กำลังบันทึก…' : 'เริ่มใช้งาน'}</button>
-    </form></section></div></main>;
-}
-
-// --------------------------------------------------------------- member app
-
-function MemberHome({ member, gym }) {
-  return <>
-    <section className="member-card"><span className="eyebrow">บัตรสมาชิกของคุณ</span>
-      <div className="avatar" aria-hidden="true">{member.name.slice(0, 1)}</div>
-      <h1>{member.name}</h1><p className="member-code">{member.member_code}</p>
-      <span className={`badge ${member.status}`}>{labels[member.status]}</span>
-      <p className="card-foot">เป็นสมาชิกตั้งแต่ {formatDate(member.joined_at)}</p></section>
-    {member.status !== 'active' && <div className="notice warn">{member.status === 'suspended'
-      ? 'บัญชีสมาชิกถูกระงับ กรุณาติดต่อพนักงานที่ยิม' : 'สถานะสมาชิกหมดอายุ กรุณาติดต่อพนักงานที่ยิม'}</div>}
-    <section className="card"><h2>QR สำหรับเช็คอิน</h2>
-      {member.status === 'active'
-        ? <MemberCheckInQr/>
-        : <p className="muted">เปิดรหัสเช็คอินไม่ได้ขณะที่สถานะสมาชิกยังไม่ปกติ กรุณาติดต่อพนักงานที่ยิม</p>}
-    </section>
-    <section className="card"><h2>แพ็กเกจปัจจุบัน</h2><MemberEntitlements/></section>
-    {gym?.profile && <p className="fine">{gym.profile.brand_name_th || gym.profile.name}{gym.profile.address ? ` · ${gym.profile.address}` : ''}</p>}
-  </>;
-}
-
-function GymInfo({ gym }) {
-  if (!gym?.profile) return null;
-  const { profile, hours } = gym;
-  return <section className="card"><h2>ข้อมูลยิม</h2>
-    <dl>
-      <dt>ชื่อ</dt><dd>{profile.brand_name_th || profile.name}</dd>
-      {profile.address && <><dt>ที่อยู่</dt><dd>{profile.address}{profile.location_note ? ` (${profile.location_note})` : ''}</dd></>}
-      {profile.phone && <><dt>โทรศัพท์</dt><dd><a href={`tel:${profile.phone}`}>{formatPhone(profile.phone)}</a></dd></>}
-    </dl>
-    <h3 style={{ marginTop: 18 }}>เวลาเปิดทำการ</h3>
-    {!profile.hours_confirmed && <div className="notice warn">เวลาเปิดทำการยังรอการยืนยันจากยิม กรุณาโทรสอบถามก่อนเดินทาง</div>}
-    <dl>{hours.map(day => <React.Fragment key={day.weekday}>
-      <dt>{day.label}</dt><dd>{day.closed ? 'ปิด' : `${day.open_time} – ${day.close_time} น.`}</dd>
-    </React.Fragment>)}</dl></section>;
-}
-
-function MemberAccount({ member, gym, refresh, onLogout, onOpenOrder }) {
-  const [error, setError] = useState(null), [busy, setBusy] = useState(false);
-  return <>
-    <h1>บัญชีของฉัน</h1>
-    <section className="card"><h2>ข้อมูลของฉัน</h2>
-      <dl><dt>อีเมล</dt><dd>{member.email}</dd><dt>เบอร์มือถือ</dt><dd>{formatPhone(member.phone)}</dd>
-        <dt>รหัสสมาชิก</dt><dd>{member.member_code}</dd>
-        {member.date_of_birth && <><dt>วันเกิด</dt><dd>{formatDate(member.date_of_birth)}</dd></>}
-        {member.emergency_contact && <><dt>ผู้ติดต่อฉุกเฉิน</dt><dd>{member.emergency_contact}</dd></>}</dl>
-      <p className="muted">หากต้องการแก้ไขข้อมูล กรุณาติดต่อพนักงาน</p>
-      <Notice error={error}/>
-      <div className="actions">
-        <button disabled={busy} onClick={async () => { setBusy(true); setError(null); try { await refresh(); } catch(e) { setError(e); } finally { setBusy(false); } }}>{busy ? 'กำลังโหลด…' : 'รีเฟรชข้อมูล'}</button>
-        <button onClick={onLogout}>ออกจากระบบ</button>
-      </div>
-    </section>
-    <section className="card"><h2>ประวัติการเข้าใช้บริการ</h2><MemberCheckInHistory/></section>
-    <section className="card"><h2>ประวัติการสั่งซื้อ</h2><MemberOrderHistory onOpen={onOpenOrder}/></section>
-    <GymInfo gym={gym}/>
-  </>;
-}
-
-function MemberApp({ member, gym, refresh, onLogout, notice }) {
-  const pilot = usePilot();
-  const [tab, setTab] = useState('home');
-  const [orderId, setOrderId] = useState(null);
-  // In pilot mode there is nothing to buy: the gym has no PromptPay account
-  // wired up yet, and packages are handed over by staff.
-  const tabs = [['home', 'หน้าแรก', 'home'], ...(pilot ? [] : [['packages', 'แพ็กเกจ', 'box']]),
-    ['account', 'บัญชี', 'user']];
-  const open = id => { setOrderId(id); setTab('packages'); };
-  // Few enough screens for a tab bar rather than a sidebar: across the top on a
-  // desktop, along the bottom where a thumb reaches on a phone.
-  return <>
-    <nav className="tabnav" aria-label="เมนูหลัก"><div className="container">{tabs.map(([key, label, icon]) =>
-      <button key={key} onClick={() => { setTab(key); if (key !== 'packages') setOrderId(null); }}
-        aria-current={tab === key ? 'page' : undefined}><Icon name={icon}/>{label}</button>)}</div></nav>
-    <main className="app-main"><div className="container">
-      {notice}
-      <div className="member-shell">
-        {tab === 'home' && <MemberHome member={member} gym={gym}/>}
-        {tab === 'packages' && (orderId
-          ? <MemberOrder key={orderId} orderId={orderId} onBack={() => setOrderId(null)}/>
-          : <MemberPackages onBuy={setOrderId}/>)}
-        {tab === 'account' && <MemberAccount member={member} gym={gym} refresh={refresh} onLogout={onLogout} onOpenOrder={open}/>}
-      </div>
-    </div></main>
-  </>;
 }
 
 // ------------------------------------------------------------ admin: members
 
 /**
- * The code a member is waiting for, on the screen the staff member already has
- * open. Pilot mode only: outside it the member has the code in their inbox and
- * nobody else should be able to read it.
+ * Taking the money and handing over the package, at the desk.
+ *
+ * Cash is the default because it is what most of a Thai gym's takings are. A
+ * transfer can carry the slip the member just showed on their phone, and
+ * "ไม่เก็บเงิน" is the old comped membership -- which still demands a written
+ * reason, because a free membership is the entry somebody asks about later.
  */
-function PilotOtp({ member }) {
-  const { data, error, busy, reload } = useResource(`/members/${member.id}`);
-  if (busy || error) return null;
-  return <section className="card pilot-otp">
-    <h2>รหัสเข้าใช้งานล่าสุด</h2>
-    {data.pilot_otp
-      ? <><p className="otp-code">{data.pilot_otp.code}</p>
-          <p className="fine">ใช้ได้ถึง {formatDateTime(data.pilot_otp.expires_at)} · บอกรหัสนี้ให้สมาชิกทางโทรศัพท์หรือ LINE</p></>
-      : <p className="muted">ยังไม่มีรหัสที่ใช้ได้ ให้สมาชิกกด “ขอรหัสเข้าใช้งาน” ในแอปก่อน แล้วกดปุ่มด้านล่าง</p>}
-    <button onClick={() => reload().catch(() => {})}>โหลดรหัสล่าสุด</button>
-  </section>;
-}
-
-/** Hands a member a package outright: no order to pay, no slip, no QR. */
-function GrantPackage({ member, onGranted, onAuthError }) {
+function SellPackage({ member, onGranted, onAuthError }) {
   const { data, error } = useResource('/packages');
   const [packageId, setPackageId] = useState('');
+  const [method, setMethod] = useState('cash');
   const [note, setNote] = useState('');
+  const [reference, setReference] = useState('');
+  const [slip, setSlip] = useState(null);
   const [busy, setBusy] = useState(false), [grantError, setGrantError] = useState(null);
   const choices = (data?.items ?? []).filter(item => item.price_satang !== null);
 
-  async function grant() {
+  async function sell() {
     setBusy(true); setGrantError(null);
+    const form = new FormData();
+    form.append('package_id', packageId);
+    form.append('payment_method', method);
+    form.append('note', note);
+    if (reference) form.append('reference_no', reference);
+    if (slip) form.append('slip', slip);
     try {
-      await api(`/members/${member.id}/grant`, { method: 'POST', body: { package_id: packageId, note } });
-      onGranted('มอบแพ็กเกจแล้ว');
+      await upload(`/members/${member.id}/grant`, form);
+      onGranted(method === 'none' ? 'มอบแพ็กเกจแล้ว' : 'บันทึกการชำระเงินและมอบแพ็กเกจแล้ว');
     } catch (e) { setGrantError(e); onAuthError(e); } finally { setBusy(false); }
   }
 
-  return <section className="card"><h2>มอบแพ็กเกจ</h2>
-    <p className="muted">ให้สิทธิ์กับสมาชิกรายนี้โดยตรง ไม่ผ่านการชำระเงิน ยอดนี้จะไม่ถูกนับเป็นรายได้ในสรุปยอดขาย</p>
+  return <section className="card"><h2>บันทึกการชำระเงินและมอบแพ็กเกจ</h2>
+    <p className="muted">สมาชิกจ่ายที่เคาน์เตอร์ พนักงานบันทึกว่าจ่ายด้วยวิธีใด แล้วสิทธิ์จะใช้ได้ทันที</p>
     <Notice error={error}/>
     {!choices.length ? <p className="muted">ยังไม่มีแพ็กเกจที่กรอกราคาไว้ กรุณาตั้งราคาในหน้าแพ็กเกจก่อน</p> : <>
       <label className="field">แพ็กเกจที่จะมอบ
@@ -289,38 +164,120 @@ function GrantPackage({ member, onGranted, onAuthError }) {
           {choices.map(item => <option key={item.id} value={item.id}>
             {item.name_th} · {item.price_thb === 0 ? 'ไม่มีค่าใช้จ่าย' : formatPrice(item.price_thb)}</option>)}
         </select></label>
-      <Field name="grant-note" label="เหตุผล (บันทึกไว้ในประวัติ)" value={note} onChange={setNote} maxLength={300}
-        placeholder="เช่น ทดลองใช้ในช่วง pilot"/>
+      <label className="field">วิธีชำระเงิน
+        <select aria-label="วิธีชำระเงิน" value={method} onChange={e => setMethod(e.target.value)}>
+          <option value="cash">เงินสด</option>
+          <option value="transfer">โอนเงิน</option>
+          <option value="none">ไม่เก็บเงิน (มอบให้)</option>
+        </select></label>
+      {method === 'transfer' && <>
+        <Field name="reference_no" label="เลขอ้างอิงในสลิป (ถ้ามี)" value={reference} onChange={setReference}
+          maxLength={40} placeholder="เช่น 202609141030ABC"/>
+        <label className="field"><span>รูปสลิป (ถ้ามี · JPG, PNG หรือ WEBP)</span>
+          <span className="dropzone"><b>{slip ? slip.name : 'เลือกรูป หรือถ่ายภาพสลิป'}</b>
+            <input type="file" name="slip" accept="image/jpeg,image/png,image/webp"
+              onChange={e => setSlip(e.target.files?.[0] ?? null)}/></span></label>
+      </>}
+      <Field name="grant-note" label={method === 'none' ? 'เหตุผล (บันทึกไว้ในประวัติ)' : 'หมายเหตุ (ไม่บังคับ)'}
+        value={note} onChange={setNote} maxLength={300}
+        placeholder={method === 'none' ? 'เช่น ทดลองใช้ฟรี 1 เดือน' : 'เช่น รับเงินโดยพนักงานกะเช้า'}/>
       <Notice error={grantError}/>
-      <button className="primary" disabled={!packageId || !note.trim() || busy} onClick={grant}>
-        {busy ? 'กำลังมอบสิทธิ์…' : 'มอบแพ็กเกจให้สมาชิกรายนี้'}</button>
+      <button className="primary" disabled={!packageId || (method === 'none' && !note.trim()) || busy} onClick={sell}>
+        {busy ? 'กำลังบันทึก…' : method === 'none' ? 'มอบแพ็กเกจให้สมาชิกรายนี้' : 'บันทึกการชำระเงินและมอบแพ็กเกจ'}</button>
     </>}
   </section>;
 }
 
-/** Every code requested recently, so the counter can answer "what is mine?". */
-function PilotOtpBoard() {
-  const { data, error, busy, reload } = useResource('/admin/pilot/otp-codes');
-  return <><div className="page-heading"><div><span className="eyebrow">โหมดทดลอง</span>
-    <h1>รหัสเข้าใช้งานล่าสุด</h1>
-    <p className="muted">ระบบยังไม่ส่งอีเมล บอกรหัสให้สมาชิกที่เคาน์เตอร์หรือทาง LINE</p></div>
-    <button onClick={() => reload().catch(() => {})} disabled={busy}>{busy ? 'กำลังโหลด…' : 'โหลดใหม่'}</button></div>
-    <Notice error={error}/>
-    <section className="card">
-      {busy ? <Loading label="กำลังโหลด…" rows={3}/>
-        : !data?.items.length ? <p className="muted">ยังไม่มีใครขอรหัสในช่วง 5 นาทีที่ผ่านมา</p>
-          : <div className="member-list">{data.items.map(item => <div className="member-row" key={`${item.email}-${item.created_at}`}>
-            <span className="member-name"><strong>{item.email}</strong>
-              <small>ขอเมื่อ {formatDateTime(item.created_at)} · ใช้ได้ถึง {formatDateTime(item.expires_at)}</small></span>
-            <span className={`otp-code ${item.used ? 'used' : ''}`}>{item.used ? 'ใช้ไปแล้ว' : item.code}</span>
-          </div>)}</div>}
-    </section>
-    <p className="fine">รหัสหายไปเมื่อหมดอายุหรือเมื่อเซิร์ฟเวอร์รีสตาร์ต ไม่ได้ถูกบันทึกลงฐานข้อมูล</p></>;
+/**
+ * The card, on the screen of whoever is going to send it.
+ *
+ * Downloading and sharing are the same file: `navigator.share` hands it to
+ * LINE on a phone, and on a counter computer there is no share sheet, so the
+ * link saves it and staff attach it themselves. Reissuing is the owner's, and
+ * it is behind a confirmation, because the member is carrying the old one.
+ */
+function MemberCard({ member, canReissue, onReissued, onAuthError }) {
+  const { data, error, busy, reload } = useResource(`/members/${member.id}/card`);
+  const [working, setWorking] = useState(false), [cardError, setCardError] = useState(null);
+  // A new query string each time anything drawn on the card changes, so a
+  // reissued card is not the browser's copy of the cancelled one, and a member
+  // photographed a moment ago is not still a grey circle.
+  const src = `/api/members/${member.id}/card.png?v=${data?.card_version ?? 0}-${member.photo_updated_at ?? 0}`;
+
+  async function share() {
+    setCardError(null);
+    try {
+      const response = await fetch(src, { credentials: 'include' });
+      if (!response.ok) throw new Error('โหลดรูปบัตรไม่สำเร็จ กรุณาลองใหม่');
+      const file = new File([await response.blob()], `${member.member_code}.png`, { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: member.name });
+      else window.open(src, '_blank', 'noopener');
+    } catch (e) { if (e.name !== 'AbortError') setCardError(e); }
+  }
+
+  async function reissue() {
+    const reason = window.prompt('ออกบัตรใหม่ให้สมาชิกรายนี้? บัตรใบเดิมจะใช้เข้ายิมไม่ได้ทันที\n\nเหตุผล:');
+    if (!reason?.trim()) return;
+    setWorking(true); setCardError(null);
+    try {
+      await api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason: reason.trim() } });
+      await reload().catch(() => {});
+      onReissued('ออกบัตรใหม่แล้ว บัตรใบเดิมใช้ไม่ได้');
+    } catch (e) { setCardError(e); onAuthError(e); } finally { setWorking(false); }
+  }
+
+  return <section className="card"><h2>บัตรสมาชิก</h2>
+    <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
+    {busy ? <Loading label="กำลังสร้างบัตร…" cards={1}/> : !error && <>
+      {!member.has_photo && <div className="notice warn">
+        ยังไม่มีรูปถ่ายของสมาชิกรายนี้ บัตรจะออกได้แต่พนักงานจะเทียบหน้าตอนสแกนไม่ได้</div>}
+      <img className="member-card-image" src={src} alt={`บัตรสมาชิกของ ${member.name}`}/>
+      <p className="fine">บัตรใบที่ {data?.card_version} · ส่งรูปนี้ให้สมาชิกทาง LINE ได้เลย</p>
+      <Notice error={cardError}/>
+      <div className="actions">
+        <a className="button primary" href={src} download={`${member.member_code}.png`}>ดาวน์โหลดบัตร</a>
+        <button type="button" onClick={share}>ส่งบัตรให้สมาชิก</button>
+        {canReissue && <button type="button" className="danger" disabled={working} onClick={reissue}>
+          {working ? 'กำลังออกบัตรใหม่…' : 'ออกบัตรใหม่'}</button>}
+      </div>
+    </>}
+  </section>;
 }
 
-function MemberEditor({ member, onCancel, onSaved, onAuthError }) {
-  const pilot = usePilot();
-  const [value, setValue] = useState(member ? { ...blank, ...member } : { ...blank });
+/** The photograph: the only thing that ties the card to the person holding it. */
+function MemberPhoto({ member, onSaved, onAuthError }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState(null), [revision, setRevision] = useState(0);
+  async function send(file) {
+    if (!file) return;
+    setBusy(true); setError(null);
+    const form = new FormData();
+    form.append('photo', file);
+    try {
+      await upload(`/members/${member.id}/photo`, form, 'PUT');
+      setRevision(n => n + 1);
+      onSaved('บันทึกรูปถ่ายแล้ว');
+    } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); }
+  }
+  return <section className="card"><h2>รูปถ่ายสมาชิก</h2>
+    <p className="muted">พนักงานใช้รูปนี้เทียบกับคนที่ยืนอยู่ตรงหน้าตอนสแกนบัตร</p>
+    <div className="photo-row">
+      {member.has_photo
+        ? <img className="member-photo" src={`/api/members/${member.id}/photo?v=${revision}`} alt={`รูปถ่ายของ ${member.name}`}/>
+        : <div className="member-photo empty-photo" aria-hidden="true">ไม่มีรูป</div>}
+      <div>
+        <PhotoCapture busy={busy} onCapture={send}/>
+        <label className="field"><span>หรือเลือกรูปจากเครื่อง</span>
+          <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" disabled={busy}
+            onChange={e => send(e.target.files?.[0] ?? null)}/></label>
+      </div>
+    </div>
+    <Notice error={error}/>
+    {busy && <p className="loading-note" role="status">กำลังบันทึกรูป…</p>}
+  </section>;
+}
+
+function MemberEditor({ member, canReissue, onCancel, onSaved, onAuthError }) {
+  const [value, setValue] = useState(member ? { ...blank, ...member, email: member.email ?? '' } : { ...blank });
   const [error, setError] = useState(null), [busy, setBusy] = useState(false), [audit, setAudit] = useState(null);
   async function save(e) {
     e.preventDefault(); setBusy(true); setError(null);
@@ -336,22 +293,25 @@ function MemberEditor({ member, onCancel, onSaved, onAuthError }) {
     try { await api(`/members/${member.id}`, { method: 'DELETE', body: { version: member.version } }); onSaved('ระงับสมาชิกแล้ว'); }
     catch(e) { setError(e); onAuthError(e); } finally { setBusy(false); }
   }
-  return <section className="card narrow"><button onClick={onCancel} disabled={busy}>← กลับรายชื่อสมาชิก</button><h1>{member ? 'ข้อมูลสมาชิก' : 'เพิ่มสมาชิก'}</h1>
-    {member && <p className="muted">{member.member_code}</p>}
-    {member && pilot && <PilotOtp member={member}/>}
+  return <section className="card narrow"><button className="back" onClick={onCancel} disabled={busy}>← กลับรายชื่อสมาชิก</button>
+    <h1>{member ? 'ข้อมูลสมาชิก' : 'สมัครสมาชิกใหม่'}</h1>
+    {member ? <p className="muted">{member.member_code}</p>
+      : <p className="muted">กรอกชื่อและเบอร์ กดบันทึก แล้วถ่ายรูปกับออกบัตรในหน้าถัดไป</p>}
     <form onSubmit={save}><ProfileFields value={value} setValue={setValue} includeEmail errors={error?.fields}/>
       <label className="field">สถานะสมาชิก<select aria-label="สถานะสมาชิก" value={value.status} onChange={e => setValue({ ...value, status: e.target.value })}>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <Notice error={error}/><div className="actions"><button className="primary" disabled={busy}>{busy ? 'กำลังบันทึก…' : 'บันทึกสมาชิก'}</button><button type="button" onClick={onCancel} disabled={busy}>ยกเลิก</button></div>
     </form>
-    {member && <GrantPackage member={member} onAuthError={onAuthError} onGranted={onSaved}/>}
+    {member && <MemberPhoto member={member} onSaved={onSaved} onAuthError={onAuthError}/>}
+    {member && <MemberCard member={member} canReissue={canReissue} onReissued={onSaved} onAuthError={onAuthError}/>}
+    {member && <SellPackage member={member} onAuthError={onAuthError} onGranted={onSaved}/>}
     {member && <div className="secondary-actions"><button className="danger" onClick={deactivate} disabled={busy || member.status === 'suspended'}>ระงับสมาชิก</button>
       <button disabled={busy} onClick={async () => { try { setAudit(await api(`/members/${member.id}/audit`)); } catch(e) { setError(e); onAuthError(e); } }}>ดูประวัติการแก้ไข</button></div>}
-    {audit && <section className="audit"><h2>ประวัติการแก้ไข</h2>{audit.items.map(item => <div key={item.id}><strong>{{ 'member.create': 'สร้างสมาชิก', 'member.update': 'แก้ไขข้อมูล', 'member.deactivate': 'ระงับสมาชิก' }[item.action] ?? item.action}</strong><span className="muted"> · {formatDate(item.created_at)}</span>
+    {audit && <section className="audit"><h2>ประวัติการแก้ไข</h2>{audit.items.map(item => <div key={item.id}><strong>{{ 'member.create': 'สร้างสมาชิก', 'member.update': 'แก้ไขข้อมูล', 'member.deactivate': 'ระงับสมาชิก', 'member.photo': 'บันทึกรูปถ่าย', 'member.card_reissue': 'ออกบัตรใหม่' }[item.action] ?? item.action}</strong><span className="muted"> · {formatDate(item.created_at)}</span>
       <p className="fine">ผู้ดำเนินการ: {item.actor_id}</p></div>)}</section>}
   </section>;
 }
 
-function MemberAdmin({ onAuthError }) {
+function MemberAdmin({ onAuthError, canReissue = false }) {
   const [q, setQ] = useState(''), [page, setPage] = useState(1), [data, setData] = useState(null), [busy, setBusy] = useState(true);
   const [error, setError] = useState(null), [editor, setEditor] = useState(null), [revision, setRevision] = useState(0), [notice, setNotice] = useState('');
   useEffect(() => {
@@ -363,16 +323,16 @@ function MemberAdmin({ onAuthError }) {
     }, 200);
     return () => { clearTimeout(timer); abort.abort(); };
   }, [q, page, revision]);
-  if (editor) return <MemberEditor key={editor.id || 'new'} member={editor.id ? editor : null} onAuthError={onAuthError} onCancel={() => { setEditor(null); setRevision(n => n + 1); }}
+  if (editor) return <MemberEditor key={editor.id || 'new'} member={editor.id ? editor : null} canReissue={canReissue} onAuthError={onAuthError} onCancel={() => { setEditor(null); setRevision(n => n + 1); }}
     onSaved={message => { setEditor(null); setNotice(message); setRevision(n => n + 1); }}/>;
-  return <><div className="page-heading"><div><span className="eyebrow">ดูแลสมาชิก</span><h1>สมาชิกทั้งหมด</h1><p className="muted">ค้นหาและจัดการข้อมูลสมาชิกในที่เดียว</p></div>
-    <button className="primary" onClick={() => { setEditor({}); setNotice(''); }}>＋ เพิ่มสมาชิก</button></div>
+  return <><div className="page-heading"><div><span className="eyebrow">ดูแลสมาชิก</span><h1>สมาชิกทั้งหมด</h1><p className="muted">สมัครสมาชิก ถ่ายรูป ออกบัตร และรับเงินได้จากที่เดียว</p></div>
+    <button className="primary" onClick={() => { setEditor({}); setNotice(''); }}>＋ สมัครสมาชิกใหม่</button></div>
     {notice && <div className="notice" role="status">{notice}</div>}
     <section className="card"><div className="search-row"><Field name="search" label="ค้นหาสมาชิก" type="search" value={q} onChange={v => { setQ(v); setPage(1); }} placeholder="ชื่อ เบอร์โทร อีเมล หรือรหัสสมาชิก" maxLength={120}/>
       <span className="muted">{data ? `${data.total.toLocaleString('th-TH')} คน` : ''}</span></div>
       <StateBox error={error} onRetry={() => setRevision(n => n + 1)}/>
       {busy ? <Loading label="กำลังโหลดสมาชิก…" rows={4} avatar/> : !error && <>
-        {!data?.items.length ? <div className="empty"><h2>{q ? 'ไม่พบสมาชิกที่ค้นหา' : 'ยังไม่มีสมาชิก'}</h2><p className="muted">{q ? 'ลองค้นหาด้วยชื่อ เบอร์โทร หรืออีเมลอื่น' : 'เริ่มด้วยปุ่ม “เพิ่มสมาชิก” หรือให้สมาชิกสมัครผ่านแอป'}</p></div>
+        {!data?.items.length ? <div className="empty"><h2>{q ? 'ไม่พบสมาชิกที่ค้นหา' : 'ยังไม่มีสมาชิก'}</h2><p className="muted">{q ? 'ลองค้นหาด้วยชื่อ เบอร์โทร หรืออีเมลอื่น' : 'เริ่มด้วยปุ่ม “สมัครสมาชิกใหม่” ที่มุมขวาบน'}</p></div>
           : <div className="table-wrap"><table className="table table-members">
             {/* A table on a desktop and a stack of cards on a phone, from one
                 piece of markup: data-label carries the column name into the
@@ -380,7 +340,9 @@ function MemberAdmin({ onAuthError }) {
             <thead><tr><th>สมาชิก</th><th>สถานะ</th><th>เบอร์โทร</th><th>วันที่สมัคร</th><th/></tr></thead>
             <tbody>{data.items.map(member => <tr key={member.id}>
               <td data-label=""><span className="person">
-                <span className="avatar" aria-hidden="true">{member.name.slice(0, 1)}</span>
+                {member.has_photo
+                  ? <img className="avatar" src={`/api/members/${member.id}/photo`} alt=""/>
+                  : <span className="avatar" aria-hidden="true">{member.name.slice(0, 1)}</span>}
                 <span><span className="person-name">{member.name}</span>
                   <span className="person-meta num">{member.member_code}</span></span></span></td>
               <td data-label="สถานะ"><span className={`badge ${member.status}`}>{labels[member.status]}</span></td>
@@ -601,7 +563,7 @@ const roleLabels = { admin: 'ผู้ดูแลระบบ', staff: 'พน�
 function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
   const [q, setQ] = useState(''), [page, setPage] = useState(1);
   const { data, error, busy, reload } = useResource(`/users?q=${encodeURIComponent(q)}&page=${page}`);
-  const [email, setEmail] = useState(''), [role, setRole] = useState('staff');
+  const [email, setEmail] = useState(''), [role, setRole] = useState('staff'), [secret, setSecret] = useState('');
   const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null), [notice, setNotice] = useState('');
 
   /**
@@ -621,8 +583,22 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
   }
   /** Changing your own role or suspending yourself ends your session server-side. */
   const endsMyOwnSession = user => user.email === signedInAs;
-  const invite = () => act('/users', { method: 'POST', body: { email, role } }, 'สร้างบัญชีแล้ว')
-    .then(() => setEmail(''));
+  const invite = () => act('/users', { method: 'POST', body: { email, role, ...(secret ? { password: secret } : {}) } }, 'สร้างบัญชีแล้ว')
+    .then(() => { setEmail(''); setSecret(''); });
+
+  /**
+   * Setting somebody's password. Typed in front of them at the counter, not
+   * emailed: there is no mail provider here and the two people are standing in
+   * the same room. Anything they had open elsewhere is signed out.
+   */
+  function setPassword(user) {
+    const value = window.prompt(`ตั้งรหัสผ่านใหม่ให้ ${user.email}
+
+อย่างน้อย 12 ตัวอักษร จะใช้ได้ทันทีและบังคับออกจากระบบทุกเครื่อง`);
+    if (!value?.trim()) return;
+    act(`/users/${user.id}/password`, { method: 'PUT', body: { password: value } },
+      `ตั้งรหัสผ่านใหม่ให้ ${user.email} แล้ว`);
+  }
 
   return <>
     <div className="page-heading"><div><span className="eyebrow">ผู้ใช้และสิทธิ์</span><h1>บัญชีผู้ใช้</h1>
@@ -630,8 +606,8 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
     {notice && <div className="notice" role="status">{notice}</div>}
 
     <section className="card"><h2>เพิ่มบัญชีพนักงานหรือผู้ดูแลระบบ</h2>
-      <p className="muted">ไม่มีรหัสผ่านให้ตั้ง เจ้าของอีเมลนี้จะเข้าระบบด้วยรหัสที่ส่งไปเหมือนทุกบัญชี
-        ส่วนสมาชิกให้สมัครเองในแอปหรือเพิ่มที่หน้าสมาชิก</p>
+      <p className="muted">ตั้งรหัสผ่านให้ได้เลย หรือเว้นว่างไว้แล้วค่อยตั้งทีหลังจากปุ่ม “ตั้งรหัสผ่าน” ในตาราง
+        ด้านล่าง บัญชีที่ยังไม่มีรหัสผ่านจะเข้าระบบไม่ได้ · สมาชิกไม่ต้องมีบัญชี ให้เพิ่มที่หน้าสมาชิก</p>
       <div className="search-row">
         <Field name="new-user-email" label="อีเมล" type="email" value={email} onChange={setEmail}
           placeholder="staff@example.com" error={actionError?.fields?.email}/>
@@ -641,6 +617,10 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
             <option value="admin">ผู้ดูแลระบบ — จัดการทุกอย่าง</option>
           </select></label>
       </div>
+      <label className="field">รหัสผ่านเริ่มต้น (ไม่บังคับ · อย่างน้อย 12 ตัวอักษร)
+        <input name="new-user-password" type="password" value={secret} autoComplete="new-password"
+          minLength={12} onChange={e => setSecret(e.target.value)}/>
+        {actionError?.fields?.password && <span className="field-error">{actionError.fields.password}</span>}</label>
       <Notice error={actionError}/>
       <button className="primary" disabled={!email.trim() || working} onClick={invite}>
         {working ? 'กำลังบันทึก…' : 'สร้างบัญชี'}</button>
@@ -656,13 +636,17 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
       {busy ? <Loading label="กำลังโหลด…" rows={3}/> : !error && (
         !data.items.length ? <p className="muted">ไม่พบบัญชีที่ค้นหา</p>
           : <div className="table-wrap"><table className="table table-users">
-            <thead><tr><th>บัญชี</th><th>สถานะ</th><th>สิทธิ์</th><th/></tr></thead>
+            <thead><tr><th>บัญชี</th><th>สถานะ</th><th>รหัสผ่าน</th><th>สิทธิ์</th><th/></tr></thead>
             <tbody>{data.items.map(user => <tr key={user.id}>
               <td data-label=""><span className="person">
                 <span><span className="person-name">{user.email}</span>
                   {user.member_name && <span className="person-meta">{user.member_name}</span>}</span></span></td>
               <td data-label="สถานะ"><span className={`badge ${user.status === 'suspended' ? 'suspended' : 'active'}`}>
                 {user.status === 'suspended' ? 'ถูกระงับ' : 'ใช้งานได้'}</span></td>
+              <td data-label="รหัสผ่าน">{user.role === 'member'
+                ? <span className="muted">ไม่ต้องใช้</span>
+                : <span className={`badge ${user.has_password ? 'active' : 'suspended'}`}>
+                  {user.has_password ? 'ตั้งแล้ว' : 'ยังไม่ได้ตั้ง'}</span>}</td>
               <td data-label="สิทธิ์"><label className="field inline-field">เปลี่ยนสิทธิ์
                 <select aria-label={`สิทธิ์ของ ${user.email}`} value={user.role} disabled={working}
                   onChange={e => act(`/users/${user.id}/role`, { method: 'PUT', body: { role: e.target.value } },
@@ -672,6 +656,8 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
                   {Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                 </select></label></td>
               <td className="cell-actions"><span className="actions">
+                {user.role !== 'member' && <button className="sm" disabled={working}
+                  aria-label={`ตั้งรหัสผ่านของ ${user.email}`} onClick={() => setPassword(user)}>ตั้งรหัสผ่าน</button>}
                 <button className={user.status === 'suspended' ? 'sm' : 'sm danger'} disabled={working}
                   aria-label={`${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email}`}
                   onClick={() => act(`/users/${user.id}/${user.status === 'suspended' ? 'restore' : 'suspend'}`,
@@ -687,7 +673,8 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
         <button disabled={page * 20 >= (data?.total || 0)} onClick={() => setPage(page + 1)}>ถัดไป</button></div>
     </section>
     <p className="fine">ระงับบัญชีคือห้ามเข้าสู่ระบบ ไม่ใช่การระงับสมาชิกภาพ — สถานะสมาชิกแก้ที่หน้า “สมาชิก”
-      ระบบไม่ยอมให้ลดสิทธิ์หรือระงับจนไม่เหลือผู้ดูแลระบบที่ใช้งานได้เลย</p>
+      ระบบไม่ยอมให้ลดสิทธิ์หรือระงับจนไม่เหลือผู้ดูแลระบบที่ใช้งานได้เลย
+      การตั้งรหัสผ่านใหม่จะบังคับออกจากระบบทุกเครื่องของบัญชีนั้น</p>
   </>;
 }
 
@@ -733,11 +720,15 @@ function Console({ nav, notice, children }) {
 function Staff({ onAuthError, notice }) {
   const pilot = usePilot();
   const [tab, setTab] = useState('scan');
-  // No payments in pilot mode, so no queue of slips to look at.
-  const tabs = [['scan', 'สแกนเช็คอิน', 'scan'], ['history', 'ประวัติเช็คอิน', 'clock'],
+  // Signing somebody up is counter work now, so staff get the members screen
+  // too. The slip queue is only worth a tab where the old member app left
+  // orders behind to finish.
+  const tabs = [['scan', 'สแกนเช็คอิน', 'scan'], ['members', 'สมาชิก', 'users'],
+    ['history', 'ประวัติเช็คอิน', 'clock'],
     ...(pilot ? [] : [['queue', 'คิวสลิป', 'slip']])];
   return <Console nav={<SideNav label="เมนูพนักงาน" tabs={tabs} tab={tab} setTab={setTab}/>} notice={notice}>
     {tab === 'scan' && <StaffScanner/>}
+    {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
     {tab === 'history' && <CheckInLog/>}
     {tab === 'queue' && <PaymentReview onAuthError={onAuthError} readOnly/>}
   </Console>;
@@ -745,20 +736,18 @@ function Staff({ onAuthError, notice }) {
 
 function Admin({ onAuthError, signedInAs, onSignedOut, notice }) {
   const pilot = usePilot();
-  const [tab, setTab] = useState('members');
-  // The slip queue is replaced by the list of OTP codes, because in pilot mode
-  // reading a code out is the job that actually happens at the counter.
-  const tabs = [['members', 'สมาชิก', 'users'], ['users', 'ผู้ใช้และสิทธิ์', 'shield'],
-    ...(pilot ? [['codes', 'รหัส OTP', 'key']] : [['review', 'ตรวจสลิป', 'slip']]),
-    ['scan', 'สแกนเช็คอิน', 'scan'], ['checkin', 'เช็คอิน', 'clock'],
+  const [tab, setTab] = useState('scan');
+  // Scanning first: on a small gym the owner is often the one at the desk, and
+  // it is the screen that gets opened every time somebody walks in.
+  const tabs = [['scan', 'สแกนเช็คอิน', 'scan'], ['members', 'สมาชิก', 'users'],
+    ['users', 'ผู้ใช้และสิทธิ์', 'shield'],
+    ...(pilot ? [] : [['review', 'ตรวจสลิป', 'slip']]),
+    ['checkin', 'เช็คอิน', 'clock'],
     ['packages', 'แพ็กเกจ', 'box'], ['gym', 'ข้อมูลยิม', 'gear']];
   return <Console nav={<SideNav label="เมนูผู้ดูแลระบบ" tabs={tabs} tab={tab} setTab={setTab}/>} notice={notice}>
-    {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
+    {tab === 'members' && <MemberAdmin onAuthError={onAuthError} canReissue/>}
     {tab === 'users' && <UserAdmin onAuthError={onAuthError} signedInAs={signedInAs} onSignedOut={onSignedOut}/>}
-    {/* The same counter screen staff get: on a small gym the owner is often the
-        one at the desk, and until now they had no way to scan anybody in. */}
     {tab === 'scan' && <StaffScanner/>}
-    {tab === 'codes' && <PilotOtpBoard/>}
     {tab === 'review' && <PaymentReview onAuthError={onAuthError}/>}
     {tab === 'checkin' && <><div className="page-heading"><div><span className="eyebrow">เช็คอิน</span>
       <h1>การเข้าใช้บริการ</h1><p className="muted">ดูว่าใครเข้ายิมเมื่อไร และใครถูกปฏิเสธเพราะอะไร</p></div></div>
@@ -773,8 +762,7 @@ function Admin({ onAuthError, signedInAs, onSignedOut, notice }) {
 function PilotBanner() {
   return <div className="pilot-banner" role="status">
     <strong>โหมดทดลอง</strong>
-    <span>ยังไม่ส่งอีเมลและยังไม่รับชำระเงิน — รหัสเข้าใช้งานดูได้ในแท็บ “รหัส OTP”
-      และมอบแพ็กเกจให้สมาชิกได้จากหน้าสมาชิกรายคน</span>
+    <span>ยังไม่ได้ผูกบัญชีพร้อมเพย์ — รับเงินและมอบแพ็กเกจที่หน้าสมาชิกรายคนได้ตามปกติ</span>
   </div>;
 }
 
@@ -825,18 +813,15 @@ function App() {
 
   const notice = <Notice error={error}/>;
   // One header on every screen: who the gym is, who you are signed in as, and
-  // the way out. The old build had none of it on the member side at all.
+  // the way out.
   const header = appHeader(<span className="header-actions">
-    <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'staff' ? 'พนักงาน' : 'สมาชิก'}</span>
+    <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : 'พนักงาน'}</span>
     <button className="sm" onClick={logout}><Icon name="out"/>ออกจากระบบ</button>
   </span>);
 
   return shell(user.role === 'admin'
     ? <Admin onAuthError={onAuthError} signedInAs={user.email} notice={notice}
         onSignedOut={message => { setFarewell(message); setError(null); setUser(null); }}/>
-    : user.role === 'staff' ? <Staff onAuthError={onAuthError} notice={notice}/>
-    : user.member ? <MemberApp member={user.member} gym={gym} onLogout={logout} notice={notice}
-        refresh={async () => { try { await refresh(); } catch(e) { onAuthError(e); throw e; } }}/>
-      : <Onboarding onSaved={refresh} notice={notice}/>, header);
+    : <Staff onAuthError={onAuthError} notice={notice}/>, header);
 }
 createRoot(document.getElementById('root')).render(<App/>);

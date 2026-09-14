@@ -4,7 +4,7 @@
 #
 #   fly launch --no-deploy --copy-config
 #   fly volumes create gym_data --size 1 --region sin
-#   fly secrets set OTP_SECRET=... PROMPTPAY_ID=... SMTP_...
+#   fly secrets set OTP_SECRET=... ADMIN_EMAIL=... ADMIN_PASSWORD=...
 #   fly deploy
 app = "gym-management-pilot"
 primary_region = "sin"

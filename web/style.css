@@ -712,3 +712,28 @@ a.button.full{width:100%}
 button.back{justify-self:start;align-self:start;width:auto;min-height:0;
   padding:4px 0;border:0;background:none;font-weight:600}
 button.back:hover{background:none;color:var(--primary-dark)}
+
+/* ── แอปเคาน์เตอร์: รูปสมาชิก บัตร และผลการสแกน ─────────────────────
+   รูปถ่ายคือด่านเดียวที่กันการส่งบัตรต่อให้เพื่อนได้จริง หน้าจอจึงต้องทำให้
+   "มองหน้า" ง่ายกว่า "กดผ่าน" — รูปมาก่อนคำว่าเข้าได้ และใหญ่กว่า */
+.scan-photo{flex:none;width:200px;height:200px;border-radius:50%;object-fit:cover;
+  border:4px solid currentColor;background:var(--surface)}
+.empty-photo{display:grid;place-items:center;color:var(--muted);background:var(--line-soft);
+  font:600 15px/1.5 var(--font);border:2px dashed #71838C}
+.scan-check{margin:var(--s3) 0 var(--s2);font-weight:600}
+.scan-result .scan-icon{width:52px;height:52px;font-size:26px;margin-bottom:var(--s2)}
+@media (max-width:719px){
+  .scan-result{flex-direction:column;text-align:center}
+  .scan-photo{width:160px;height:160px}
+}
+
+/* รูปถ่ายในหน้าสมาชิก */
+.photo-row{display:flex;gap:var(--s5);align-items:flex-start;flex-wrap:wrap}
+.photo-row > div{flex:1 1 240px;min-width:0}
+.member-photo{flex:none;width:160px;height:160px;border-radius:50%;object-fit:cover;border:1px solid var(--line)}
+.photo-capture .camera-view{max-width:320px;aspect-ratio:1/1;object-fit:cover}
+img.avatar{object-fit:cover}
+
+/* บัตรสมาชิกเป็นรูปภาพ แสดงตามสัดส่วนจริง 4:5 ไม่ยืด */
+.member-card-image{display:block;width:100%;max-width:320px;margin:var(--s4) auto;
+  border-radius:var(--radius);border:1px solid var(--line);box-shadow:var(--shadow)}

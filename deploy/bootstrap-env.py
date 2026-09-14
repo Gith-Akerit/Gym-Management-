@@ -6,8 +6,6 @@ from pathlib import Path
 import re
 import secrets
 import shlex
-import smtplib
-import ssl
 import sys
 import tempfile
 import warnings
@@ -58,36 +56,26 @@ def write_env(path, values, template):
             os.unlink(name)
 
 def ask_credentials():
-    """The values a live gym needs and a pilot one does not have yet."""
+    """The one value a live gym needs and a pilot one does not have yet.
+
+    Email is no longer among them. Staff sign in with a password and members do
+    not sign in at all, so no path a gym depends on goes through a mail provider
+    any more -- which is the whole reason the login changed.
+    """
     promptpay = ask('PromptPay ID')
-    provider = ask('SMTP preset: enter gmail or brevo').lower()
-    if provider not in ('gmail', 'brevo'):
-        raise ValueError('Choose gmail or brevo.')
-    user = ask('Gmail address' if provider == 'gmail' else 'Brevo SMTP login')
-    password = ask('Gmail App Password' if provider == 'gmail' else 'Brevo SMTP key')
-    sender = user if provider == 'gmail' else ask('Brevo verified sender email')
-    if provider == 'gmail':
-        password = password.replace(' ', '')
     if not re.fullmatch(r'(0\d{9}|66\d{9}|\d{13}|\d{15})', promptpay):
         raise ValueError('Invalid PromptPay ID format.')
-    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', sender):
-        raise ValueError('Invalid sender email format.')
-    return dict(PROMPTPAY_ID=promptpay,
-                SMTP_HOST='smtp.gmail.com' if provider == 'gmail' else 'smtp-relay.brevo.com',
-                SMTP_PORT='587', SMTP_SECURE='false', SMTP_USER=user,
-                SMTP_PASSWORD=password, MAIL_FROM=sender)
+    return dict(PROMPTPAY_ID=promptpay)
 
 
-def check_smtp(values):
-    try:
-        with smtplib.SMTP(values['SMTP_HOST'], int(values['SMTP_PORT']), timeout=20) as smtp:
-            smtp.ehlo()
-            smtp.starttls(context=ssl.create_default_context())
-            smtp.ehlo()
-            smtp.login(values['SMTP_USER'], values['SMTP_PASSWORD'])
-    except Exception:
-        raise ValueError('SMTP TLS/login failed. Check credentials and outbound port 587; .env was not changed.') from None
-    print('SMTP TLS/login: OK (email delivery still needs a real OTP test).')
+def ask_admin_password():
+    """The password the owner signs in with on day one, asked for twice."""
+    password = ask('Password for the administrator account (at least 12 characters)')
+    if len(password.strip()) < 12:
+        raise ValueError('The administrator password must be at least 12 characters.')
+    if password != ask('Type the administrator password again'):
+        raise ValueError('The two passwords do not match; nothing was saved.')
+    return password
 
 
 def require_terminal():
@@ -118,38 +106,43 @@ def configure(root, clear_admin=False, pilot=False):
             raise ValueError('Environment does not exist.')
         # getpass must never fall back to reading curl input or echoing passwords.
         require_terminal()
-        admin = ask('Reporter email for administrator login')
+        admin = ask('Email for the administrator login')
         if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', admin):
             raise ValueError('Invalid administrator email format.')
+        # Asked for here and consumed by the first boot: from then on the owner
+        # changes it on the "ผู้ใช้และสิทธิ์" screen, never in a file.
+        admin_password = ask_admin_password()
         values = dict(NODE_ENV='production', HOST='0.0.0.0', PORT='3000',
                       APP_DOMAIN='srv1979069.hstgr.cloud',
                       APP_ORIGIN='https://srv1979069.hstgr.cloud', TRUST_PROXY='1',
                       DATABASE_PATH='/data/gym.sqlite', SLIP_STORAGE_PATH='/data/slips',
+                      PHOTO_STORAGE_PATH='/data/photos',
                       SLIP_RETENTION_DAYS='365', OTP_SECRET=secrets.token_hex(32),
-                      ADMIN_EMAIL=admin, ALLOW_DESTRUCTIVE_ROLLBACK='')
-        # A pilot has no merchant account and no mailbox. The keys are written
-        # empty rather than left to the template, whose development defaults
-        # would otherwise look like real configuration the app is ignoring.
-        values.update(PILOT_MODE='1', PROMPTPAY_ID='', SMTP_HOST='', SMTP_PORT='',
-                      SMTP_SECURE='', SMTP_USER='', SMTP_PASSWORD='', MAIL_FROM='')
+                      ADMIN_EMAIL=admin, ADMIN_PASSWORD=admin_password,
+                      ALLOW_DESTRUCTIVE_ROLLBACK='')
+        # A pilot has no merchant account yet. The key is written empty rather
+        # than left to the template, whose development default would otherwise
+        # look like real configuration the app is ignoring.
+        values.update(PILOT_MODE='1', PROMPTPAY_ID='')
         if not pilot:
             values.update(PILOT_MODE='', **ask_credentials())
     if clear_admin:
+        # Both are consumed by the first boot and must not sit in a file on
+        # disk afterwards.
         values['ADMIN_EMAIL'] = ''
+        values['ADMIN_PASSWORD'] = ''
     elif pilot:
         # Rerunning with --pilot on a live environment puts it back into pilot
         # mode without touching the credentials already saved.
         values['PILOT_MODE'] = '1'
-        print('Pilot mode: OTP codes appear in the admin console; no email is sent.')
+        print('Pilot mode: no PromptPay account. Packages are sold across the counter.')
     else:
-        # Leaving pilot mode: ask for whatever the pilot never collected, and
-        # only clear the flag once the mail server has actually accepted a
-        # login. A failure here leaves .env exactly as it was.
-        if not values.get('SMTP_HOST') or not values.get('PROMPTPAY_ID'):
+        # Leaving pilot mode: ask for what the pilot never collected. A failure
+        # here leaves .env exactly as it was.
+        if not values.get('PROMPTPAY_ID'):
             require_terminal()
-            print('Going live: PromptPay and email are needed before payments and OTP mail work.')
+            print('Going live: a PromptPay account is needed before the old slip queue can be used.')
             values.update(ask_credentials())
-        check_smtp(values)
         values['PILOT_MODE'] = ''
     write_env(path, values, template)
     print('Environment saved securely; values are not displayed.')

@@ -1,44 +1,23 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './counter.js';
 
-// Spec files share one test server and run in filename order, hence the number
-// prefixes. Runs after 01-member.spec, so these journeys never
-// assume an empty member list. Declaration order matters: the empty-catalogue
-// check has to happen before the admin publishes a package.
+// Runs after the login spec. Declaration order matters inside this file: the
+// unpriced-package check has to happen before the owner publishes one.
 
-async function login(page, email) {
-  await page.goto('/');
-  await page.getByLabel('อีเมล', { exact: true }).fill(email);
-  await page.getByRole('button', { name: 'รับรหัสทางอีเมล' }).click();
-  await expect(page.getByLabel('รหัสยืนยัน 6 หลัก')).toBeVisible();
-  const { code } = await (await page.request.get(`/__test/code?email=${email}`)).json();
-  await page.getByLabel('รหัสยืนยัน 6 หลัก').fill(code);
-  await page.getByRole('button', { name: 'ยืนยันและเข้าสู่ระบบ' }).click();
-}
-
-async function registerMember(page, { email, name, phone }) {
-  await login(page, email);
-  await page.getByLabel('ชื่อ–นามสกุล').fill(name);
-  await page.getByLabel('เบอร์มือถือ').fill(phone);
-  await page.getByRole('button', { name: 'เริ่มใช้งาน' }).click();
-  await expect(page.getByRole('heading', { name })).toBeVisible();
-}
-
-test('with every package still a draft the member sees an honest empty catalogue', async ({ page }) => {
+test('the public page warns about unconfirmed hours and sells nothing yet', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
-  await registerMember(page, { email: 'empty@example.test', name: 'สมชาย ทดสอบ', phone: '0894445566' });
-  await page.getByRole('button', { name: 'แพ็กเกจ' }).click();
-  await expect(page.getByRole('heading', { name: 'ยังไม่เปิดขายแพ็กเกจ' })).toBeVisible();
-  // Unconfirmed opening hours must warn the member rather than read as fact.
-  await page.getByRole('button', { name: 'บัญชี' }).click();
+  await page.goto('/');
+  // What somebody deciding whether to join sees before anybody signs in.
+  await expect(page.getByText('ยังไม่เปิดขายแพ็กเกจ')).toBeVisible();
   await expect(page.getByText('เวลาเปิดทำการยังรอการยืนยัน', { exact: false })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 });
 
-test('admin edits gym facts and publishes a package, member then sees both', async ({ page }) => {
+test('the owner edits gym facts and puts a package on sale', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
 
-  await login(page, 'admin2@example.test');
+  await signIn(page, 'admin2@example.test');
   await page.getByRole('button', { name: 'ข้อมูลยิม' }).click();
   await expect(page.getByRole('heading', { name: 'ข้อมูลยิม' })).toBeVisible();
   // Seeded facts are editable, never hardcoded.
@@ -62,7 +41,7 @@ test('admin edits gym facts and publishes a package, member then sees both', asy
   await page.screenshot({ path: 'artifacts/admin-packages.png', fullPage: true });
 
   await page.getByRole('button', { name: 'แก้ไข รายเดือน Unlimited' }).click();
-  // Publishing without a price has to fail: members must never see a ฿0 package.
+  // Publishing without a price has to fail: nobody must ever be sold a ฿0 package.
   await page.getByLabel('สถานะแพ็กเกจ').selectOption('active');
   await page.getByRole('button', { name: 'บันทึกแพ็กเกจ' }).click();
   await expect(page.getByRole('alert')).toContainText('ตรวจสอบข้อมูล');
@@ -74,28 +53,20 @@ test('admin edits gym facts and publishes a package, member then sees both', asy
   await expect(page.getByText('฿1,200.00').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
-  await expect(page.getByRole('button', { name: 'รับรหัสทางอีเมล' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'เข้าสู่ระบบ' })).toBeVisible();
 
-  // --- member side -----------------------------------------------------------
+  // --- what the public page says now -----------------------------------------
   await page.setViewportSize({ width: 390, height: 844 });
-  await registerMember(page, { email: 'catalogue@example.test', name: 'มานี รักดี', phone: '0891112233' });
-  await expect(page.getByRole('heading', { name: 'QR สำหรับเช็คอิน' })).toBeVisible();
-  await page.screenshot({ path: 'artifacts/member-home.png', fullPage: true });
-
-  await page.getByRole('button', { name: 'แพ็กเกจ' }).click();
-  await expect(page.getByRole('heading', { name: 'รายเดือน Unlimited' })).toBeVisible();
+  await page.goto('/');
+  await expect(page.getByText('รายเดือน Unlimited')).toBeVisible();
   await expect(page.getByText('฿1,200.00')).toBeVisible();
   // Drafts stay internal.
   await expect(page.getByText('10 ครั้ง ใช้ได้ 90 วัน')).toHaveCount(0);
-  await page.screenshot({ path: 'artifacts/member-packages.png', fullPage: true });
-
-  await page.getByRole('button', { name: 'บัญชี' }).click();
-  await expect(page.getByRole('heading', { name: 'ข้อมูลยิม' })).toBeVisible();
-  // The admin switched the displayed number to the mobile one and confirmed hours.
+  // The owner switched the displayed number to the mobile one and confirmed hours.
   await expect(page.getByText('086-330-7368')).toBeVisible();
   await expect(page.getByText('17:00 – 22:00 น.').first()).toBeVisible();
   await expect(page.getByText('เวลาเปิดทำการยังรอการยืนยัน', { exact: false })).toHaveCount(0);
-  await page.screenshot({ path: 'artifacts/member-account.png', fullPage: true });
+  await page.screenshot({ path: 'artifacts/public-gym.png', fullPage: true });
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   expect(errors).toEqual([]);

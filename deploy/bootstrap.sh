@@ -17,11 +17,10 @@ while [ $# -gt 0 ]; do
         'Check Ubuntu/root, existing services and SSH port; lock installer.' \
         'Add dedicated SSH public key; upgrade OS without automatic reboot.' \
         'Install official Docker + Compose; clone release/pilot into /srv/gym.' \
-        'Prompt hidden credentials via /dev/tty; verify STARTTLS SMTP auth before saving.' \
-        'With --pilot: ask only for the administrator email, set PILOT_MODE=1 and' \
-        'skip PromptPay/SMTP entirely; OTP codes are read from the admin console.' \
+        'Prompt hidden credentials via /dev/tty: administrator email and password.' \
+        'With --pilot: skip the PromptPay question and set PILOT_MODE=1.' \
         'Rerunning the same command without --pilot asks for the missing PromptPay' \
-        'and SMTP values, verifies SMTP, then clears PILOT_MODE and restarts.' \
+        'value, then clears PILOT_MODE and restarts.' \
         'Preserve existing OTP_SECRET, credentials and persistent volume on rerun.' \
         'Build app; allow only TCP 22/80/443 on a dedicated host; start Caddy/app.' \
         'Install daily consistent backup and monthly prune; check HTTPS health.'
@@ -113,8 +112,8 @@ ufw allow 443/tcp
 ufw --force enable
 # Docker published ports bypass UFW. This project's only published ports are 80/443.
 docker compose up -d --wait --wait-timeout 180
-# Read before the next line blanks it. In pilot mode there is no email, so this
-# is the account the first sign-in code has to be issued for.
+# Read before the next line blanks it, so the closing message can name the
+# account the owner is about to sign in as. The password is never read back.
 admin_email=$(sed -n "s/^ADMIN_EMAIL='\(.*\)'\$/\1/p" .env | head -n1)
 python3 deploy/bootstrap-env.py --clear-admin
 docker compose up -d --wait --wait-timeout 120 app
@@ -137,25 +136,16 @@ done
 echo 'HTTPS health: OK'
 echo 'URL: https://srv1979069.hstgr.cloud'
 if [ "$pilot" = 1 ]; then
-  echo 'PILOT MODE: no email is sent and no payment is taken.'
-  echo 'Grant packages from a member page ("มอบแพ็กเกจ"); there is no purchase screen.'
-  echo 'After this first sign-in, every code is on the "รหัส OTP" tab of the admin console.'
-  echo 'To go live later, rerun the same command WITHOUT --pilot.'
-  # The first administrator has nowhere to read their own code: the screen that
-  # shows codes is behind the login they are trying to pass. Issue one here.
-  if [ -n "$admin_email" ]; then
-    echo
-    echo '--- FIRST SIGN-IN (valid 5 minutes from now) ---------------------------'
-    docker compose exec -T app npm --silent run pilot:code -- "$admin_email" \
-      || echo "Could not issue the code. Run: cd /srv/gym && docker compose exec app npm --silent run pilot:code -- $admin_email"
-    echo '------------------------------------------------------------------------'
-  else
-    echo 'Issue the first sign-in code with:'
-    echo '  cd /srv/gym && docker compose exec app npm --silent run pilot:code -- <administrator email>'
-  fi
-else
-  echo 'Sign in with the reporter admin email and the OTP delivered by email.'
+  echo 'PILOT MODE: no PromptPay account is configured.'
+  echo 'Sell packages from a member page ("บันทึกการชำระเงินและมอบแพ็กเกจ").'
+  echo 'To take PromptPay transfers later, rerun the same command WITHOUT --pilot.'
 fi
+echo
+echo '--- FIRST SIGN-IN ------------------------------------------------------'
+echo "  Email:    ${admin_email:-<the administrator email you entered>}"
+echo '  Password: the one you typed during this install.'
+echo '  Add staff and set their passwords on the "ผู้ใช้และสิทธิ์" screen.'
+echo '------------------------------------------------------------------------'
 echo 'Daily local backup: /var/backups/gym (7 days). Copy off-server for disaster recovery.'
 echo 'SSH host fingerprint (safe to share):'
 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
