@@ -39,7 +39,7 @@ function fixture(t) {
   const userRow = email => db.prepare('SELECT * FROM users WHERE email=?').get(email);
   const auditFor = id => db.prepare("SELECT * FROM audit_logs WHERE entity_id=? AND entity_type='user' ORDER BY created_at").all(id);
 
-  return { db, call, login, seedAdmin, userRow, auditFor, tick: ms => { time += ms; } };
+  return { db, call, login, seedAdmin, userRow, auditFor, inbox, tick: ms => { time += ms; } };
 }
 
 test('an admin can create the staff account the gym could not make before', async t => {
@@ -129,7 +129,7 @@ test('the last working admin cannot lock the gym out of itself', async t => {
 });
 
 test('suspending an account stops it signing in, and restoring lets it back', async t => {
-  const { call, login, seedAdmin, userRow, auditFor, tick } = fixture(t);
+  const { call, login, seedAdmin, userRow, auditFor, inbox, tick } = fixture(t);
   const owner = await seedAdmin('owner@example.test');
   const created = (await call('post', '/users', owner, { email: 'leaver@example.test', role: 'staff' }).expect(201)).body;
 
@@ -148,7 +148,7 @@ test('suspending an account stops it signing in, and restoring lets it back', as
   tick(61000);
   const start = await call('post', '/auth/request-otp', null, { email: 'leaver@example.test' }).expect(202);
   const refused = await call('post', '/auth/verify-otp', null,
-    { challenge_id: start.body.challenge_id, code: '000000' }).expect(403);
+    { challenge_id: start.body.challenge_id, code: inbox.get('leaver@example.test') }).expect(403);
   assert.match(refused.body.error, /ถูกระงับ/);
 
   await call('post', `/users/${created.id}/restore`, owner, {}).expect(200);
@@ -159,6 +159,55 @@ test('suspending an account stops it signing in, and restoring lets it back', as
 
   assert.deepEqual(auditFor(created.id).map(row => row.action),
     ['user.create', 'user.suspend', 'user.restore']);
+});
+
+test('a wrong code says the same thing whoever typed it', async t => {
+  // The suspension check used to run before the code was compared, so a
+  // stranger guessing digits at an address got 403 for a suspended account and
+  // 400 for every other -- a way to sort real accounts from imaginary ones with
+  // no code at all. Only somebody who produced the right code learns why they
+  // cannot get in (QA USR-10).
+  const { call, seedAdmin, userRow, tick } = fixture(t);
+  const owner = await seedAdmin('owner@example.test');
+  const created = (await call('post', '/users', owner, { email: 'leaver@example.test', role: 'staff' }).expect(201)).body;
+  await call('post', `/users/${created.id}/suspend`, owner, {}).expect(200);
+  assert.equal(userRow('leaver@example.test').status, 'suspended');
+
+  async function guessWrong(email) {
+    tick(61000);
+    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
+    const wrong = (await call('post', '/auth/verify-otp', null,
+      { challenge_id: start.body.challenge_id, code: '000000' })).body;
+    return wrong;
+  }
+
+  // Suspended, active and never-seen addresses are indistinguishable.
+  const suspended = await guessWrong('leaver@example.test');
+  const active = await guessWrong('owner@example.test');
+  const stranger = await guessWrong('nobody@example.test');
+  assert.deepEqual(suspended, active);
+  assert.deepEqual(suspended, stranger);
+  assert.match(suspended.error, /รหัสไม่ถูกต้อง/);
+});
+
+test('the right code on a suspended account is told why it will not open', async t => {
+  const { call, seedAdmin, inbox, tick } = fixture(t);
+  const owner = await seedAdmin('owner@example.test');
+  const created = (await call('post', '/users', owner, { email: 'leaver@example.test', role: 'staff' }).expect(201)).body;
+  await call('post', `/users/${created.id}/suspend`, owner, {}).expect(200);
+
+  tick(61000);
+  const start = await call('post', '/auth/request-otp', null, { email: 'leaver@example.test' }).expect(202);
+  const refused = await call('post', '/auth/verify-otp', null,
+    { challenge_id: start.body.challenge_id, code: inbox.get('leaver@example.test') }).expect(403);
+  assert.match(refused.body.error, /ถูกระงับ/);
+
+  // Refused, not consumed: restoring the account and retyping the same code
+  // works, rather than leaving them to ask for another one.
+  await call('post', `/users/${created.id}/restore`, owner, {}).expect(200);
+  const signedIn = await call('post', '/auth/verify-otp', null,
+    { challenge_id: start.body.challenge_id, code: inbox.get('leaver@example.test') }).expect(200);
+  assert.equal(signedIn.body.role, 'staff');
 });
 
 test('the list shows who is who, and refuses to make a second account for one address', async t => {

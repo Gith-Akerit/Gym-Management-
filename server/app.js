@@ -170,14 +170,19 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
     const input = parse(z.object({ challenge_id: z.uuid(), code: z.string().regex(/^\d{6}$/, 'กรอกรหัส 6 หลัก') }).strict(), req.body);
     const c = db.prepare('SELECT * FROM otp_challenges WHERE id=?').get(input.challenge_id);
     const invalid = () => new HttpError(400, 'รหัสไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว กรุณาขอรหัสใหม่');
-    const suspended = c && db.prepare("SELECT 1 FROM users WHERE email=? AND status='suspended'").get(c.email);
-    if (suspended) throw new HttpError(403, 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ');
     if (!c || c.consumed_at !== null || c.expires_at <= now() || c.attempts >= 5) throw invalid();
     assertNotLockedOut(c.email);
     db.prepare('UPDATE otp_challenges SET attempts=attempts+1 WHERE id=?').run(c.id);
     if (!timingSafeEqual(Buffer.from(c.code_hash, 'hex'), Buffer.from(otpCodeHash(secret, c.id, input.code), 'hex'))) {
       recordOtpFailure(c.email);
       throw invalid();
+    }
+    // Only now, with the right code in hand. Checking the suspension first told
+    // anybody typing digits at an address which accounts are suspended, because
+    // a wrong guess came back 403 there and 400 everywhere else (QA USR-10).
+    // The person holding the mailbox gets the real reason; a stranger does not.
+    if (db.prepare("SELECT 1 FROM users WHERE email=? AND status='suspended'").get(c.email)) {
+      throw new HttpError(403, 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ');
     }
     const token = randomBytes(32).toString('base64url');
     const result = transaction(db, () => {
