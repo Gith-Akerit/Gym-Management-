@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cardToken, go, jpegBuffer, openMember, PNG_PIXEL, signIn, signUpMember } from './counter.js';
+import { cardToken, go, jpegBuffer, openMember, PHOTO_JPEG, PNG_PIXEL, signIn, signUpMember } from './counter.js';
 
 // Signing somebody up at the counter, in three steps, and handing them a card.
 // Runs after 02-settings, which is what put a package on sale.
@@ -129,4 +129,56 @@ test('staff sign members up too, but only the owner can cancel a card', async ({
   await signUpMember(page, { name: 'พนักงาน สมัครให้', phone: '0892224466' });
   await expect(page.getByRole('button', { name: 'ส่งบัตรซ้ำ (ลิงก์ 7 วัน)' })).toBeVisible();
   await expect(page.getByText('เมนูเพิ่มเติม')).toHaveCount(0);
+});
+
+test('a photograph that will not open is refused while the member is still there', async ({ page }) => {
+  await signIn(page, 'admin8@example.test');
+  await go(page, 'สมัครสมาชิก');
+  // Perfect JPEG header, nothing behind it: an upload cut off halfway, which
+  // used to be accepted and then made the card unobtainable for ever.
+  await page.getByLabel('เลือกรูปจากเครื่องแทน')
+    .setInputFiles({ name: 'half-sent.jpg', mimeType: 'image/jpeg', buffer: jpegBuffer() });
+  await page.getByRole('button', { name: 'ถัดไป · ชื่อและเบอร์' }).click();
+  await page.getByLabel('ชื่อ–นามสกุล').fill('เน็ตหลุด กลางคัน');
+  await page.getByLabel('เบอร์มือถือ').fill('0894447722');
+  await page.getByRole('button', { name: 'ถัดไป · แพ็กเกจและเงิน' }).click();
+  await page.getByRole('button', { name: 'บันทึกและออกบัตร' }).click();
+
+  // Told here, at the desk, where taking another picture is one tap away.
+  await expect(page.getByRole('alert').first()).toContainText('ถ่ายใหม่');
+  await page.getByRole('button', { name: 'ถ่ายรูปใหม่' }).click();
+  await page.getByLabel('เลือกรูปจากเครื่องแทน')
+    .setInputFiles({ name: 'face.jpg', mimeType: 'image/jpeg', buffer: PHOTO_JPEG });
+  await page.getByRole('button', { name: 'ถัดไป · ชื่อและเบอร์' }).click();
+  await page.getByRole('button', { name: 'ถัดไป · แพ็กเกจและเงิน' }).click();
+  await page.getByRole('button', { name: 'บันทึกและออกบัตร' }).click();
+  await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+});
+
+test('a photograph that goes bad later says so on the card screen, and can be replaced', async ({ page }) => {
+  await signIn(page, 'admin9@example.test');
+  await signUpMember(page, { name: 'รูปเสียทีหลัง', phone: '0894448833' });
+  const { id } = await cardToken(page, 'รูปเสียทีหลัง');
+
+  // The bytes go bad on the disk after the fact -- a half-written file, a
+  // restore taken mid-write. Nothing in the app can do this any more.
+  await page.request.post('/__test/break-photo', { data: { member_id: id } });
+  await go(page, 'สมาชิก');
+  await page.getByRole('button', { name: 'เปิดสมาชิก รูปเสียทีหลัง' }).click();
+
+  // The card still comes out -- with the silhouette -- and the screen in front
+  // of the person who can fix it is the one that says why.
+  await expect(page.getByRole('alert')).toContainText('รูปถ่ายของสมาชิกรายนี้ใช้ไม่ได้ กรุณาถ่ายใหม่');
+  const card = page.getByRole('img', { name: 'บัตรสมาชิกของ รูปเสียทีหลัง' });
+  await expect.poll(() => card.evaluate(img => img.naturalWidth)).toBe(1080);
+  await page.screenshot({ path: 'artifacts/counter-photo-broken.png', fullPage: true });
+
+  // And the way to fix it is on the same screen, already open.
+  await page.getByLabel('เลือกรูปจากเครื่องแทน').last()
+    .setInputFiles({ name: 'again.jpg', mimeType: 'image/jpeg', buffer: PHOTO_JPEG });
+  await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปถ่ายใหม่แล้ว' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  // No new card: the QR is over the member, not over the picture.
+  await expect(page.getByText('ครั้งที่')).toBeVisible();
+  await expect(page.locator('.soft .row', { hasText: 'ครั้งที่' })).toContainText('1');
 });

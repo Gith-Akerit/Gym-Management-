@@ -184,9 +184,10 @@ function trackedText(ctx, text, x, y, tracking) {
  * @param {Buffer|null} photo  the member's photograph, already read from disk
  * @param {{package?: string, expires?: string}} membership  what the footer says
  * @param {boolean} voided draw the cancelled version, for the history screen
+ * @param {() => void} [onPhotoFailure] called when the photograph would not draw
  * @returns {Promise<Buffer>} PNG bytes
  */
-export async function renderCard({ member, gym, qr, photo, membership = {}, voided = false }) {
+export async function renderCard({ member, gym, qr, photo, membership = {}, voided = false, onPhotoFailure }) {
   // Loaded here rather than at the top of the file: a machine without a build
   // of the drawing library should still be able to run the counter, scan
   // members in and take money. Only the card is unavailable, and it says so.
@@ -233,13 +234,23 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
   ctx.clip();
   ctx.fillStyle = CARD.panel;
   ctx.fillRect(px, py, ps, ps);
+  // A photograph that will not decode must not be able to stop a card being
+  // made. The picture is what a member walks out with; the face on it is a
+  // check the counter makes, and a card with no face is worth more than no
+  // card at all. Whoever is looking at the screen is told separately, where
+  // they can do something about it (QA PHOTO-03).
+  let face = null;
   if (photo) {
-    const image = await loadImage(photo);
+    try { face = await loadImage(photo); }
+    catch { face = null; }
+    if (!face?.width || !face?.height) { face = null; onPhotoFailure?.(); }
+  }
+  if (face) {
     // Cover, not stretch: a face squashed to a square is not a face anybody
     // can check against the person in front of them.
-    const scale = Math.max(ps / image.width, ps / image.height);
-    const w = image.width * scale, h = image.height * scale;
-    ctx.drawImage(image, px + (ps - w) / 2, py + (ps - h) / 2, w, h);
+    const scale = Math.max(ps / face.width, ps / face.height);
+    const w = face.width * scale, h = face.height * scale;
+    ctx.drawImage(face, px + (ps - w) / 2, py + (ps - h) / 2, w, h);
   } else {
     // The grey silhouette from the prototype, not the words "no photo": the
     // card goes to a member, and a member should not be told off by it.
@@ -360,29 +371,70 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
 
 export class CardRenderError extends Error {}
 
+/** A file that begins like an image but is not one a decoder will open. */
+export class PhotoUnreadableError extends Error {}
+
+/** Returns the drawing library, or null on a machine that has no build of it. */
+function drawingLibrary() {
+  try { return require('@napi-rs/canvas'); } catch { return null; }
+}
+
 /**
- * Shrinks a member's photograph to `CARD.photoMaxEdge` on its long side.
+ * Whether these bytes are a picture this machine can actually draw.
  *
- * A phone camera hands over four thousand pixels of a face that is drawn at
- * 232 on the card and about 300 on the scan screen. Keeping the original costs
- * megabytes on the gym's disk and a visible wait every time the counter scans
- * somebody in, and buys nothing anybody can see.
+ * Leading bytes are not enough: a photograph whose upload was cut off halfway
+ * -- the counter's wifi dropping mid-send is the ordinary way this happens --
+ * still begins with a perfect JPEG header. `false` is only ever returned by a
+ * machine that has a decoder and could not use it.
  *
- * Anything that goes wrong -- no drawing library on the machine, a format the
- * decoder will not read -- returns the bytes untouched. A member whose picture
- * is merely large is better than a signup that cannot be finished.
- *
- * @param {Buffer} buffer the uploaded image
- * @returns {Promise<Buffer>} the same image, no larger than the long edge allows
+ * @param {Buffer} buffer
+ * @returns {Promise<boolean>}
  */
-export async function shrinkPhoto(buffer, maxEdge = CARD.photoMaxEdge) {
-  if (!buffer?.length) return buffer;
-  let canvasLib;
-  try { canvasLib = require('@napi-rs/canvas'); } catch { return buffer; }
+export async function photoIsDrawable(buffer) {
+  const canvasLib = drawingLibrary();
+  if (!canvasLib || !buffer?.length) return true;
   try {
     const image = await canvasLib.loadImage(buffer);
-    const longest = Math.max(image.width, image.height);
-    if (!longest || longest <= maxEdge) return buffer;
+    return Boolean(image.width && image.height);
+  } catch { return false; }
+}
+
+/**
+ * Checks a member's photograph, and shrinks it to `CARD.photoMaxEdge`.
+ *
+ * Two jobs, one decode, because they need the same one. A phone camera hands
+ * over four thousand pixels of a face that is drawn at 232 on the card and
+ * about 300 on the scan screen: keeping the rest costs disk and a visible wait
+ * at every scan and buys nothing anybody can see.
+ *
+ * The check is here rather than at the moment the card is drawn because of
+ * where the two sit in somebody's day. At the door, the member is standing
+ * there and can be photographed again. An hour later, "ระบบขัดข้อง" on the
+ * card screen is a dead end that no amount of retrying clears (QA PHOTO-03).
+ *
+ * A machine with no build of the drawing library checks nothing and shrinks
+ * nothing: the counter still signs people up, and only the card is unavailable.
+ *
+ * @param {Buffer} buffer the uploaded image
+ * @throws {PhotoUnreadableError} the bytes are not a picture that can be drawn
+ * @returns {Promise<Buffer>} the image, no larger than the long edge allows
+ */
+export async function preparePhoto(buffer, maxEdge = CARD.photoMaxEdge) {
+  if (!buffer?.length) return buffer;
+  const canvasLib = drawingLibrary();
+  if (!canvasLib) return buffer;
+
+  let image;
+  try { image = await canvasLib.loadImage(buffer); }
+  catch { image = null; }
+  if (!image?.width || !image?.height) {
+    throw new PhotoUnreadableError(
+      'ไฟล์รูปนี้เปิดไม่ได้ อาจอัปโหลดไม่ครบหรือไฟล์เสียหาย กรุณาถ่ายใหม่อีกครั้ง หรือเลือกรูปอื่นจากเครื่อง');
+  }
+
+  const longest = Math.max(image.width, image.height);
+  if (longest <= maxEdge) return buffer;
+  try {
     const scale = maxEdge / longest;
     const canvas = canvasLib.createCanvas(Math.round(image.width * scale), Math.round(image.height * scale));
     canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -390,5 +442,9 @@ export async function shrinkPhoto(buffer, maxEdge = CARD.photoMaxEdge) {
     // for, and a 700px PNG of one is several times the size for no gain.
     const out = await canvas.encode('jpeg', 88);
     return out.length < buffer.length ? out : buffer;
-  } catch { return buffer; }
+  } catch {
+    // It decoded, so it is a picture; failing to shrink it is not a reason to
+    // turn a member away at the counter.
+    return buffer;
+  }
 }

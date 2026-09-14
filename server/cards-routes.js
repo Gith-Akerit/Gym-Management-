@@ -8,8 +8,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
 import { audit, getGym, getMember, publicMember, transaction } from './db.js';
-import { cardQrFor, CardRenderError, renderCard, shrinkPhoto } from './cards.js';
-import { SlipError } from './slips.js';
+import { cardQrFor, CardRenderError, photoIsDrawable, PhotoUnreadableError, preparePhoto, renderCard } from './cards.js';
+import { detectImageType, SlipError } from './slips.js';
 import { HttpError, parse } from './validation.js';
 
 /** A face needs far fewer bytes than a bank slip, and phones send far more. */
@@ -88,10 +88,23 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
     if (!photoStore) throw new HttpError(503, 'ระบบยังไม่ได้ตั้งค่าที่เก็บรูป กรุณาติดต่อผู้ดูแลระบบ');
     const member = load(req.params.id);
     let saved;
-    // Down to 700px on the long edge before anything is written: the card draws
-    // the face at 232 and the scan screen at about 300, so the rest of a phone
-    // camera's pixels are disk and waiting time nobody sees (Mika).
-    const bytes = req.file?.buffer ? await shrinkPhoto(req.file.buffer) : req.file?.buffer;
+    // Opened once, here at the door, and down to 700px on the long edge before
+    // anything is written: the card draws the face at 232 and the scan screen
+    // at about 300, so the rest of a phone camera's pixels are disk and waiting
+    // time nobody sees (Mika). A file that will not open is refused now, while
+    // the member is still standing at the counter (QA PHOTO-03).
+    let bytes = req.file?.buffer;
+    // The cheap check on the leading bytes goes first and keeps its own
+    // wording: a PDF named face.jpg, or an iPhone's HEIC, each need a
+    // different sentence from a JPEG that arrived half-written.
+    const looksLikeAnImage = bytes ? detectImageType(bytes) : null;
+    if (looksLikeAnImage && !looksLikeAnImage.unsupported) {
+      try { bytes = await preparePhoto(bytes); }
+      catch (error) {
+        if (error instanceof PhotoUnreadableError) throw new HttpError(400, error.message);
+        throw error;
+      }
+    }
     try { saved = photoStore.save(bytes); }
     catch (error) {
       if (error instanceof SlipError) throw new HttpError(400, error.message);
@@ -177,14 +190,23 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
     }
   });
 
-  app.get('/api/members/:id/card', counter, (req, res) => {
+  app.get('/api/members/:id/card', counter, async (req, res) => {
     const member = load(req.params.id);
+    // Whether the face on the card is really there. The card itself never
+    // fails over a photograph -- it falls back to the silhouette -- so this is
+    // the only thing that can tell the person at the counter that the picture
+    // needs taking again, while the member is still in front of them.
+    const bytes = readPhoto(member);
+    // `null` means there is no photograph to judge; `false` covers both a file
+    // that will not decode and one that is no longer on the disk at all.
+    const readable = !member.photo_stored_name ? null : bytes ? await photoIsDrawable(bytes) : false;
     res.json({
       member: publicMember(member),
       qr: cardQrFor(secret, member),
       membership: membershipFor(member.id),
       card_version: member.card_version,
       card_issued_at: member.card_issued_at,
+      photo_readable: readable,
     });
   });
 

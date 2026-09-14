@@ -2,7 +2,8 @@
 // server/start.js.
 import express from 'express';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { openDatabase, migrate } from '../server/db.js';
 import { seedConfiguration } from '../server/seed.js';
 import { SlipStore } from '../server/slips.js';
@@ -39,10 +40,10 @@ db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'staff',?)")
 // before passwords existed, which the set-password link is for.
 db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)")
   .run(randomUUID(), 'relink-ui@example.test', Date.now());
+const photoRoot = resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos');
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),
-  photoStore: new SlipStore(resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos'),
-    { maxBytes: MAX_PHOTO_BYTES }),
+  photoStore: new SlipStore(photoRoot, { maxBytes: MAX_PHOTO_BYTES }),
   // Exactly what a pilot deployment has: no merchant account at all.
   promptPayId: PILOT ? null : '0899999999',
   pilotMode: PILOT });
@@ -52,6 +53,17 @@ app.get('/__test/password', (req, res) => res.json({ password: UI_PASSWORD }));
 // Stands in for `npm run admin:set-password-link`, which a browser has no way
 // to run. The command itself is covered in tests/set-password-link.test.js;
 // what the browser suite checks is the screen the link opens.
+// Corrupts a member's stored photograph, the way a half-written file or a bad
+// block would. There is no way to reach that state through the app any more --
+// the upload opens the file first -- but the screen still has to cope with the
+// bytes going bad afterwards, and that is what this lets the browser check.
+app.post('/__test/break-photo', express.json(), (req, res) => {
+  const row = db.prepare('SELECT photo_stored_name FROM members WHERE id=?').get(req.body?.member_id ?? '');
+  if (!row?.photo_stored_name) return res.status(404).json({ error: 'no photograph on that member' });
+  writeFileSync(join(photoRoot, row.photo_stored_name),
+    Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(512, 0x7f)]));
+  res.json({ broken: true });
+});
 app.post('/__test/setup-link', express.json(), (req, res) => {
   const user = db.prepare('SELECT id FROM users WHERE email=?').get(req.body?.email);
   if (!user) return res.status(404).json({ error: 'no such account' });

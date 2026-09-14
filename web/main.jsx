@@ -251,34 +251,55 @@ function SignUp({ packages, onDone, onCancel, onAuthError }) {
   const [packageId, setPackageId] = useState(''), [method, setMethod] = useState('cash');
   const [amount, setAmount] = useState(''), [note, setNote] = useState(''), [slip, setSlip] = useState(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(null);
+  // What has already reached the server, so pressing the button again after a
+  // refusal finishes the job instead of repeating it.
+  const [memberId, setMemberId] = useState(null);
+  const [photoSaved, setPhotoSaved] = useState(false), [saleSaved, setSaleSaved] = useState(false);
   const chosen = packages.find(item => item.id === packageId) ?? null;
 
   function take(file) {
+    setPhotoSaved(false);
     setPhoto(file);
     setPreview(url => { if (url) URL.revokeObjectURL(url); return URL.createObjectURL(file); });
   }
 
+  /**
+   * Saves what is not saved yet.
+   *
+   * Three requests, and the middle one can be refused -- a photograph that
+   * will not open is turned away at the door now. Pressing the button again
+   * after that must finish the signup, not sign the same person up twice, so
+   * each step remembers whether it is already done.
+   */
   async function save() {
     setBusy(true); setError(null);
     try {
-      const member = await api('/members', { method: 'POST', body: {
-        name: value.name, phone: value.phone, email: value.email || null,
-        date_of_birth: value.date_of_birth || null, emergency_contact: value.emergency_contact || '',
-      } });
-      if (photo) {
+      let id = memberId;
+      if (!id) {
+        id = (await api('/members', { method: 'POST', body: {
+          name: value.name, phone: value.phone, email: value.email || null,
+          date_of_birth: value.date_of_birth || null, emergency_contact: value.emergency_contact || '',
+        } })).id;
+        setMemberId(id);
+      }
+      if (photo && !photoSaved) {
         const form = new FormData();
         form.append('photo', photo);
-        await upload(`/members/${member.id}/photo`, form, 'PUT');
+        // Back to the camera on a refusal: the answer to "this file will not
+        // open" is another picture, and the member is still standing there.
+        try { await upload(`/members/${id}/photo`, form, 'PUT'); setPhotoSaved(true); }
+        catch (e) { setStep(0); throw e; }
       }
-      if (packageId) {
+      if (packageId && !saleSaved) {
         const sale = new FormData();
         sale.append('package_id', packageId);
         sale.append('payment_method', method);
         sale.append('note', note);
         if (slip) sale.append('slip', slip);
-        await upload(`/members/${member.id}/grant`, sale);
+        await upload(`/members/${id}/grant`, sale);
+        setSaleSaved(true);
       }
-      onDone(member.id, 'ออกบัตรให้สมาชิกใหม่แล้ว');
+      onDone(id, 'ออกบัตรให้สมาชิกใหม่แล้ว');
     // Nothing typed is cleared: the counter has a customer standing there.
     } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); }
   }
@@ -400,9 +421,33 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   const [link, setLink] = useState(null), [confirm, setConfirm] = useState(false);
   const [working, setWorking] = useState(false), [failure, setFailure] = useState(null);
   const [reason, setReason] = useState('ลูกค้าแจ้งว่าบัตรหลุดไปถึงคนอื่น');
+  const [stamp, setStamp] = useState(member.photo_updated_at ?? 0), [preview, setPreview] = useState(null);
+  const [photoFailure, setPhotoFailure] = useState(null);
   // A new query string whenever anything drawn on the card changes, so a
   // reissued card is not the browser's copy of the cancelled one.
-  const src = `/api/members/${member.id}/card.png?v=${data?.card_version ?? 0}-${member.photo_updated_at ?? 0}`;
+  // The readability goes in the key too: when a stored photograph turns out to
+  // be unusable, the card on this screen has to be the one with the silhouette
+  // -- the card that will actually be sent -- not the browser's memory of it.
+  const src = `/api/members/${member.id}/card.png?v=${data?.card_version ?? 0}-${stamp}-${data?.photo_readable}`;
+  // `photo_readable === false` means there is a photograph on file that the
+  // server could not open -- an upload cut off halfway, usually. The card is
+  // drawn with the silhouette instead of failing, so the only place anybody
+  // finds out is here, where they can photograph the member again.
+  const brokenPhoto = data?.photo_readable === false;
+
+  /** Replaces the photograph from this screen, which is where the news lands. */
+  async function savePhoto(file) {
+    setWorking(true); setPhotoFailure(null);
+    const form = new FormData();
+    form.append('photo', file);
+    try {
+      const saved = await upload(`/members/${member.id}/photo`, form, 'PUT');
+      setPreview(url => { if (url) URL.revokeObjectURL(url); return URL.createObjectURL(file); });
+      setStamp(saved.photo_updated_at ?? Date.now());
+      await reload().catch(() => {});
+      onChanged('บันทึกรูปถ่ายใหม่แล้ว บัตรใบเดิมยังใช้ได้ ไม่ต้องออกใหม่');
+    } catch (e) { setPhotoFailure(e); onAuthError(e); } finally { setWorking(false); }
+  }
 
   async function resend() {
     setWorking(true); setFailure(null);
@@ -467,15 +512,37 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     <p className="sub">{member.name} · <span className="num">{member.member_code}</span></p>
     <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
     {busy ? <Loading label="กำลังสร้างบัตร…" rows={2} avatar={false}/> : !error && <>
-      {!member.has_photo && <div className="banner bad"><div className="ic" aria-hidden="true">!</div>
-        <div><b>ยังไม่มีรูปถ่ายของสมาชิกรายนี้</b>
-          <span>บัตรออกได้ แต่พนักงานจะเทียบหน้าตอนสแกนไม่ได้ ซึ่งเป็นด่านเดียวที่กันการส่งบัตรต่อ</span></div></div>}
+      {brokenPhoto
+        ? <div className="banner bad" role="alert"><div className="ic" aria-hidden="true">!</div>
+            <div><b>รูปถ่ายของสมาชิกรายนี้ใช้ไม่ได้ กรุณาถ่ายใหม่</b>
+              <span>ไฟล์รูปเสียหรืออัปโหลดไม่ครบ บัตรจึงขึ้นเป็นภาพเงาแทน ถ่ายใหม่ด้านล่างแล้วบัตรจะมีรูปทันที
+                โดยไม่ต้องออกบัตรใหม่</span></div></div>
+        : !data.photo_readable && <div className="banner bad"><div className="ic" aria-hidden="true">!</div>
+            <div><b>ยังไม่มีรูปถ่ายของสมาชิกรายนี้</b>
+              <span>บัตรออกได้ แต่พนักงานจะเทียบหน้าตอนสแกนไม่ได้ ซึ่งเป็นด่านเดียวที่กันการส่งบัตรต่อ</span></div></div>}
       <div className="cardgrid">
         <div>
           <img className="cardshot" src={src} alt={`บัตรสมาชิกของ ${member.name}`}/>
           <p className="note" style={{ marginTop: 'var(--sp-3)' }}>
             ไฟล์ PNG 1080 × 1350 px — สัดส่วนเดียวกับรูปที่ LINE แสดงเต็มความกว้างในแชต
             ลูกค้าเปิดแล้ว QR เต็มจอทันที ไม่ต้องกดซูม</p>
+
+          {/* Open on its own when there is nothing usable to show, folded away
+              when there is: a working photograph is rarely worth changing, and
+              a broken one has to be fixable without anybody hunting for it. */}
+          <details className="block" style={{ marginTop: 'var(--sp-5)' }} open={!data.photo_readable}>
+            <summary><b>รูปถ่ายของสมาชิก</b></summary>
+            <p className="note" style={{ margin: 'var(--sp-3) 0' }}>
+              ถ่ายใหม่ได้ตลอด รูปเปลี่ยนแล้วบัตรใบเดิมยังใช้ได้ QR ไม่เปลี่ยน เพราะ QR ผูกกับตัวคน ไม่ได้ผูกกับรูป</p>
+            <PhotoCapture onCapture={savePhoto} busy={working}
+              preview={preview ?? (data.photo_readable ? `/api/members/${member.id}/photo?v=${stamp}` : null)}/>
+            <label className="field" style={{ marginTop: 'var(--sp-4)' }}>
+              <span style={{ display: 'block', fontWeight: 700, marginBottom: 8 }}>เลือกรูปจากเครื่องแทน</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={working}
+                onChange={e => { const file = e.target.files?.[0]; if (file) savePhoto(file); }}/>
+            </label>
+            <Notice error={photoFailure}/>
+          </details>
         </div>
         <div className="stack">
           <a className="btn primary xl" href={src} download={`${member.member_code}.png`}>บันทึกรูปบัตร</a>

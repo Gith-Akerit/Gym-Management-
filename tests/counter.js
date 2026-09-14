@@ -18,20 +18,8 @@ export const PASSWORD = 'counter-test-password';
 /** Hashing is deliberately slow, so the fixtures share one hash. */
 const HASH = hashPassword(PASSWORD);
 
-/** The smallest thing a browser will hand over that is genuinely a JPEG. */
-export function jpegBuffer() {
-  return Buffer.concat([
-    Buffer.from([0xff, 0xd8]),
-    Buffer.from([0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]),
-    Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]),
-    Buffer.from([0x12, 0x34, 0x56, 0xff, 0xd9]),
-  ]);
-}
-
-/** A one-pixel PNG that real image decoders will actually open. */
-export const PNG_PIXEL = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64');
+// The files themselves live in fixtures.js, which the browser suite shares.
+export { jpegBuffer, PHOTO_JPEG, PNG_PIXEL } from './fixtures.js';
 
 /**
  * @param {object} t node:test context

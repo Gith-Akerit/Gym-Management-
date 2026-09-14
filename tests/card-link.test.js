@@ -9,7 +9,6 @@ import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { counterFixture, PNG_PIXEL } from './counter.js';
-import { shrinkPhoto } from '../server/cards.js';
 import { CARD_LINK_TTL_MS } from '../server/cards-routes.js';
 import { cardSecret } from '../server/secret.js';
 
@@ -139,15 +138,6 @@ test('a photograph that is already small is stored exactly as it arrived', async
     .attach('photo', PNG_PIXEL, { filename: 'face.png', contentType: 'image/png' }).expect(200);
   // Re-encoding a picture already within the limit only loses detail.
   assert.match(readdirSync(join(root, 'photos'))[0], /\.png$/);
-});
-
-test('shrinking hands back what it was given when it cannot do better', async () => {
-  // A machine with no build of the drawing library still signs members up and
-  // keeps their photograph; only the card is unavailable, and it says so.
-  assert.equal(await shrinkPhoto(PNG_PIXEL), PNG_PIXEL);
-  const notAnImage = Buffer.from('not an image at all');
-  assert.equal(await shrinkPhoto(notAnImage), notAnImage);
-  assert.equal(await shrinkPhoto(null), null);
 });
 
 // ------------------------------------------------------------ the key itself

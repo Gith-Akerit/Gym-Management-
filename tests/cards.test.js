@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { counterFixture, jpegBuffer, PNG_PIXEL } from './counter.js';
+import { counterFixture, PHOTO_JPEG, PNG_PIXEL } from './counter.js';
 import { cardSignature, cardSignatureMatches, decodeCardQr, encodeCardQr } from '../server/cards.js';
 
 const SECRET = 'a'.repeat(64);
@@ -63,7 +63,7 @@ test('replacing a photograph deletes the one it replaced', async t => {
   await call('put', `/members/${member.id}/photo`, owner)
     .attach('photo', PNG_PIXEL, { filename: 'first.png', contentType: 'image/png' }).expect(200);
   await call('put', `/members/${member.id}/photo`, owner)
-    .attach('photo', jpegBuffer(), { filename: 'second.jpg', contentType: 'image/jpeg' }).expect(200);
+    .attach('photo', PHOTO_JPEG, { filename: 'second.jpg', contentType: 'image/jpeg' }).expect(200);
   // One member, one face: old ones are not worth keeping and are personal data.
   assert.equal(readdirSync(join(root, 'photos')).length, 1);
 });
