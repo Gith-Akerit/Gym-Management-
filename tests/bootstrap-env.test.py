@@ -1,7 +1,9 @@
 """Offline security/recovery checks; no real SMTP requests or credentials."""
+import builtins
 import contextlib
 import importlib.util
 import io
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -170,6 +172,55 @@ class PilotModeTests(unittest.TestCase):
         self.assertEqual(back['PILOT_MODE'], '1')
         self.assertEqual(back['SMTP_PASSWORD'], live['SMTP_PASSWORD'])
         self.assertEqual(back['PROMPTPAY_ID'], live['PROMPTPAY_ID'])
+
+
+class TerminalGuardTests(unittest.TestCase):
+    """Every other test here replaces builtins.open outright, so the check that
+    a terminal is attached never met one. It was wrong -- 'r+' cannot wrap
+    anything unseekable, and a terminal never is -- and the suite stayed green
+    while no installation could get past it. These open a real pty instead, so
+    the mode is what is under test and not what the mock decided to allow.
+    """
+
+    def tty_open(self, fd):
+        real_open = builtins.open
+
+        def opener(file, *args, **kwargs):
+            if file == '/dev/tty':
+                return real_open(fd, *args, closefd=False, **kwargs)
+            return real_open(file, *args, **kwargs)
+        return opener
+
+    def test_the_guard_accepts_an_actual_terminal(self):
+        primary, secondary = os.openpty()
+        self.addCleanup(os.close, primary)
+        self.addCleanup(os.close, secondary)
+        with patch('builtins.open', side_effect=self.tty_open(secondary)):
+            module.require_terminal()
+
+    def test_the_first_question_is_asked_on_an_actual_terminal(self):
+        """The guard is only worth having where the installer actually runs."""
+        primary, secondary = os.openpty()
+        self.addCleanup(os.close, primary)
+        self.addCleanup(os.close, secondary)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        (root / '.env.example').write_text('OTP_SECRET=\n', encoding='utf-8')
+        with patch('builtins.open', side_effect=self.tty_open(secondary)), \
+                patch.object(module, 'ask', return_value='owner@example.test'):
+            with contextlib.redirect_stdout(io.StringIO()):
+                module.configure(root, pilot=True)
+        self.assertEqual(module.read_env(root / '.env')['PILOT_MODE'], '1')
+
+    def test_the_guard_still_refuses_when_there_is_no_terminal(self):
+        def no_tty(file, *args, **kwargs):
+            if file == '/dev/tty':
+                raise OSError(6, 'No such device or address')
+            raise AssertionError(f'unexpected open of {file}')
+        with patch('builtins.open', side_effect=no_tty):
+            with self.assertRaises(OSError):
+                module.require_terminal()
 
 
 if __name__ == '__main__':

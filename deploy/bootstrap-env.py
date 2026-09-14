@@ -90,6 +90,18 @@ def check_smtp(values):
     print('SMTP TLS/login: OK (email delivery still needs a real OTP test).')
 
 
+def require_terminal():
+    """Stop before asking, rather than let getpass read the curl pipe instead.
+
+    The mode is not incidental: 'r+' builds a BufferedRandom, which refuses to
+    wrap anything it cannot seek, and no terminal is seekable. Written that way
+    the check rejected every real terminal instead of the missing one it was
+    for, so the installer could not finish anywhere -- hPanel's console
+    included -- and said only 'File or stream is not seekable.' on the way out.
+    """
+    with open('/dev/tty', 'r'):
+        pass
+
 def ask(label):
     value = getpass.getpass(label + ' (hidden): ').strip()
     if not value:
@@ -105,8 +117,7 @@ def configure(root, clear_admin=False, pilot=False):
         if clear_admin:
             raise ValueError('Environment does not exist.')
         # getpass must never fall back to reading curl input or echoing passwords.
-        with open('/dev/tty', 'r+'):
-            pass
+        require_terminal()
         admin = ask('Reporter email for administrator login')
         if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', admin):
             raise ValueError('Invalid administrator email format.')
@@ -135,8 +146,7 @@ def configure(root, clear_admin=False, pilot=False):
         # only clear the flag once the mail server has actually accepted a
         # login. A failure here leaves .env exactly as it was.
         if not values.get('SMTP_HOST') or not values.get('PROMPTPAY_ID'):
-            with open('/dev/tty', 'r+'):
-                pass
+            require_terminal()
             print('Going live: PromptPay and email are needed before payments and OTP mail work.')
             values.update(ask_credentials())
         check_smtp(values)
