@@ -28,7 +28,7 @@ async function overflowing(page) {
       if (style.position === 'fixed' || style.visibility === 'hidden') continue;
       // A wide table is meant to scroll sideways inside its own box. What must
       // never scroll sideways is the page (Designer).
-      if (el.closest('.table-wrap, .queue-list')) continue;
+      if (el.closest('.table-wrap')) continue;
       // Deliberately parked off-screen for screen readers only.
       if (box.right < 0) continue;
       out.push(`${el.tagName.toLowerCase()}.${(el.className || '').toString().split(' ').filter(Boolean).join('.')}`
@@ -140,7 +140,6 @@ test('every screen in the console fits both sizes', async ({ browser }) => {
     for (const [tab, heading] of [
       ['สมาชิก', 'สมาชิก'],
       ['ผู้ใช้และสิทธิ์', 'ผู้ใช้และสิทธิ์'],
-      ['ตรวจสลิป', 'คำสั่งซื้อ'],
       ['ประวัติเช็คอิน', 'ประวัติเช็คอิน'],
       ['แพ็กเกจ', 'แพ็กเกจ'],
       ['ข้อมูลยิม', 'ข้อมูลยิม'],

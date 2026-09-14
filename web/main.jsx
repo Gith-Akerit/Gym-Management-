@@ -3,9 +3,9 @@ import { createRoot } from 'react-dom/client';
 import './style.css';
 import {
   api, Empty, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Loading,
-  Notice, packageStatusLabels, PilotContext, StateBox, upload, useResource, usePilot,
+  Notice, orderStatusLabels, packageStatusLabels, PilotContext, StateBox, upload, useResource, usePilot,
 } from './shared.jsx';
-import { PaymentReview, SalesReport } from './payments.jsx';
+import { SalesReport } from './payments.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { PhotoCapture } from './camera.jsx';
 
@@ -572,8 +572,60 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
           </div>
         </div>
       </div>
+      <PaymentHistory memberId={member.id} name={member.name}/>
     </>}
   </>;
+}
+
+const METHOD_LABELS = {
+  cash: 'เงินสด', transfer: 'โอนเข้าบัญชี', none: 'ไม่ได้รับเงิน (แถมให้)', promptpay: 'พร้อมเพย์ (ระบบเดิม)',
+};
+
+/**
+ * What this member has paid, and the slip that came with it.
+ *
+ * This is where the old "ตรวจสลิป" queue went. That queue was a list of slips
+ * members had uploaded themselves, and there is no member app left to upload
+ * one -- but the slip a member of staff attaches while taking a transfer is
+ * still evidence somebody will want months later. The question they ask is
+ * always about one person, so it lives on that person's screen.
+ */
+function PaymentHistory({ memberId, name }) {
+  const { data, error, busy } = useResource(`/members/${memberId}/payments`);
+  const [open, setOpen] = useState(null);
+  if (busy || error || !data?.items.length) return null;
+
+  return <div className="block" style={{ marginTop: 'var(--sp-6)' }}>
+    <h2>ประวัติการรับเงิน</h2>
+    <p className="note" style={{ margin: '0 0 var(--sp-4)' }}>
+      ทุกครั้งที่ {name} จ่ายเงินหรือได้รับแพ็กเกจ พร้อมชื่อคนที่บันทึกไว้ · เก็บไว้เทียบกับเงินเข้าบัญชีจริง</p>
+    <div className="list">{data.items.map(order => <div className="item" key={order.id}>
+      <div className="who">
+        <b>{order.package_name_snapshot}</b>
+        <span>{formatDateTime(order.created_at)} · {METHOD_LABELS[order.payment_method] ?? order.payment_method}
+          {order.recorded_by ? ` · โดย ${order.recorded_by}` : ''}
+          {order.review_note ? ` · ${order.review_note}` : ''}</span>
+      </div>
+      <b className="num" style={{ fontSize: 'var(--fs-20)' }}>
+        {order.manual_grant ? '0 ฿' : `${order.price_thb.toLocaleString('th-TH')} ฿`}</b>
+      <span className={`chip ${order.status === 'paid' ? 'ok' : order.status === 'rejected' ? 'bad' : 'neutral'}`}>
+        {orderStatusLabels[order.status]}</span>
+      {order.slip
+        ? <button className="btn ghost" onClick={() => setOpen(open === order.id ? null : order.slip.id)}
+            aria-label={`ดูสลิปของ ${order.package_name_snapshot}`}>
+            {open === order.slip.id ? 'ซ่อนสลิป' : 'ดูสลิป'}</button>
+        : <span className="note">ไม่มีสลิป</span>}
+      {open === order.slip?.id && <div style={{ flexBasis: '100%' }}>
+        {/* Opened in place rather than in a tab: whoever is checking it has the
+            amount and the date on the same screen, which is the comparison. */}
+        <a href={`/api/slips/${order.slip.id}/image`} target="_blank" rel="noreferrer">
+          <img src={`/api/slips/${order.slip.id}/image`} alt={`สลิปของ ${order.package_name_snapshot}`}
+            style={{ maxWidth: 360, width: '100%', borderRadius: 'var(--r-1)', border: '2px solid var(--line)' }}/></a>
+        <p className="note" style={{ margin: '6px 0 0' }}>
+          {order.slip.reference_no ? `เลขอ้างอิง ${order.slip.reference_no} · ` : ''}กดที่รูปเพื่อเปิดขนาดเต็ม</p>
+      </div>}
+    </div>)}</div>
+  </div>;
 }
 
 // --------------------------------------------------- money at the counter
@@ -979,7 +1031,6 @@ const NAV = [
   ['users', 'ผู้ใช้และสิทธิ์', null],
   ['gym', 'ข้อมูลยิม', null],
   ['checkin', 'ประวัติเช็คอิน', null],
-  ['review', 'ตรวจสลิป', null],
 ];
 
 function Shell({ brand, role, tabs, tab, setTab, onLogout, pilot, children }) {
@@ -1030,11 +1081,8 @@ function Console({ user, gym, brand, onLogout, onAuthError, onSignedOut }) {
   const { data: packages } = useResource('/packages');
   const sellable = (packages?.items ?? []).filter(item => item.price_thb !== null && item.status === 'active');
   const admin = user.role === 'admin';
-  const tabs = NAV.filter(([key]) => {
-    if (['users', 'gym', 'packages'].includes(key)) return admin;
-    if (key === 'review') return !pilot;
-    return true;
-  });
+  // Only the owner sets prices, hands out roles or edits the gym's own facts.
+  const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages'].includes(key) ? admin : true));
 
   // The scan screen is a stage of its own: dark, full bleed, no rail. It is
   // the only screen used while standing up with somebody waiting.
@@ -1077,7 +1125,6 @@ function Console({ user, gym, brand, onLogout, onAuthError, onSignedOut }) {
       <p className="sub">ดูว่าใครเข้ายิมเมื่อไร และใครถูกปฏิเสธเพราะอะไร</p>
       <CheckInLog/>
       <div className="block"><h2>สรุปรายวัน</h2><CheckInSummary/></div></>}
-    {tab === 'review' && <PaymentReview onAuthError={onAuthError} readOnly={!admin}/>}
   </Shell>;
 }
 

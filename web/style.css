@@ -103,7 +103,13 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .bottomnav a[aria-current]{color:var(--accent);border-top-color:var(--accent);background:var(--accent-soft)}
 
 /* -------------------------------------------------- 4. Primitives ------- */
-.block{background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-2);padding:var(--sp-6)}
+/* The colour is not decoration: .block carries a white background, and it is
+   used inside the dark scan stage as well as on the light page. Without it the
+   labels on the sign-in and set-password forms inherited the stage's white and
+   became white on white -- readable to a screen reader, invisible to a person
+   (QA UI-01). */
+.block{background:var(--surface);color:var(--ink);
+  border:2px solid var(--line-strong);border-radius:var(--r-2);padding:var(--sp-6)}
 .soft{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-5)}
 .stack{display:grid;gap:var(--sp-3)}
 
@@ -331,6 +337,11 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .utable td{padding:12px var(--sp-4);border-bottom:2px solid var(--panel);vertical-align:middle}
 .utable tr:last-child td{border-bottom:0}
 .utable .btn{width:auto;min-height:46px;font-size:var(--fs-14);padding:0 var(--sp-3)}
+/* The role dropdown is a bare <select> in a table cell, so it inherited none of
+   the field sizing and came out about 21px tall -- a thumb's width is 44 at the
+   very least, and this one changes what somebody is allowed to do. */
+.utable select{width:100%;min-height:48px;padding:0 var(--sp-3);font-size:var(--fs-16);
+  border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface)}
 
 /* กล่องยืนยันก่อนทำสิ่งที่ย้อนยาก */
 .confirm{background:var(--surface);border:3px solid var(--bad);border-radius:var(--r-2);padding:var(--sp-6)}
@@ -386,15 +397,9 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 
 /* ==========================================================================
    บล็อกความเข้ากันได้ — ของที่ยังใช้ชื่อคลาสชุดเดิม
-   ยกบล็อกข้างบนมาทั้งก้อนตามที่สั่ง ส่วนนี้คือสิ่งที่หน้าตรวจสลิปเดิม
-   (คำสั่งซื้อค้างจากแอปสมาชิกรุ่นก่อน) กับฟอร์มตั้งค่ายังอ้างถึงอยู่
+   ยกบล็อกข้างบนมาทั้งก้อนตามที่สั่ง ส่วนนี้คือสิ่งที่ฟอร์มตั้งค่ายังอ้างถึงอยู่
+   (คลาสของหน้าตรวจสลิปเดิมถูกลบไปพร้อมกับหน้านั้นแล้ว)
    ========================================================================== */
-.card{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-6);margin-bottom:var(--sp-5)}
-.card.narrow{max-width:760px}
-.notice{border-radius:var(--r-2);padding:var(--sp-4) var(--sp-5);margin-bottom:var(--sp-4);
-  background:var(--accent-soft);border:2px solid var(--accent);color:var(--ink)}
-.notice.warn{background:var(--warn-soft);border-color:var(--warn)}
-.notice.error{background:var(--bad-soft);border-color:var(--bad)}
 .tabs{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
 .tabs button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:999px;
   background:var(--surface);font-weight:700;cursor:pointer}
@@ -403,28 +408,17 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .pagination{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;margin-top:var(--sp-4)}
 .pagination button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:var(--r-1);
   background:var(--surface);cursor:pointer}
-.actions{display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-4)}
-.review-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp-5);align-items:start}
-@media (max-width:899px){ .review-grid{grid-template-columns:1fr} }
-.slip-review{width:100%;border-radius:var(--r-1);border:2px solid var(--line)}
-.queue-list{display:flex;gap:var(--sp-3);overflow-x:auto;padding-bottom:var(--sp-2);margin-bottom:var(--sp-5)}
-.queue-item{flex:0 0 260px;display:flex;gap:var(--sp-3);text-align:left;background:var(--surface);
-  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-4);cursor:pointer}
-.queue-item[aria-current]{border-color:var(--accent);background:var(--accent-soft)}
-.queue-item b{display:block}
-.queue-item small{display:block;font-size:var(--fs-14);color:var(--ink-2)}
-dl{display:grid;grid-template-columns:auto 1fr;gap:6px var(--sp-4);margin:0 0 var(--sp-4)}
-dt{color:var(--ink-2);font-size:var(--fs-16)}
-dd{margin:0;font-weight:700;text-align:right}
-.fine{font-size:var(--fs-14);color:var(--ink-2)}
 .field-error{display:block;margin-top:6px;font-size:var(--fs-14);font-weight:700;color:var(--bad)}
 .hours-grid{display:grid;grid-template-columns:120px 130px 1fr 1fr;gap:var(--sp-3);align-items:center;
   padding:10px 0;border-bottom:2px solid var(--panel)}
-.hours-grid input[type=time]{min-height:var(--tap);padding:0 var(--sp-3);border:2px solid var(--line-ctl);
-  border-radius:var(--r-1);font-family:var(--font-num)}
+.hours-grid input[type=time]{width:100%;min-height:48px;padding:0 var(--sp-3);border:2px solid var(--line-ctl);
+  border-radius:var(--r-1);font-family:var(--font-num);font-size:var(--fs-16);background:var(--surface)}
 @media (max-width:899px){ .hours-grid{grid-template-columns:1fr 1fr} .hours-grid>strong{grid-column:1/-1} }
-.check-row{display:flex;gap:var(--sp-3);align-items:center;margin:var(--sp-3) 0}
-.check-row input{width:22px;height:22px;accent-color:var(--accent);flex:none}
+/* The box is 24px because that is as big as a checkbox is allowed to look, but
+   the whole row is the target -- tapping the words toggles it -- so the row is
+   what has to clear 44px on a phone. */
+.check-row{display:flex;gap:var(--sp-3);align-items:center;margin:var(--sp-3) 0;min-height:44px;cursor:pointer}
+.check-row input{width:24px;height:24px;accent-color:var(--accent);flex:none}
 .pilot-banner{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;flex-wrap:wrap;
   background:var(--warn-soft);border-bottom:2px solid var(--warn);color:var(--warn);
   padding:10px var(--sp-4);font-size:var(--fs-16)}

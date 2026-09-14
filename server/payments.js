@@ -71,6 +71,35 @@ export function registerPaymentRoutes({ app, db, now, admin, counter, slipStore,
     res.json({ items: activeEntitlements(db, member.id, now()).map(publicEntitlement) });
   });
 
+  /**
+   * What this member has paid, and the slip that came with each payment.
+   *
+   * The queue screen this replaces existed for slips members uploaded
+   * themselves, and there is no member app left to upload one. What a counter
+   * actually asks is about one person: "she says she paid last month -- did
+   * she, and who took it?" So the history hangs off the member, with the slip
+   * beside the amount and the name of whoever recorded it.
+   *
+   * Who took the money comes from the audit trail rather than a column on the
+   * order: it is already written there, and a second copy is a second thing to
+   * keep true.
+   */
+  app.get('/api/members/:id/payments', counter, (req, res) => {
+    const member = db.prepare('SELECT id FROM members WHERE id=?').get(req.params.id);
+    if (!member) throw new HttpError(404, 'ไม่พบสมาชิก');
+    const rows = db.prepare(`SELECT o.*,
+      (SELECT u.email FROM audit_logs a JOIN users u ON u.id=a.actor_id
+       WHERE a.entity_id=o.id AND a.action IN ('order.counter_sale','order.grant_manual')
+       ORDER BY a.created_at LIMIT 1) AS recorded_by
+      FROM orders o WHERE o.member_id=? ORDER BY o.created_at DESC LIMIT 50`).all(member.id);
+    res.json({
+      items: rows.map(row => ({
+        ...publicOrder(row, now()),
+        slip: publicSlip(currentSlip(db, row.id)),
+      })),
+    });
+  });
+
   // ------------------------------------------------------------------- admin
 
   /** Same transfer reused for another order — reference number or identical image. */

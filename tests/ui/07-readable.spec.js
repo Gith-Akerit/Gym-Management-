@@ -1,0 +1,121 @@
+import { test, expect } from '@playwright/test';
+import { go, PASSWORD, signIn } from './counter.js';
+
+// Things a test with an accessible name in its hand cannot see.
+//
+// Every earlier spec found the sign-in fields with getByLabel and passed while
+// the labels were white on white: the name was in the DOM, the contrast was
+// 1.0, and the owner opened the page to two unlabelled boxes (QA UI-01). These
+// measure what a person would actually see -- the colour of the pixels, and
+// how tall the thing they have to hit with a thumb is.
+
+/** Relative luminance, WCAG 2.x. */
+function contrastIn(page) {
+  return page.evaluate(() => {
+    const parse = value => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    const luminance = ([r, g, b]) => {
+      const channel = v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    /** The first ancestor that actually paints something behind this element. */
+    const backdrop = element => {
+      for (let node = element; node; node = node.parentElement) {
+        const colour = getComputedStyle(node).backgroundColor;
+        if (colour && colour !== 'transparent' && !colour.startsWith('rgba(0, 0, 0, 0)')) return parse(colour);
+      }
+      return [255, 255, 255];
+    };
+    const out = [];
+    for (const label of document.querySelectorAll('label, .note, .hint, p, h1, h2, b')) {
+      const text = label.textContent?.trim();
+      if (!text || !label.getClientRects().length) continue;
+      if (label.querySelector('label, p, h1, h2, b')) continue;      // containers, not text
+      const style = getComputedStyle(label);
+      if (style.visibility === 'hidden' || Number(style.opacity) < 0.5) continue;
+      const [a, b] = [luminance(parse(style.color)), luminance(backdrop(label))];
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      out.push({ text: text.slice(0, 40), ratio: Math.round(ratio * 100) / 100 });
+    }
+    return out;
+  });
+}
+
+/** Everything a finger has to land on, with the height it was given. */
+function tapTargets(page) {
+  return page.evaluate(() => Array.from(
+    document.querySelectorAll('input:not([type=hidden]):not([type=file]), select, button, a.btn, .btn'))
+    .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+    .map(el => ({
+      // A checkbox is 24px of box inside a label you tap anywhere on, so the
+      // row is the target, not the box.
+      what: `${el.tagName.toLowerCase()}${el.type ? `[${el.type}]` : ''} ` +
+        `${el.getAttribute('aria-label') || el.textContent?.trim().slice(0, 24) || el.id || ''}`.trim(),
+      height: Math.round((el.closest('label.check-row') ?? el).getBoundingClientRect().height),
+    })));
+}
+
+const tooFaint = found => found.filter(item => item.ratio < 4.5);
+const tooSmall = found => found.filter(item => item.height < 44);
+
+test('every label on the sign-in screen can actually be read', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'เข้าสู่ระบบ' })).toBeVisible();
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const faint = tooFaint(await contrastIn(page));
+    expect(faint, `หน้าเข้าสู่ระบบ at ${width}px has text below 4.5:1`).toEqual([]);
+  }
+  // Named explicitly, because these two are the ones that were invisible and a
+  // general sweep can quietly stop covering them.
+  const labels = await page.locator('.block label').allInnerTexts();
+  expect(labels).toEqual(['อีเมล', 'รหัสผ่าน']);
+});
+
+test('every label on the set-password screen can actually be read', async ({ page, request }) => {
+  const issued = await request.post('/__test/setup-link', {
+    data: { email: 'contrast-ui@example.test' }, headers: { 'X-Gym-Client': 'web' },
+  });
+  const { token } = await issued.json();
+  await page.goto(`/?setpw=${token}`);
+  await expect(page.getByRole('button', { name: 'บันทึกรหัสผ่าน' })).toBeVisible();
+
+  // The screen the gym owner opens from a link in a chat, on a phone, once.
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const faint = tooFaint(await contrastIn(page));
+    expect(faint, `หน้าตั้งรหัสผ่าน at ${width}px has text below 4.5:1`).toEqual([]);
+  }
+  expect(await page.locator('.block label').allInnerTexts()).toEqual(['รหัสผ่านใหม่', 'พิมพ์รหัสผ่านอีกครั้ง']);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'artifacts/ui-setpassword-390.png', fullPage: true });
+});
+
+test('the counter screens can be read once somebody is signed in', async ({ page }) => {
+  await signIn(page, 'contrast2-ui@example.test', PASSWORD);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  // The dark stage is the other direction: white on near-black, and the same
+  // rule has to hold there.
+  expect(tooFaint(await contrastIn(page)), 'หน้าสแกน').toEqual([]);
+
+  for (const tab of ['สมาชิก', 'สมัครสมาชิก', 'รับเงินและมอบแพ็กเกจ', 'ผู้ใช้และสิทธิ์', 'ข้อมูลยิม']) {
+    await go(page, tab);
+    expect(tooFaint(await contrastIn(page)), tab).toEqual([]);
+  }
+});
+
+test('a thumb can hit every control on a phone', async ({ page }) => {
+  await signIn(page, 'contrast2-ui@example.test');
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  // The role dropdown in the users table was 21px tall, and it is the control
+  // that decides what somebody is allowed to do.
+  await go(page, 'ผู้ใช้และสิทธิ์');
+  await expect(page.getByRole('heading', { name: 'ผู้ใช้และสิทธิ์' })).toBeVisible();
+  expect(tooSmall(await tapTargets(page)), 'หน้าผู้ใช้และสิทธิ์').toEqual([]);
+
+  await go(page, 'ข้อมูลยิม');
+  await expect(page.getByLabel('เวลาเปิดวันจันทร์')).toBeVisible();
+  expect(tooSmall(await tapTargets(page)), 'หน้าข้อมูลยิม').toEqual([]);
+  await page.screenshot({ path: 'artifacts/ui-gym-390.png', fullPage: true });
+});

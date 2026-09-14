@@ -30,7 +30,7 @@ const seedUsers = (role, addresses) => {
 };
 seedUsers('staff', ['staff-ui@example.test',
   ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
-seedUsers('admin', ['layout-admin@example.test', 'admin@example.test',
+seedUsers('admin', ['layout-admin@example.test', 'admin@example.test', 'contrast2-ui@example.test',
   ...Array.from({ length: 11 }, (_, i) => `admin${i + 2}@example.test`)]);
 // One account with no password at all: the state an owner leaves somebody in
 // when they add them before their first shift.
@@ -40,6 +40,9 @@ db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'staff',?)")
 // before passwords existed, which the set-password link is for.
 db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)")
   .run(randomUUID(), 'relink-ui@example.test', Date.now());
+// One more for the spec that measures what the set-password screen looks like.
+db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)")
+  .run(randomUUID(), 'contrast-ui@example.test', Date.now());
 const photoRoot = resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos');
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),

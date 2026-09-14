@@ -101,7 +101,7 @@ test('a transfer carries the slip, and a free grant needs a reason', async ({ pa
   await page.getByRole('radio', { name: MONTHLY }).check();
   await page.getByRole('radio', { name: 'โอนเข้าบัญชี' }).check();
   await page.getByLabel('แนบรูปสลิป (ไม่บังคับ)')
-    .setInputFiles({ name: 'slip.jpg', mimeType: 'image/jpeg', buffer: jpegBuffer() });
+    .setInputFiles({ name: 'slip.jpg', mimeType: 'image/jpeg', buffer: PHOTO_JPEG });
   // The panel the Designer asked for: what the member has now, and what they
   // will have after the button is pressed.
   await expect(page.getByText('หมดอายุเดิม')).toBeVisible();
@@ -181,4 +181,26 @@ test('a photograph that goes bad later says so on the card screen, and can be re
   // No new card: the QR is over the member, not over the picture.
   await expect(page.getByText('ครั้งที่')).toBeVisible();
   await expect(page.locator('.soft .row', { hasText: 'ครั้งที่' })).toContainText('1');
+});
+
+test('the slip a member of staff attached is on that member own screen', async ({ page }) => {
+  // The queue screen that used to hold these is gone: it was a list of slips
+  // members uploaded themselves, and there is no member app left to upload one.
+  await signIn(page, 'admin4@example.test');
+  await expect(page.getByRole('link', { name: 'ตรวจสลิป' })).toHaveCount(0);
+
+  await openMember(page, 'อารี โอนเงิน');
+  await expect(page.getByRole('heading', { name: 'ประวัติการรับเงิน' })).toBeVisible();
+  // Two payments from the earlier test: the transfer with a slip, and the one
+  // given away. Both say who recorded them.
+  await expect(page.getByText('admin4@example.test').first()).toBeVisible();
+  await expect(page.getByText('โอนเข้าบัญชี')).toBeVisible();
+  await expect(page.getByText('ไม่ได้รับเงิน (แถมให้)')).toBeVisible();
+
+  await page.getByRole('button', { name: /^ดูสลิปของ/ }).click();
+  const slip = page.getByRole('img', { name: /^สลิปของ/ });
+  await expect(slip).toBeVisible();
+  await expect(slip).toHaveAttribute('src', /\/api\/slips\/[0-9a-f-]{36}\/image/);
+  await expect(page.getByText('กดที่รูปเพื่อเปิดขนาดเต็ม')).toBeVisible();
+  await page.screenshot({ path: 'artifacts/counter-payment-history.png', fullPage: true });
 });

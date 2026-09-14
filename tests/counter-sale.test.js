@@ -176,3 +176,70 @@ test('a member photograph taken at signup shows up on the scan that follows', as
   assert.equal(scan.body.member.name, 'ชัยชนะ มาออกกำลัง');
   await call('get', scan.body.member.photo_url.replace('/api', ''), owner).expect(200);
 });
+
+test('a member carries their own payment history, with the slips attached to it', async t => {
+  const { call, signIn, addMember, db } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const staff = await signIn('desk@example.test', 'staff');
+  const pkg = await sellablePackage(call, owner);
+  const member = await addMember(owner, { name: 'จ่ายมาหลายรอบ' });
+
+  // Nothing yet, and the screen can tell that apart from a broken request.
+  const empty = await call('get', `/members/${member.id}/payments`, staff).expect(200);
+  assert.deepEqual(empty.body.items, []);
+
+  await call('post', `/members/${member.id}/grant`, staff)
+    .field('package_id', pkg.id).field('payment_method', 'cash').expect(201);
+  const transfer = await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', pkg.id).field('payment_method', 'transfer').field('reference_no', 'REF-HISTORY-9')
+    .attach('slip', jpegBuffer(), { filename: 'slip.jpg', contentType: 'image/jpeg' })
+    .expect(201);
+
+  const history = await call('get', `/members/${member.id}/payments`, staff).expect(200);
+  assert.equal(history.body.items.length, 2);
+  // Newest first: the question at the counter is almost always about the last
+  // payment, not the first one.
+  const [latest, first] = history.body.items;
+  assert.equal(latest.id, transfer.body.order.id);
+  assert.equal(latest.payment_method, 'transfer');
+  assert.equal(latest.price_thb, 1200);
+  assert.equal(latest.recorded_by, 'owner@example.test', 'who took the money, from the audit trail');
+  assert.equal(first.payment_method, 'cash');
+  assert.equal(first.recorded_by, 'desk@example.test');
+
+  // The slip that member of staff attached is reachable from here -- this is
+  // what the old review queue was for, and the queue is gone.
+  assert.equal(latest.slip.reference_no, 'REF-HISTORY-9');
+  assert.equal(latest.slip.stored_name, undefined, 'the path on disk never leaves the server');
+  await call('get', `/slips/${latest.slip.id}/image`, staff).expect(200);
+  assert.equal(first.slip, null);
+
+  // And the history is the member's own: nobody else's payments are in it.
+  const other = await addMember(owner, { name: 'คนอื่น', phone: '0890000009' });
+  const none = await call('get', `/members/${other.id}/payments`, staff).expect(200);
+  assert.deepEqual(none.body.items, []);
+  await call('get', `/members/${db.prepare('SELECT lower(hex(randomblob(16))) AS x').get().x}/payments`, staff).expect(404);
+});
+
+test('a comped package shows in the history as nothing received, with its reason', async t => {
+  const { call, signIn, addMember } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const pkg = await sellablePackage(call, owner);
+  const member = await addMember(owner);
+  await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', pkg.id).field('payment_method', 'none').field('note', 'ทดลองใช้ 1 เดือน')
+    .expect(201);
+
+  const [given] = (await call('get', `/members/${member.id}/payments`, owner).expect(200)).body.items;
+  assert.equal(given.payment_method, 'none');
+  assert.equal(given.manual_grant, 1);
+  // The reason is the whole record of a free membership, so it travels with it.
+  assert.equal(given.review_note, 'ทดลองใช้ 1 เดือน');
+});
+
+test('a member who is not signed in cannot read their own payments', async t => {
+  const { call, signIn, addMember } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const member = await addMember(owner);
+  await call('get', `/members/${member.id}/payments`, null).expect(401);
+});
