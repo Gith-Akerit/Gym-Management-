@@ -34,7 +34,9 @@ export function MemberPackages({ onBuy }) {
   }
   return <><h1>แพ็กเกจ</h1><Notice error={buyError}/>
     {data.items.map(item => {
-      const price = formatPrice(item.price_thb);
+      // A free package showing '฿0.00' reads like a price somebody forgot to
+      // fill in. Say what it is instead.
+      const price = item.price_thb === 0 ? 'ไม่มีค่าใช้จ่าย' : formatPrice(item.price_thb);
       return <div className="pkg-card" key={item.id}>
         <div className="pkg-head"><div><h3>{item.name_th}</h3><p className="muted">{describe(item)}</p></div>
           <span className={price ? 'price' : 'price tbd'}>{price ?? 'รอประกาศราคา'}</span></div>
@@ -216,9 +218,11 @@ export function PaymentReview({ onAuthError, readOnly = false }) {
     {busy ? <p role="status" className="empty">กำลังโหลดคำสั่งซื้อ…</p> : !error && (
       !data.items.length ? <div className="empty"><h2>ไม่มีรายการในสถานะนี้</h2></div>
         : <section className="card">{data.items.map(order => <button key={order.id} className="member-row"
-          onClick={() => { setOpenId(order.id); setNotice(''); }} aria-label={`ตรวจสลิปของ ${order.member_name}`}>
+          onClick={() => { setOpenId(order.id); setNotice(''); }}
+          aria-label={`${order.price_thb === 0 ? 'มอบสิทธิ์ให้' : 'ตรวจสลิปของ'} ${order.member_name}`}>
           <span className="member-name"><strong>{order.member_name}</strong>
-            <small>{order.package_name_snapshot} · {formatPrice(order.price_thb)} · ส่งเมื่อ {formatDateTime(order.waiting_since)}</small></span>
+            <small>{order.package_name_snapshot} · {order.price_thb === 0 ? 'ไม่มีค่าใช้จ่าย' : formatPrice(order.price_thb)}
+              {' · '}ส่งเมื่อ {formatDateTime(order.waiting_since)}</small></span>
           <span className={`tag ${order.status === 'paid' ? 'active' : 'draft'}`}>{orderStatusLabels[order.status]}</span>
           <span aria-hidden="true">›</span>
         </button>)}</section>)}
@@ -233,7 +237,9 @@ function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
   if (busy) return <p role="status" className="empty">กำลังโหลด…</p>;
   if (error) return <><button onClick={onBack}>← กลับ</button><Notice error={error}/></>;
 
-  const { order, slip, member, duplicates, amount_mismatch: mismatch } = data;
+  // A package that costs nothing has no transfer behind it, so this screen
+  // stops being a slip check and becomes "give this member the package".
+  const { order, slip, member, duplicates, amount_mismatch: mismatch, free } = data;
   const noteLongEnough = note.trim().length >= MISMATCH_NOTE_MIN;
   async function act(path, body, message) {
     setWorking(true); setActionError(null);
@@ -242,19 +248,19 @@ function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
   }
 
   return <section className="card"><button onClick={onBack} disabled={working}>← กลับรายการ</button>
-    <h1>ตรวจสลิป</h1>
+    <h1>{free ? 'มอบสิทธิ์แพ็กเกจฟรี' : 'ตรวจสลิป'}</h1>
     <div className="review-grid">
       <div>{slip
         ? <a href={`/api/slips/${slip.id}/image`} target="_blank" rel="noreferrer">
             <img className="slip-review" alt="สลิปการโอนเงิน" src={`/api/slips/${slip.id}/image`}/></a>
-        : <div className="qr-frame"><span>ยังไม่มีสลิป</span></div>}
+        : <div className="qr-frame"><span>{free ? 'แพ็กเกจนี้ไม่มีค่าใช้จ่าย จึงไม่มีสลิป' : 'ยังไม่มีสลิป'}</span></div>}
         {slip && <p className="fine">คลิกที่รูปเพื่อเปิดขนาดเต็ม</p>}</div>
       <div>
         <dl>
           <dt>สมาชิก</dt><dd>{member.name} · {member.member_code}</dd>
           <dt>ติดต่อ</dt><dd>{member.email}<br/>{formatPhone(member.phone)}</dd>
           <dt>แพ็กเกจ</dt><dd>{order.package_name_snapshot} · {describe(order)}</dd>
-          <dt>ยอดที่ต้องได้รับ</dt><dd><strong>{formatPrice(order.price_thb)}</strong></dd>
+          <dt>ยอดที่ต้องได้รับ</dt><dd><strong>{free ? 'ไม่มีค่าใช้จ่าย' : formatPrice(order.price_thb)}</strong></dd>
           {slip && <><dt>ยอดที่สมาชิกแจ้ง</dt>
             <dd>{slip.amount_thb_claimed === null ? 'ไม่ได้แจ้ง' : formatPrice(slip.amount_thb_claimed)}</dd>
             <dt>เลขอ้างอิง</dt><dd>{slip.reference_no}</dd>
@@ -284,18 +290,21 @@ function ReviewDetail({ id, onBack, onDone, onAuthError, readOnly = false }) {
           <Field name="note" label={mismatch ? 'เหตุผลที่อนุมัติทั้งที่ยอดไม่ตรง (บังคับ)' : 'หมายเหตุ (บันทึกไว้ในประวัติ)'}
             value={note} onChange={setNote} maxLength={300}
             error={mismatch && !noteLongEnough ? `กรุณาระบุเหตุผลอย่างน้อย ${MISMATCH_NOTE_MIN} ตัวอักษร` : undefined}/>
-          <label className="check-row"><input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}/>
-            <span>ตรวจกับแอปธนาคารแล้วว่าเงินเข้าจริงตามยอดและเวลานี้</span></label>
+          {!free && <label className="check-row"><input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}/>
+            <span>ตรวจกับแอปธนาคารแล้วว่าเงินเข้าจริงตามยอดและเวลานี้</span></label>}
           <div className="actions">
-            <button className="primary" disabled={!checked || working || (mismatch && !noteLongEnough)}
-              onClick={() => act(`/admin/orders/${order.id}/approve`, { checked_against_bank: true, note }, 'อนุมัติแล้ว')}>
-              {working ? 'กำลังบันทึก…' : 'อนุมัติและให้สิทธิ์'}</button>
+            <button className="primary" disabled={(!free && !checked) || working || (mismatch && !noteLongEnough)}
+              onClick={() => act(`/admin/orders/${order.id}/approve`,
+                free ? { note } : { checked_against_bank: true, note }, free ? 'มอบสิทธิ์แล้ว' : 'อนุมัติแล้ว')}>
+              {working ? 'กำลังบันทึก…' : free ? 'มอบสิทธิ์ (ไม่มีค่าใช้จ่าย)' : 'อนุมัติและให้สิทธิ์'}</button>
           </div>
-          <p className="fine">ปุ่มอนุมัติจะกดได้เมื่อติ๊กช่องด้านบน เพราะไม่มีข้อมูลจากผู้ให้บริการชำระเงินมายืนยันแทน
-            {mismatch ? ' และเมื่อยอดไม่ตรง ต้องเขียนเหตุผลไว้ในประวัติด้วย' : ''}</p>
-          <Field name="reason" label="เหตุผลที่ปฏิเสธ" value={reason} onChange={setReason} maxLength={300}/>
+          <p className="fine">{free
+            ? 'แพ็กเกจนี้ราคา 0 บาท ไม่มีเงินโอนให้ตรวจ จึงไม่มีช่องยืนยันเงินเข้า กดปุ่มแล้วสมาชิกได้สิทธิ์ทันที'
+            : `ปุ่มอนุมัติจะกดได้เมื่อติ๊กช่องด้านบน เพราะไม่มีข้อมูลจากผู้ให้บริการชำระเงินมายืนยันแทน${mismatch ? ' และเมื่อยอดไม่ตรง ต้องเขียนเหตุผลไว้ในประวัติด้วย' : ''}`}</p>
+          <Field name="reason" label={free ? 'เหตุผลที่ไม่มอบสิทธิ์' : 'เหตุผลที่ปฏิเสธ'} value={reason} onChange={setReason} maxLength={300}/>
           <button className="danger" disabled={!reason.trim() || working}
-            onClick={() => act(`/admin/orders/${order.id}/reject`, { reason }, 'ปฏิเสธสลิปแล้ว')}>ปฏิเสธสลิป</button>
+            onClick={() => act(`/admin/orders/${order.id}/reject`, { reason },
+              free ? 'ไม่มอบสิทธิ์แล้ว' : 'ปฏิเสธสลิปแล้ว')}>{free ? 'ไม่มอบสิทธิ์' : 'ปฏิเสธสลิป'}</button>
         </>}
 
         {!readOnly && ['expired', 'cancelled'].includes(order.status) && <div className="secondary-actions" style={{ display: 'block' }}>

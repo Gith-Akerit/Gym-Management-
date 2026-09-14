@@ -17,7 +17,7 @@ import {
 import { buildPromptPayPayload } from './promptpay.js';
 import { MAX_SLIP_BYTES, SlipError } from './slips.js';
 import {
-  approveMismatchSchema, approveSchema, bangkokLocalToEpoch, HttpError, orderSchema,
+  approveMismatchSchema, approveSchema, bangkokLocalToEpoch, grantSchema, HttpError, orderSchema,
   parse, rejectSchema, reverseSchema, slipSchema,
 } from './validation.js';
 
@@ -276,11 +276,15 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
   app.post('/api/admin/orders/:id/approve', admin, (req, res) => {
     const result = transaction(db, () => {
       const before = adminOrder(req);
-      // A short payment needs a written reason; anything else does not.
+      // A short payment needs a written reason; anything else does not. And a
+      // free package has no transfer at all, so the admin is granting rather
+      // than confirming, and is never asked to tick the bank box.
       const slip = currentSlip(db, before.id);
       const mismatch = slip?.amount_satang_claimed != null
         && slip.amount_satang_claimed !== before.price_satang_snapshot;
-      const input = parse(mismatch ? approveMismatchSchema : approveSchema, req.body);
+      const schema = before.price_satang_snapshot === 0 ? grantSchema
+        : mismatch ? approveMismatchSchema : approveSchema;
+      const input = parse(schema, req.body);
       if (before.version !== input.version) throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดคำสั่งซื้อล่าสุดก่อนอนุมัติ');
       if (before.status !== 'awaiting_review') throw new HttpError(409, 'คำสั่งซื้อนี้ถูกดำเนินการไปแล้ว');
       const member = db.prepare('SELECT status FROM members WHERE id=?').get(before.member_id);

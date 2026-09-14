@@ -204,6 +204,17 @@ export const approveMismatchSchema = approveSchema.refine(
   input => input.note.length >= MISMATCH_NOTE_MIN,
   { message: `ยอดในสลิปไม่ตรงกับราคา กรุณาระบุเหตุผลอย่างน้อย ${MISMATCH_NOTE_MIN} ตัวอักษรก่อนอนุมัติ`, path: ['note'] });
 
+/**
+ * A package that costs nothing has no transfer to check, so the admin is not
+ * asked to swear one arrived. Nothing is dropped quietly either: sending
+ * checked_against_bank with a free order is refused rather than recorded,
+ * because the record would be an attestation about money that never moved.
+ */
+export const grantSchema = z.object({
+  version: z.coerce.number().int().positive(),
+  note: z.string().trim().max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร').default(''),
+}).strict();
+
 export const rejectSchema = z.object({
   version: z.coerce.number().int().positive(),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ปฏิเสธ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),

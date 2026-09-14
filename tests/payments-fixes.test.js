@@ -198,9 +198,39 @@ test('a free package skips the QR and the slip entirely', async t => {
   assert.equal(bought.body.promptpay_payload, null);
   await call('get', `/orders/${bought.body.order.id}/qr.png`, token).expect(409);
 
-  const granted = await call('post', `/admin/orders/${bought.body.order.id}/approve`, adminToken,
-    { version: bought.body.order.version, checked_against_bank: true }).expect(200);
+  // The admin is granting, not confirming a transfer, so being asked to swear
+  // one arrived would be asking them to attest to something that never
+  // happened. Sending it anyway is refused rather than written to the record.
+  const orderId = bought.body.order.id;
+  const review = await call('get', `/admin/orders/${orderId}`, adminToken).expect(200);
+  assert.equal(review.body.free, true, 'the screen needs this to know which of the two jobs it is');
+  assert.equal(review.body.slip, null);
+
+  const attested = await call('post', `/admin/orders/${orderId}/approve`, adminToken,
+    { version: bought.body.order.version, checked_against_bank: true }).expect(400);
+  assert.ok(JSON.stringify(attested.body).includes('checked_against_bank'));
+
+  const granted = await call('post', `/admin/orders/${orderId}/approve`, adminToken,
+    { version: bought.body.order.version, note: 'ทดลองใช้ฟรี' }).expect(200);
   assert.equal(granted.body.entitlement.sessions_remaining, 1);
+  assert.equal(granted.body.order.status, 'paid');
+  assert.equal(granted.body.order.review_note, 'ทดลองใช้ฟรี');
+});
+
+test('a package that costs money still cannot be approved without the bank check', async t => {
+  // The free path must not have loosened the paid one: this is the only moment
+  // money becomes membership, and nothing else verifies the transfer.
+  const { call, member, shop, sendSlip } = fixture(t);
+  const { adminToken, packageId } = await shop();
+  const token = await member('paid-still-checked@example.test');
+  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
+  await sendSlip(token, order.id).expect(201);
+
+  const without = await call('post', `/admin/orders/${order.id}/approve`, adminToken,
+    { version: order.version + 1, note: 'เชื่อใจ' }).expect(400);
+  assert.ok(JSON.stringify(without.body).includes('ตรวจกับแอปธนาคาร'));
+  await call('post', `/admin/orders/${order.id}/approve`, adminToken,
+    { version: order.version + 1, checked_against_bank: true }).expect(200);
 });
 
 test('prices mean what their field name says, in both directions', async t => {
