@@ -211,6 +211,10 @@ npm run dev               # เว็บที่ http://localhost:5173 (proxy �
 
 ## นำขึ้นใช้งานจริง
 
+ขั้นตอนเต็มสำหรับขึ้นอินเทอร์เน็ต (Docker + Caddy, PM2 + nginx, Fly.io, Render), เช็กลิสต์ค่า env,
+การตั้งอีเมล OTP ด้วย Brevo และรายการตรวจหลัง deploy อยู่ใน [docs/deploy.md](docs/deploy.md)
+ส่วนย่อด้านล่างคือสิ่งที่ทุกวิธีมีเหมือนกัน
+
 1. ตั้ง `NODE_ENV=production`, `APP_ORIGIN=https://...`, `OTP_SECRET` และค่า SMTP ที่มีการยืนยันตัวตน
 2. `npm ci && npm run build`
 3. `npm run db:migrate && npm run db:seed`
