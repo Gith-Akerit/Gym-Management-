@@ -28,7 +28,7 @@ a one-time link, valid for five minutes. That is the way in: pilot mode shows
 codes on the admin console, and the first administrator cannot reach the console
 until they are signed in. Later codes are read from the "รหัส OTP" tab instead.
 If the code expires, issue another with
-`cd /srv/gym && docker compose exec app npm run pilot:code -- <email>`, which
+`cd /srv/gym && docker compose exec app npm --silent run pilot:code -- <email>`, which
 works only while `PILOT_MODE=1` and only for an account that is already an
 admin, and records the issue in the audit log.
 

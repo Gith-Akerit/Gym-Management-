@@ -147,11 +147,11 @@ if [ "$pilot" = 1 ]; then
     echo
     echo '--- FIRST SIGN-IN (valid 5 minutes from now) ---------------------------'
     docker compose exec -T app npm --silent run pilot:code -- "$admin_email" \
-      || echo "Could not issue the code. Run: cd /srv/gym && docker compose exec app npm run pilot:code -- $admin_email"
+      || echo "Could not issue the code. Run: cd /srv/gym && docker compose exec app npm --silent run pilot:code -- $admin_email"
     echo '------------------------------------------------------------------------'
   else
     echo 'Issue the first sign-in code with:'
-    echo '  cd /srv/gym && docker compose exec app npm run pilot:code -- <administrator email>'
+    echo '  cd /srv/gym && docker compose exec app npm --silent run pilot:code -- <administrator email>'
   fi
 else
   echo 'Sign in with the reporter admin email and the OTP delivered by email.'
