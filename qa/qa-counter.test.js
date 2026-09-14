@@ -32,6 +32,27 @@ async function photograph() {
   return canvas.toBuffer('image/png');
 }
 
+/**
+ * A photograph that decodes AND carries the coordinates a phone would have
+ * written into it. Since `a08b7cd` the upload refuses anything it cannot draw,
+ * so the EXIF case needs a real picture with an APP1 segment spliced in after
+ * the SOI marker -- decoders skip that segment, the card still draws, and what
+ * is left to prove is that the server does not keep it.
+ */
+async function photographWithExif(tag = 'qa') {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const canvas = createCanvas(600, 600);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#c8a27a'; ctx.fillRect(0, 0, 600, 600);
+  ctx.fillStyle = '#3b2a1d';
+  ctx.beginPath(); ctx.arc(300, 250, 120, 0, Math.PI * 2); ctx.fill();
+  const real = canvas.toBuffer('image/jpeg');
+  const exif = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'),
+    Buffer.from(`GPS 13.7563,100.5018 ${tag}`, 'latin1')]);
+  const length = Buffer.alloc(2); length.writeUInt16BE(exif.length + 2);
+  return Buffer.concat([real.subarray(0, 2), Buffer.from([0xff, 0xe1]), length, exif, real.subarray(2)]);
+}
+
 /** The smallest bytes a browser will accept as a JPEG, with EXIF to strip. */
 function jpeg(tag = 'qa') {
   const exif = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'),
@@ -219,7 +240,7 @@ test('PHOTO-01 a face is stored like a bank slip, and reaches nobody who is not 
 
   const uploaded = await request(app).put(`/api/members/${suda.id}/photo`)
     .set('X-Gym-Client', 'web').set('Authorization', `Bearer ${staff.token}`)
-    .attach('photo', jpeg('GPS-should-not-survive'), { filename: 'IMG_0421.jpg', contentType: 'image/jpeg' });
+    .attach('photo', await photographWithExif('GPS-should-not-survive'), { filename: 'IMG_0421.jpg', contentType: 'image/jpeg' });
   console.log('PHOTO-01 upload ->', uploaded.status, JSON.stringify({
     has_photo: uploaded.body.has_photo, leaked: Object.keys(uploaded.body).filter(k => /stored|path|file/.test(k)) }));
   assert.equal(uploaded.status, 200);
@@ -473,33 +494,80 @@ test('CARD-06 the card is the size it claims, and a scanner can read the QR on i
   assert.ok(stillReadable, 'the QR stops being readable once a chat app shrinks the picture');
 });
 
-test('PHOTO-03 a photograph the card cannot draw is accepted, and then the card never comes', async t => {
+test('PHOTO-03 a photograph the card cannot draw is turned away, and the good one is kept', async t => {
   const { app, call, staffUser, member } = counter(t);
   const staff = staffUser('counter@example.test', 'staff');
   const suda = member('รับไว้ แล้วพัง');
+  const send = (bytes, filename) => request(app).put(`/api/members/${suda.id}/photo`)
+    .set('X-Gym-Client', 'web').set('Authorization', `Bearer ${staff.token}`)
+    .attach('photo', bytes, { filename, contentType: 'image/jpeg' });
 
   // Real JPEG magic bytes, nothing behind them: what a half-finished upload
-  // from a phone that lost signal looks like on the way in.
-  const truncated = await request(app).put(`/api/members/${suda.id}/photo`)
-    .set('X-Gym-Client', 'web').set('Authorization', `Bearer ${staff.token}`)
-    .attach('photo', jpeg(), { filename: 'face.jpg', contentType: 'image/jpeg' });
-  console.log('PHOTO-03 the upload ->', truncated.status,
-    JSON.stringify({ has_photo: truncated.body.has_photo }));
+  // from a phone that lost signal looks like on the way in. Until `a08b7cd`
+  // this was kept, and from then on the member had no card at all.
+  const truncated = await send(jpeg(), 'half-sent.jpg');
+  console.log('PHOTO-03 a half-sent JPEG ->', truncated.status, JSON.stringify(truncated.body.error));
+  assert.equal(truncated.status, 400, 'bytes the card cannot draw were stored again');
+  assert.ok(THAI.test(truncated.body.error ?? ''), 'the refusal is not in Thai');
 
   const card = await call('get', `/members/${suda.id}/card.png`, staff.token);
-  const still = await call('get', `/members/${suda.id}/card`, staff.token);
-  console.log('PHOTO-03 asking for the card afterwards ->', card.status,
-    JSON.stringify(card.body?.error ?? card.headers['content-type']));
-  console.log('PHOTO-03 the rest of the card data still works ->', still.status);
+  const detail = await call('get', `/members/${suda.id}/card`, staff.token);
+  console.log('PHOTO-03 the card of somebody with no photograph ->', card.status,
+    JSON.stringify(card.headers['content-type']), '| photo_readable:', detail.body.photo_readable);
+  assert.equal(card.status, 200, 'the silhouette fallback stopped working');
+  assert.equal(detail.body.photo_readable, null, 'a member with no photograph should report null');
 
-  assert.equal(truncated.status, 200, 'the upload refused it, so there is nothing to report here');
-  // Documented, not enforced: the upload keeps bytes the drawing cannot use,
-  // and from then on this member has no card and the screen says only that
-  // something went wrong.
-  if (card.status !== 200) {
-    console.log('PHOTO-03 NOTE: the photograph was accepted but the card is now'
-      + ` ${card.status} for this member until somebody uploads a different picture,`
-      + ' and the message does not say that is what happened.');
+  // The second half of the fix: a bad upload must not take away a good picture
+  // that is already on file.
+  const good = await send(await photographWithExif('kept'), 'face.jpg');
+  const spoilt = await send(jpeg(), 'half-sent-again.jpg');
+  const afterwards = await call('get', `/members/${suda.id}/card`, staff.token);
+  console.log('PHOTO-03 a good photograph ->', good.status,
+    '| a bad one on top of it ->', spoilt.status,
+    '| the good one survived:', afterwards.body.member.has_photo,
+    '| readable:', afterwards.body.photo_readable);
+  assert.equal(good.status, 200);
+  assert.equal(spoilt.status, 400);
+  assert.equal(afterwards.body.member.has_photo, true, 'a refused upload wiped the photograph on file');
+  assert.equal(afterwards.body.photo_readable, true);
+});
+
+// ===================================================== what may be sold at all
+test('SALE-09 a package the owner has not opened for sale cannot be sold', async t => {
+  const { call, staffUser, member } = counter(t);
+  const owner = staffUser('owner@example.test', 'admin');
+  const staff = staffUser('counter@example.test', 'staff');
+  const buyer = member('ลูกค้า ที่ยืนรออยู่');
+
+  const make = (code, status, price) => call('post', '/packages', owner.token, {
+    code, name_th: `แพ็กเกจ ${code}`, type: 'unlimited', duration_days: 30,
+    ...(price === null ? {} : { price_thb: price }), status, description: '' });
+  const packages = {
+    'priced and open for sale': await make('OPEN_30D', 'active', 1500),
+    'priced but still a draft': await make('DRAFT_30D', 'draft', 1500),
+    'priced and taken off sale': await make('ARCHIVED_30D', 'archived', 1500),
+    'a draft with no price yet': await make('NOPRICE_30D', 'draft', null),
+  };
+  const sold = {};
+  for (const [label, created] of Object.entries(packages)) {
+    assert.equal(created.status, 201, `could not create the ${label} package`);
+    const res = await call('post', `/members/${buyer.id}/grant`, staff.token,
+      { package_id: created.body.id, payment_method: 'cash', note: 'ทดสอบ' });
+    sold[label] = { status: res.status, error: res.body.error };
   }
-  assert.equal(still.status, 200, 'the rest of the member record broke too');
+  console.log('SALE-09 what a member of staff can sell:\n' + JSON.stringify(sold, null, 1));
+
+  // The sell screen filters on `price_thb !== null && status === 'active'`, so
+  // none of the last three is offered. That filter is the only thing stopping
+  // them: a tablet left open on the counter keeps a list from before the owner
+  // closed the package, and the money still lands in the day's takings.
+  assert.equal(sold['priced and open for sale'].status, 201);
+  assert.equal(sold['a draft with no price yet'].status, 409, 'a package with no price was sold');
+  assert.equal(sold['priced but still a draft'].status, 409,
+    'a package the owner has not opened for sale was sold anyway');
+  assert.equal(sold['priced and taken off sale'].status, 409,
+    'a package the owner took off sale was sold anyway');
+  for (const [label, row] of Object.entries(sold)) {
+    if (row.status >= 400) assert.ok(THAI.test(row.error ?? ''), `${label} was refused in English`);
+  }
 });
