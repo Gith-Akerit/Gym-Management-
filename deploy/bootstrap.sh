@@ -61,8 +61,11 @@ fi
 install -d -m 700 /root/.ssh
 touch /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
-key='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBQFyDyG6mT6/ydBsoS7hFJ3pZ9CC67k5Wz/jLDRAPaE multica-gym-pilot-srv1979069'
-grep -qF 'AAAAC3NzaC1lZDI1NTE5AAAAIBQFyDyG6mT6/ydBsoS7hFJ3pZ9CC67k5Wz/jLDRAPaE' /root/.ssh/authorized_keys || printf '\n%s\n' "$key" >> /root/.ssh/authorized_keys
+# The key this replaces is unrecoverable: its private half was left in a
+# directory whose permissions nobody can read back, so installing it again only
+# put an entry in authorized_keys that grants nothing to anyone.
+key='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP5bSuPuC7/1vrIpFIa0CNooxjSCqTsTr2b3Z/m7q5qZ multica-gym-pilot-srv1979069-v2'
+grep -qF 'AAAAC3NzaC1lZDI1NTE5AAAAIP5bSuPuC7/1vrIpFIa0CNooxjSCqTsTr2b3Z/m7q5qZ' /root/.ssh/authorized_keys || printf '\n%s\n' "$key" >> /root/.ssh/authorized_keys
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
 apt-get update
 apt-get -y -o Dpkg::Options::=--force-confold upgrade
