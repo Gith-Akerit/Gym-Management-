@@ -11,7 +11,7 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
 export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173', production = false,
-  now = Date.now, trustProxy = 1, slipStore, promptPayId }) {
+  now = Date.now, trustProxy = 1, slipStore, promptPayId, pilotMode = false }) {
   if (!secret || secret.length < 32) throw new Error('OTP_SECRET must have at least 32 characters');
   if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
   const app = express();
@@ -95,7 +95,35 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   // rather than waiting out the interval.
   app.locals.sweep = sweep;
 
+  app.locals.pilotMode = pilotMode;
+
+  /**
+   * Pilot mode: the gym is trying the system before it has a mail provider or
+   * a PromptPay account, so the OTP is read out at the counter instead of
+   * emailed. The codes live here and nowhere else -- never in the database,
+   * never past a restart, and never in anything a member can fetch. Reading one
+   * is the same as being able to sign in as that person, which is why only an
+   * admin can.
+   */
+  const pilotCodes = [];
+  const rememberPilotCode = entry => {
+    pilotCodes.unshift(entry);
+    pilotCodes.length = Math.min(pilotCodes.length, 50);
+  };
+  const livePilotCodes = () => pilotCodes.filter(entry => entry.expires_at > now());
+  /** Consumed codes are dropped: showing a used one only invites retyping it. */
+  const pilotCodeFor = email => livePilotCodes().find(entry => entry.email === email
+    && !db.prepare('SELECT consumed_at FROM otp_challenges WHERE id=?').get(entry.id)?.consumed_at);
+
+  // Exposed the same way app.locals.sweep is: something outside the request
+  // path -- an operator, a test harness -- occasionally needs the live list.
+  app.locals.pilotCodes = livePilotCodes;
+
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+  // The login screen has to say "ask the staff for your code" instead of "check
+  // your email" before anyone has signed in, so this one fact is public.
+  app.get('/api/public/config', (req, res) => res.json({ pilot_mode: pilotMode }));
 
   // Anyone may read what the gym advertises: opening hours, address, the phone
   // number staff chose to publish, and the packages actually on sale. Somebody
@@ -118,12 +146,19 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
       db.prepare('INSERT INTO otp_challenges(id,email,code_hash,created_at,expires_at) VALUES(?,?,?,?,?)')
         .run(id, input.email, hmac(`${id}:${code}`), now(), now() + 300000);
     });
-    try { await sendOtp({ email: input.email, code }); }
-    catch {
-      db.prepare('UPDATE otp_challenges SET consumed_at=? WHERE id=?').run(now(), id);
-      throw new HttpError(503, 'ส่งอีเมลไม่สำเร็จ กรุณาลองอีกครั้งใน 60 วินาที');
+    if (pilotMode) {
+      rememberPilotCode({ id, email: input.email, code, created_at: now(), expires_at: now() + 300000 });
+    } else {
+      try { await sendOtp({ email: input.email, code }); }
+      catch {
+        db.prepare('UPDATE otp_challenges SET consumed_at=? WHERE id=?').run(now(), id);
+        throw new HttpError(503, 'ส่งอีเมลไม่สำเร็จ กรุณาลองอีกครั้งใน 60 วินาที');
+      }
     }
-    res.status(202).json({ challenge_id: id, expires_in: 300, retry_after: 60 });
+    // pilot_mode tells the screen which sentence to show. The code itself is
+    // never in this response: the member is the one person who must not be able
+    // to read it without asking a human.
+    res.status(202).json({ challenge_id: id, expires_in: 300, retry_after: 60, ...(pilotMode && { pilot_mode: true }) });
   });
   function me(user) {
     return { email: user.email, role: user.role,
@@ -183,8 +218,10 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   const admin = (req, res, next) => req.user.role === 'admin' ? next() : next(new HttpError(403, 'เฉพาะผู้ดูแลระบบเท่านั้น'));
 
   // Phase 2: buying a package with PromptPay, uploading a slip, admin review.
-  if (slipStore && promptPayId) {
-    registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId });
+  // In pilot mode there is no PromptPay account yet, but the admin still needs
+  // to hand out packages and read the orders that result.
+  if (slipStore && (promptPayId || pilotMode)) {
+    registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId, pilotMode });
   }
 
   // Phase 3: QR check-in at the counter.
@@ -222,7 +259,30 @@ export function createApp({ db, sendOtp, secret, origin = 'http://localhost:5173
   app.get('/api/members/:id', admin, (req, res) => {
     const row = getMember(db, req.params.id);
     if (!row) throw new HttpError(404, 'ไม่พบสมาชิก');
-    res.json(publicMember(row));
+    // In pilot mode the member is standing at the counter asking for their
+    // code, so it belongs on the screen the staff member already has open.
+    const pilot = pilotMode ? pilotCodeFor(row.email) : undefined;
+    res.json({
+      ...publicMember(row),
+      ...(pilotMode && { pilot_otp: pilot ? { code: pilot.code, expires_at: pilot.expires_at } : null }),
+    });
+  });
+
+  /**
+   * Every code requested recently, newest first. The list is what makes pilot
+   * mode workable: a member messages "I am trying to log in" and the staff
+   * member reads their code off this screen.
+   */
+  app.get('/api/admin/pilot/otp-codes', admin, (req, res) => {
+    if (!pilotMode) throw new HttpError(404, 'ไม่พบรายการที่ต้องการ');
+    const consumed = new Set(db.prepare(`SELECT id FROM otp_challenges WHERE consumed_at IS NOT NULL
+      AND expires_at > ?`).all(now() - 300000).map(row => row.id));
+    res.json({
+      items: livePilotCodes().map(entry => ({
+        email: entry.email, code: entry.code, created_at: entry.created_at,
+        expires_at: entry.expires_at, used: consumed.has(entry.id),
+      })),
+    });
   });
   function update(req, deactivate = false) {
     const input = deactivate ? parse(z.object({ version: z.number().int().positive() }).strict(), req.body) : parse(updateSchema, req.body);
