@@ -95,3 +95,26 @@ test('the admin reads out the code, grants a package, and never sees a slip queu
   await member.getByRole('button', { name: 'หน้าแรก' }).click();
   await expect(member.getByRole('img', { name: /QR สำหรับเช็คอิน/ })).toBeVisible();
 });
+
+test('a code issued at the terminal arrives as a link that opens the right sign-in', async ({ page }) => {
+  // What the pilot CLI hands the first administrator: the challenge it created
+  // lives in the link, so the phone lands on that one instead of starting
+  // another and retiring the code that was just read out.
+  const email = 'pilot-link@example.test';
+  const started = await (await page.request.post(`${PILOT}/api/auth/request-otp`, {
+    headers: { 'X-Gym-Client': 'web' }, data: { email },
+  })).json();
+  const { code } = await (await page.request.get(`${PILOT}/__test/code?email=${email}`)).json();
+
+  await page.goto(`${PILOT}/?challenge=${started.challenge_id}`);
+  await expect(page.getByLabel('รหัสยืนยัน 6 หลัก')).toBeVisible();
+  await expect(page.getByText('กรอกรหัส 6 หลักที่ได้จากหน้าจอผู้ดูแลระบบ', { exact: false })).toBeVisible();
+  // Asking again would retire the very code the link was issued for.
+  await expect(page.getByRole('button', { name: /ส่งรหัสใหม่/ })).toHaveCount(0);
+  // And the id does not stay in the address bar to be shared by accident.
+  expect(new URL(page.url()).search).toBe('');
+
+  await page.getByLabel('รหัสยืนยัน 6 หลัก').fill(code);
+  await page.getByRole('button', { name: 'ยืนยันและเข้าสู่ระบบ' }).click();
+  await expect(page.getByLabel('ชื่อ–นามสกุล')).toBeVisible();
+});

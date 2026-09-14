@@ -60,9 +60,27 @@ function PublicGymInfo() {
   </section>;
 }
 
+/**
+ * A sign-in the pilot CLI started on the server, handed over as a link.
+ *
+ * The very first administrator has nowhere to read their own code -- the screen
+ * that shows codes is behind the login they are trying to pass -- so somebody
+ * with root issues it at the terminal and sends them this. The id alone opens
+ * nothing: it still needs the six digits, which expire in five minutes and
+ * allow five attempts.
+ */
+function challengeFromLink() {
+  const id = new URLSearchParams(window.location.search).get('challenge');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id ?? '')) return null;
+  // Out of the address bar, so a shared screenshot or a back button does not
+  // carry it around after it has been used.
+  window.history.replaceState(null, '', window.location.pathname);
+  return { challenge_id: id, from_link: true };
+}
+
 function Login({ onLogin }) {
   const pilot = usePilot();
-  const [email, setEmail] = useState(''), [challenge, setChallenge] = useState(null), [code, setCode] = useState('');
+  const [email, setEmail] = useState(''), [challenge, setChallenge] = useState(challengeFromLink), [code, setCode] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(null), [remaining, setRemaining] = useState(0);
   useEffect(() => { if (!remaining) return; const timer = setTimeout(() => setRemaining(remaining - 1), 1000); return () => clearTimeout(timer); }, [remaining]);
   async function request() {
@@ -80,21 +98,28 @@ function Login({ onLogin }) {
     <h1>เริ่มต้นดูแลตัวเอง<br/>ได้ทุกวัน</h1><p>ข้อมูลสมาชิกของคุณ<br/>อยู่ใกล้แค่ปลายนิ้ว</p><div className="welcome-line"/>
     <span>เรียบง่าย พร้อมสำหรับวันของคุณ</span></section>
     <section className="card login-card"><div className="icon-mark" aria-hidden="true">G</div><h2>{challenge ? 'ยืนยันอีเมลของคุณ' : 'ยินดีต้อนรับ'}</h2>
-      <p className="muted">{challenge
-        ? (pilot
-          ? `ขอรหัส 6 หลักของ ${email} จากเจ้าหน้าที่ที่เคาน์เตอร์หรือทาง LINE รหัสใช้ได้ 5 นาที`
-          : `ส่งรหัส 6 หลักไปที่ ${email} แล้ว รหัสใช้ได้ 5 นาที`)
-        : 'เข้าสู่ระบบหรือสมัครสมาชิกด้วยอีเมล ไม่ต้องจำรหัสผ่าน'}</p>
+      <p className="muted">{!challenge
+        ? 'เข้าสู่ระบบหรือสมัครสมาชิกด้วยอีเมล ไม่ต้องจำรหัสผ่าน'
+        : challenge.from_link
+          ? 'กรอกรหัส 6 หลักที่ได้จากหน้าจอผู้ดูแลระบบ รหัสใช้ได้ 5 นาที'
+          : pilot
+            ? `ขอรหัส 6 หลักของ ${email} จากเจ้าหน้าที่ที่เคาน์เตอร์หรือทาง LINE รหัสใช้ได้ 5 นาที`
+            : `ส่งรหัส 6 หลักไปที่ ${email} แล้ว รหัสใช้ได้ 5 นาที`}</p>
       <form onSubmit={submit}>
         {!challenge ? <Field label="อีเมล" name="email" type="email" value={email} onChange={setEmail} required autoComplete="email" error={error?.fields?.email}/>
           : <Field label="รหัสยืนยัน 6 หลัก" name="code" value={code} onChange={setCode} required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" autoFocus/>}
         <Notice error={error}/><button className="primary full" disabled={busy}>{busy ? 'กำลังดำเนินการ…' : challenge ? 'ยืนยันและเข้าสู่ระบบ' : pilot ? 'ขอรหัสเข้าใช้งาน' : 'รับรหัสทางอีเมล'}</button>
       </form>
-      {challenge && <><div className="login-actions"><button disabled={busy || remaining > 0} onClick={request}>{remaining ? `ส่งรหัสใหม่ได้ใน ${remaining} วินาที` : 'ส่งรหัสใหม่'}</button>
-        <button disabled={busy} onClick={() => { setChallenge(null); setError(null); }}>เปลี่ยนอีเมล</button></div>
-        <p className="fine">{pilot
-          ? 'ขณะนี้ระบบอยู่ในโหมดทดลอง ยังไม่ส่งอีเมล เจ้าหน้าที่จะเป็นผู้แจ้งรหัสให้คุณ'
-          : 'ไม่ได้รับอีเมล? ลองตรวจโฟลเดอร์จดหมายขยะ แล้วกดส่งรหัสใหม่ หากยังไม่ได้รับ กรุณาติดต่อพนักงานที่เคาน์เตอร์'}</p></>}
+      {challenge && <><div className="login-actions">
+        {/* Asking again would retire the code the link was issued for, so the
+            only way on from here is forward or back to the email form. */}
+        {!challenge.from_link && <button disabled={busy || remaining > 0} onClick={request}>{remaining ? `ส่งรหัสใหม่ได้ใน ${remaining} วินาที` : 'ส่งรหัสใหม่'}</button>}
+        <button disabled={busy} onClick={() => { setChallenge(null); setError(null); }}>{challenge.from_link ? 'เข้าด้วยอีเมลอื่น' : 'เปลี่ยนอีเมล'}</button></div>
+        <p className="fine">{challenge.from_link
+          ? 'ลิงก์นี้ใช้ได้ครั้งเดียวและหมดอายุใน 5 นาที ถ้าหมดอายุแล้วให้ขอรหัสใหม่จากผู้ดูแลระบบ'
+          : pilot
+            ? 'ขณะนี้ระบบอยู่ในโหมดทดลอง ยังไม่ส่งอีเมล เจ้าหน้าที่จะเป็นผู้แจ้งรหัสให้คุณ'
+            : 'ไม่ได้รับอีเมล? ลองตรวจโฟลเดอร์จดหมายขยะ แล้วกดส่งรหัสใหม่ หากยังไม่ได้รับ กรุณาติดต่อพนักงานที่เคาน์เตอร์'}</p></>}
       <p className="fine">สมาชิกใหม่กรอกชื่อและเบอร์มือถือหลังยืนยันอีเมล</p>
     </section>
     <PublicGymInfo/></div>;
