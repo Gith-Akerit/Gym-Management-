@@ -223,6 +223,16 @@ export function registerPaymentRoutes({ app, db, now, admin, counter, slipStore,
         // membership would have cost, and the report needs it to say what was
         // given away. A package with no price yet has no such number.
         if (pkg.price_satang === null) throw new HttpError(409, 'แพ็กเกจนี้ยังไม่ได้กำหนดราคา กรุณากรอกราคาก่อน');
+        // "Not on sale yet" and "we stopped selling this" have to mean
+        // something on the server, not only in the list the screen draws. A
+        // tablet left open at the counter is still holding yesterday's list,
+        // and a price the owner withdrew would otherwise turn up in today's
+        // takings without them agreeing to it (QA BUG-SALE-09).
+        if (pkg.status !== 'active') {
+          throw new HttpError(409, pkg.status === 'archived'
+            ? 'แพ็กเกจนี้ปิดการขายไปแล้ว กรุณาเลือกแพ็กเกจอื่น หรือเปิดขายอีกครั้งที่หน้าแพ็กเกจ'
+            : 'แพ็กเกจนี้ยังไม่ได้เปิดขาย กรุณาเปิดขายก่อนที่หน้าแพ็กเกจ หรือเลือกแพ็กเกจอื่น');
+        }
 
         const comped = input.payment_method === 'none';
         const id = randomUUID();

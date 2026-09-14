@@ -243,3 +243,74 @@ test('a member who is not signed in cannot read their own payments', async t => 
   const member = await addMember(owner);
   await call('get', `/members/${member.id}/payments`, null).expect(401);
 });
+
+test('a package the owner has not opened for sale cannot be sold (QA BUG-SALE-09)', async t => {
+  const { call, signIn, addMember, db } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const staff = await signIn('desk@example.test', 'staff');
+  const member = await addMember(owner);
+  // Priced, so the older check waves it through -- and still a draft, which is
+  // the owner saying "not this one, not yet".
+  const draft = await sellablePackage(call, owner, { code: 'SOON', price_thb: 1500, status: 'draft' });
+
+  const refused = await call('post', `/members/${member.id}/grant`, staff)
+    .field('package_id', draft.id).field('payment_method', 'cash').expect(409);
+  assert.match(refused.body.error, /ยังไม่ได้เปิดขาย/);
+
+  // Nothing happened at all: no membership, no order, and nothing in the
+  // takings the owner reconciles against the till.
+  assert.equal(db.prepare('SELECT count(*) AS n FROM orders WHERE package_id=?').get(draft.id).n, 0);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM entitlements WHERE member_id=?').get(member.id).n, 0);
+  const sales = await call('get', '/admin/sales', owner).expect(200);
+  assert.deepEqual(sales.body.items, []);
+
+  // Opening it for sale is all it takes, and it is the owner's decision.
+  await call('put', `/packages/${draft.id}`, owner, {
+    code: draft.code, name_th: draft.name_th, type: draft.type, duration_days: draft.duration_days,
+    session_limit: null, price_thb: 1500, description: '', status: 'active',
+    sort_order: draft.sort_order, version: draft.version,
+  }).expect(200);
+  await call('post', `/members/${member.id}/grant`, staff)
+    .field('package_id', draft.id).field('payment_method', 'cash').expect(201);
+});
+
+test('a package that was taken off sale cannot be sold either', async t => {
+  const { call, signIn, addMember } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const member = await addMember(owner);
+  const retired = await sellablePackage(call, owner, { code: 'OLDPRICE', price_thb: 900, status: 'archived' });
+
+  // The case that costs money: a tablet left open at the counter still holds
+  // last month's list, and the price the owner withdrew would otherwise turn
+  // up in today's takings without them agreeing to it.
+  const refused = await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', retired.id).field('payment_method', 'transfer').expect(409);
+  assert.match(refused.body.error, /ปิดการขายไปแล้ว/);
+  assert.match(refused.body.error, /เปิดขาย/, 'and it says how to undo it');
+
+  // Giving one away is the same rule: it is still the owner's package.
+  await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', retired.id).field('payment_method', 'none').field('note', 'ลูกค้าเก่าขอราคาเดิม')
+    .expect(409);
+});
+
+test('an archived package that a member already holds keeps working', async t => {
+  const { call, signIn, addMember } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const pkg = await sellablePackage(call, owner);
+  const member = await addMember(owner);
+  await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', pkg.id).field('payment_method', 'cash').expect(201);
+
+  // Taking a package off sale stops new sales. It must not reach back and
+  // cancel the membership somebody already paid for.
+  await call('put', `/packages/${pkg.id}`, owner, {
+    code: pkg.code, name_th: pkg.name_th, type: pkg.type, duration_days: pkg.duration_days,
+    session_limit: null, price_thb: 1200, description: '', status: 'archived',
+    sort_order: pkg.sort_order, version: pkg.version,
+  }).expect(200);
+
+  const card = await call('get', `/members/${member.id}/card`, owner).expect(200);
+  const scan = await call('post', '/check-ins/verify', owner, { qr: card.body.qr }).expect(200);
+  assert.equal(scan.body.result, 'allowed');
+});
