@@ -13,6 +13,26 @@ import {
   CheckInLog, CheckInSummary, MemberCheckInHistory, MemberCheckInQr, StaffScanner,
 } from './checkin.jsx';
 
+/**
+ * The line icons the navigation needs. On a phone the menu becomes a bottom
+ * bar where the label is 11px, so the glyph is doing most of the work of
+ * telling one item from another; without it the bar is a row of tiny words.
+ */
+const icons = {
+  home: 'M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z',
+  users: 'M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 9.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6M21 19v-1a4 4 0 0 0-3-3.9',
+  shield: 'M12 3 5 6v5c0 4.3 2.9 8.3 7 9.5 4.1-1.2 7-5.2 7-9.5V6z',
+  slip: 'M6 3h9l4 4v14H6zM15 3v4h4M9 12h6M9 16h4',
+  scan: 'M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16',
+  clock: 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
+  box: 'M3 8 12 3l9 5-9 5zM3 8v8l9 5 9-5V8M12 13v8',
+  gear: 'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1 2 2 0 1 1-4 0 1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 15a2 2 0 1 1 0-4 1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6a2 2 0 1 1 4 0 1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.6 1.6 0 0 0 19.4 11a2 2 0 1 1 0 4z',
+  key: 'M15 7a4 4 0 1 1-3.9 5H9v2H7v2H4v-3l6.1-6.1A4 4 0 0 1 15 7',
+  user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M5 21v-1a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v1',
+  out: 'M15 17l5-5-5-5M20 12H9M13 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h7',
+};
+const Icon = ({ name }) => <svg className="ico" viewBox="0 0 24 24" aria-hidden="true"><path d={icons[name]}/></svg>;
+
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
 const blankPackage = { code: '', name_th: '', type: 'unlimited', duration_days: 30, session_limit: '', price_satang: '', description: '', status: 'draft', sort_order: 0 };
 
@@ -94,7 +114,7 @@ function Login({ onLogin }) {
     try { onLogin(await api('/auth/verify-otp', { method: 'POST', body: { challenge_id: challenge.challenge_id, code } })); }
     catch (e) { setError(e); } finally { setBusy(false); }
   }
-  return <div className="login-layout"><section className="welcome"><span className="eyebrow">ยิมของเรา</span>
+  return <main className="app-main"><div className="container login-layout"><section className="welcome"><span className="eyebrow">ยิมของเรา</span>
     <h1>เริ่มต้นดูแลตัวเอง<br/>ได้ทุกวัน</h1><p>ข้อมูลสมาชิกของคุณ<br/>อยู่ใกล้แค่ปลายนิ้ว</p><div className="welcome-line"/>
     <span>เรียบง่าย พร้อมสำหรับวันของคุณ</span></section>
     <section className="card login-card"><div className="icon-mark" aria-hidden="true">G</div><h2>{challenge ? 'ยืนยันอีเมลของคุณ' : 'ยินดีต้อนรับ'}</h2>
@@ -122,16 +142,17 @@ function Login({ onLogin }) {
             : 'ไม่ได้รับอีเมล? ลองตรวจโฟลเดอร์จดหมายขยะ แล้วกดส่งรหัสใหม่ หากยังไม่ได้รับ กรุณาติดต่อพนักงานที่เคาน์เตอร์'}</p></>}
       <p className="fine">สมาชิกใหม่กรอกชื่อและเบอร์มือถือหลังยืนยันอีเมล</p>
     </section>
-    <PublicGymInfo/></div>;
+    <PublicGymInfo/></div></main>;
 }
 
-function Onboarding({ onSaved }) {
+function Onboarding({ onSaved, notice }) {
   const [value, setValue] = useState({ name: '', phone: '', date_of_birth: '', emergency_contact: '' });
   const [busy, setBusy] = useState(false), [error, setError] = useState(null);
-  return <section className="card narrow"><span className="eyebrow">อีกนิดเดียว</span><h1>ทำความรู้จักกัน</h1><p className="muted">กรอกชื่อและเบอร์มือถือเพื่อสร้างบัตรสมาชิก</p>
+  return <main className="app-main"><div className="container">{notice}
+    <section className="card narrow"><span className="eyebrow">อีกนิดเดียว</span><h1>ทำความรู้จักกัน</h1><p className="muted">กรอกชื่อและเบอร์มือถือเพื่อสร้างบัตรสมาชิก</p>
     <form onSubmit={async e => { e.preventDefault(); setBusy(true); setError(null); try { await api('/me/profile', { method: 'PUT', body: value }); await onSaved(); } catch(e) { setError(e); } finally { setBusy(false); } }}>
       <ProfileFields value={value} setValue={setValue} errors={error?.fields}/><Notice error={error}/><button className="primary full" disabled={busy}>{busy ? 'กำลังบันทึก…' : 'เริ่มใช้งาน'}</button>
-    </form></section>;
+    </form></section></div></main>;
 }
 
 // --------------------------------------------------------------- member app
@@ -193,24 +214,32 @@ function MemberAccount({ member, gym, refresh, onLogout, onOpenOrder }) {
   </>;
 }
 
-function MemberApp({ member, gym, refresh, onLogout }) {
+function MemberApp({ member, gym, refresh, onLogout, notice }) {
   const pilot = usePilot();
   const [tab, setTab] = useState('home');
   const [orderId, setOrderId] = useState(null);
   // In pilot mode there is nothing to buy: the gym has no PromptPay account
   // wired up yet, and packages are handed over by staff.
-  const tabs = [['home', 'หน้าแรก'], ...(pilot ? [] : [['packages', 'แพ็กเกจ']]), ['account', 'บัญชี']];
+  const tabs = [['home', 'หน้าแรก', 'home'], ...(pilot ? [] : [['packages', 'แพ็กเกจ', 'box']]),
+    ['account', 'บัญชี', 'user']];
   const open = id => { setOrderId(id); setTab('packages'); };
-  return <div className="member-shell">
-    {tab === 'home' && <MemberHome member={member} gym={gym}/>}
-    {tab === 'packages' && (orderId
-      ? <MemberOrder key={orderId} orderId={orderId} onBack={() => setOrderId(null)}/>
-      : <MemberPackages onBuy={setOrderId}/>)}
-    {tab === 'account' && <MemberAccount member={member} gym={gym} refresh={refresh} onLogout={onLogout} onOpenOrder={open}/>}
-    <nav className="app-nav" aria-label="เมนูหลัก">{tabs.map(([key, label]) =>
+  // Few enough screens for a tab bar rather than a sidebar: across the top on a
+  // desktop, along the bottom where a thumb reaches on a phone.
+  return <>
+    <nav className="tabnav" aria-label="เมนูหลัก"><div className="container">{tabs.map(([key, label, icon]) =>
       <button key={key} onClick={() => { setTab(key); if (key !== 'packages') setOrderId(null); }}
-        aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
-  </div>;
+        aria-current={tab === key ? 'page' : undefined}><Icon name={icon}/>{label}</button>)}</div></nav>
+    <main className="app-main"><div className="container">
+      {notice}
+      <div className="member-shell">
+        {tab === 'home' && <MemberHome member={member} gym={gym}/>}
+        {tab === 'packages' && (orderId
+          ? <MemberOrder key={orderId} orderId={orderId} onBack={() => setOrderId(null)}/>
+          : <MemberPackages onBuy={setOrderId}/>)}
+        {tab === 'account' && <MemberAccount member={member} gym={gym} refresh={refresh} onLogout={onLogout} onOpenOrder={open}/>}
+      </div>
+    </div></main>
+  </>;
 }
 
 // ------------------------------------------------------------ admin: members
@@ -343,9 +372,24 @@ function MemberAdmin({ onAuthError }) {
       <Notice error={error}/>{error && <button onClick={() => setRevision(n => n + 1)}>ลองใหม่</button>}
       {busy ? <p role="status" className="empty">กำลังโหลดสมาชิก…</p> : !error && <>
         {!data?.items.length ? <div className="empty"><h2>{q ? 'ไม่พบสมาชิกที่ค้นหา' : 'ยังไม่มีสมาชิก'}</h2><p className="muted">{q ? 'ลองค้นหาด้วยชื่อ เบอร์โทร หรืออีเมลอื่น' : 'เริ่มด้วยปุ่ม “เพิ่มสมาชิก” หรือให้สมาชิกสมัครผ่านแอป'}</p></div>
-          : <div className="member-list">{data.items.map(member => <button key={member.id} className="member-row" onClick={() => { setEditor(member); setNotice(''); }} aria-label={`แก้ไข ${member.name}`}>
-            <span className="list-avatar" aria-hidden="true">{member.name.slice(0, 1)}</span><span className="member-name"><strong>{member.name}</strong><small>{member.member_code} · {formatPhone(member.phone)}</small></span><span className={`badge ${member.status}`}>{labels[member.status]}</span><span aria-hidden="true">›</span>
-          </button>)}</div>}
+          : <div className="table-wrap"><table className="table table-members">
+            {/* A table on a desktop and a stack of cards on a phone, from one
+                piece of markup: data-label carries the column name into the
+                card, where there is no header row left to read it from. */}
+            <thead><tr><th>สมาชิก</th><th>สถานะ</th><th>เบอร์โทร</th><th>วันที่สมัคร</th><th/></tr></thead>
+            <tbody>{data.items.map(member => <tr key={member.id}>
+              <td data-label=""><span className="person">
+                <span className="avatar" aria-hidden="true">{member.name.slice(0, 1)}</span>
+                <span><span className="person-name">{member.name}</span>
+                  <span className="person-meta num">{member.member_code}</span></span></span></td>
+              <td data-label="สถานะ"><span className={`badge ${member.status}`}>{labels[member.status]}</span></td>
+              <td data-label="เบอร์โทร" className="num nowrap">{formatPhone(member.phone)}</td>
+              <td data-label="วันที่สมัคร" className="nowrap">{formatDate(member.joined_at)}</td>
+              <td className="cell-actions"><span className="actions">
+                <button className="sm" onClick={() => { setEditor(member); setNotice(''); }}
+                  aria-label={`แก้ไข ${member.name}`}>แก้ไข</button></span></td>
+            </tr>)}</tbody>
+          </table></div>}
         <div className="pagination"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</button><span>หน้า {page} / {Math.max(1, Math.ceil((data?.total || 0) / 20))}</span><button disabled={page * 20 >= (data?.total || 0)} onClick={() => setPage(page + 1)}>ถัดไป</button></div>
       </>}
     </section></>;
@@ -598,27 +642,33 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
       <Notice error={error}/>{error && <button onClick={() => reload().catch(() => {})}>ลองใหม่</button>}
       {busy ? <p role="status" className="empty">กำลังโหลด…</p> : !error && (
         !data.items.length ? <p className="muted">ไม่พบบัญชีที่ค้นหา</p>
-          : <div className="member-list">{data.items.map(user => <div className="member-row" key={user.id}>
-            <span className="member-name"><strong>{user.email}</strong>
-              <small>{user.member_name ? `${user.member_name} · ` : ''}{roleLabels[user.role]}
-                {user.status === 'suspended' ? ' · ถูกระงับ' : ''}</small></span>
-            <label className="field inline-field">เปลี่ยนสิทธิ์
-              <select aria-label={`สิทธิ์ของ ${user.email}`} value={user.role} disabled={working}
-                onChange={e => act(`/users/${user.id}/role`, { method: 'PUT', body: { role: e.target.value } },
-                  `เปลี่ยนสิทธิ์ของ ${user.email} แล้ว`,
-                  endsMyOwnSession(user) && e.target.value !== user.role
-                    ? 'เปลี่ยนสิทธิ์ของบัญชีคุณแล้ว ออกจากระบบ' : undefined)}>
-                {Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-              </select></label>
-            <button className={user.status === 'suspended' ? '' : 'danger'} disabled={working}
-              aria-label={`${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email}`}
-              onClick={() => act(`/users/${user.id}/${user.status === 'suspended' ? 'restore' : 'suspend'}`,
-                { method: 'POST', body: {} },
-                `${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email} แล้ว`,
-                endsMyOwnSession(user) && user.status !== 'suspended'
-                  ? 'ระงับบัญชีของคุณแล้ว ออกจากระบบ' : undefined)}>
-              {user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับบัญชี'}</button>
-          </div>)}</div>)}
+          : <div className="table-wrap"><table className="table table-users">
+            <thead><tr><th>บัญชี</th><th>สถานะ</th><th>สิทธิ์</th><th/></tr></thead>
+            <tbody>{data.items.map(user => <tr key={user.id}>
+              <td data-label=""><span className="person">
+                <span><span className="person-name">{user.email}</span>
+                  {user.member_name && <span className="person-meta">{user.member_name}</span>}</span></span></td>
+              <td data-label="สถานะ"><span className={`badge ${user.status === 'suspended' ? 'suspended' : 'active'}`}>
+                {user.status === 'suspended' ? 'ถูกระงับ' : 'ใช้งานได้'}</span></td>
+              <td data-label="สิทธิ์"><label className="field inline-field">เปลี่ยนสิทธิ์
+                <select aria-label={`สิทธิ์ของ ${user.email}`} value={user.role} disabled={working}
+                  onChange={e => act(`/users/${user.id}/role`, { method: 'PUT', body: { role: e.target.value } },
+                    `เปลี่ยนสิทธิ์ของ ${user.email} แล้ว`,
+                    endsMyOwnSession(user) && e.target.value !== user.role
+                      ? 'เปลี่ยนสิทธิ์ของบัญชีคุณแล้ว ออกจากระบบ' : undefined)}>
+                  {Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                </select></label></td>
+              <td className="cell-actions"><span className="actions">
+                <button className={user.status === 'suspended' ? 'sm' : 'sm danger'} disabled={working}
+                  aria-label={`${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email}`}
+                  onClick={() => act(`/users/${user.id}/${user.status === 'suspended' ? 'restore' : 'suspend'}`,
+                    { method: 'POST', body: {} },
+                    `${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email} แล้ว`,
+                    endsMyOwnSession(user) && user.status !== 'suspended'
+                      ? 'ระงับบัญชีของคุณแล้ว ออกจากระบบ' : undefined)}>
+                  {user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับบัญชี'}</button></span></td>
+            </tr>)}</tbody>
+          </table></div>)}
       <div className="pagination"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>ก่อนหน้า</button>
         <span>หน้า {page} / {Math.max(1, Math.ceil((data?.total || 0) / 20))}</span>
         <button disabled={page * 20 >= (data?.total || 0)} onClick={() => setPage(page + 1)}>ถัดไป</button></div>
@@ -628,32 +678,49 @@ function UserAdmin({ onAuthError, signedInAs, onSignedOut }) {
   </>;
 }
 
-function Staff({ onAuthError }) {
+/**
+ * The staff and admin frame: a sidebar on a desktop, a bottom bar on a phone,
+ * from one piece of markup. The old build put the menu in a wrapping row of
+ * pill buttons above the content, which on a wide screen left the page with no
+ * structure at all -- everything floated at the top left and nothing lined up.
+ */
+function SideNav({ label, tabs, tab, setTab }) {
+  return <nav className="sidenav" aria-label={label}>{tabs.map(([key, text, icon]) =>
+    <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>
+      <Icon name={icon}/>{text}</button>)}</nav>;
+}
+
+function Console({ nav, notice, children }) {
+  const pilot = usePilot();
+  return <main className="app-main"><div className="container with-sidebar">
+    {nav}
+    <div>{pilot && <PilotBanner/>}{notice}{children}</div>
+  </div></main>;
+}
+
+function Staff({ onAuthError, notice }) {
   const pilot = usePilot();
   const [tab, setTab] = useState('scan');
   // No payments in pilot mode, so no queue of slips to look at.
-  const tabs = [['scan', 'สแกนเช็คอิน'], ['history', 'ประวัติเช็คอิน'],
-    ...(pilot ? [] : [['queue', 'คิวสลิป']])];
-  return <>
-    <nav className="tabs" aria-label="เมนูพนักงาน">{tabs.map(([key, label]) =>
-      <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
+  const tabs = [['scan', 'สแกนเช็คอิน', 'scan'], ['history', 'ประวัติเช็คอิน', 'clock'],
+    ...(pilot ? [] : [['queue', 'คิวสลิป', 'slip']])];
+  return <Console nav={<SideNav label="เมนูพนักงาน" tabs={tabs} tab={tab} setTab={setTab}/>} notice={notice}>
     {tab === 'scan' && <StaffScanner/>}
     {tab === 'history' && <CheckInLog/>}
     {tab === 'queue' && <PaymentReview onAuthError={onAuthError} readOnly/>}
-  </>;
+  </Console>;
 }
 
-function Admin({ onAuthError, signedInAs, onSignedOut }) {
+function Admin({ onAuthError, signedInAs, onSignedOut, notice }) {
   const pilot = usePilot();
   const [tab, setTab] = useState('members');
   // The slip queue is replaced by the list of OTP codes, because in pilot mode
   // reading a code out is the job that actually happens at the counter.
-  const tabs = [['members', 'สมาชิก'], ['users', 'ผู้ใช้และสิทธิ์'],
-    ...(pilot ? [['codes', 'รหัส OTP']] : [['review', 'ตรวจสลิป']]),
-    ['scan', 'สแกนเช็คอิน'], ['checkin', 'เช็คอิน'], ['packages', 'แพ็กเกจ'], ['gym', 'ข้อมูลยิม']];
-  return <>
-    <nav className="tabs" aria-label="เมนูผู้ดูแลระบบ">{tabs.map(([key, label]) =>
-      <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>{label}</button>)}</nav>
+  const tabs = [['members', 'สมาชิก', 'users'], ['users', 'ผู้ใช้และสิทธิ์', 'shield'],
+    ...(pilot ? [['codes', 'รหัส OTP', 'key']] : [['review', 'ตรวจสลิป', 'slip']]),
+    ['scan', 'สแกนเช็คอิน', 'scan'], ['checkin', 'เช็คอิน', 'clock'],
+    ['packages', 'แพ็กเกจ', 'box'], ['gym', 'ข้อมูลยิม', 'gear']];
+  return <Console nav={<SideNav label="เมนูผู้ดูแลระบบ" tabs={tabs} tab={tab} setTab={setTab}/>} notice={notice}>
     {tab === 'members' && <MemberAdmin onAuthError={onAuthError}/>}
     {tab === 'users' && <UserAdmin onAuthError={onAuthError} signedInAs={signedInAs} onSignedOut={onSignedOut}/>}
     {/* The same counter screen staff get: on a small gym the owner is often the
@@ -667,7 +734,7 @@ function Admin({ onAuthError, signedInAs, onSignedOut }) {
       <section className="card"><h2>สรุปรายวัน</h2><CheckInSummary/></section></>}
     {tab === 'packages' && <PackageAdmin onAuthError={onAuthError}/>}
     {tab === 'gym' && <GymSettings onAuthError={onAuthError}/>}
-  </>;
+  </Console>;
 }
 
 /** Always on screen while piloting, so nobody mistakes this for the real thing. */
@@ -689,28 +756,55 @@ function App() {
   // changes, and it is the first thing a member sees.
   useEffect(() => { api('/public/config').then(config => setPilot(!!config.pilot_mode)).catch(() => setPilot(false)); }, []);
   // Gym facts are shown on several member screens; load them once per session.
-  useEffect(() => { if (user) api('/gym').then(setGym).catch(() => setGym(null)); else setGym(null); }, [user]);
+  // The public name comes from the open endpoint, so the header carries the
+  // gym's own name before anybody has signed in rather than a placeholder.
+  useEffect(() => { if (user) api('/gym').then(setGym).catch(() => setGym(null)); }, [user]);
+  useEffect(() => { api('/public/gym').then(setGym).catch(() => setGym(null)); }, []);
   const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); setUser(null); } catch(e) { setError(e); onAuthError(e); } };
   if (loading) return <main className="empty" role="status">กำลังเปิดยิมของเรา…</main>;
-  if (!user) {
-    return <PilotContext.Provider value={pilot}>
-      {farewell && <div className="notice" role="status">{farewell}</div>}
-      <Notice error={error}/><Login onLogin={u => { setError(null); setFarewell(''); setUser(u); }}/>
-    </PilotContext.Provider>;
-  }
   const brand = gym?.profile?.brand_name_th || gym?.profile?.name || 'ยิมของเรา';
-  return <PilotContext.Provider value={pilot}>
-    <header><div className="brand"><span className="brand-symbol" aria-hidden="true">G</span><strong>{brand}</strong>
-    <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'staff' ? 'พนักงาน' : 'สมาชิก'}</span></div>
-    <button onClick={logout}>ออกจากระบบ</button></header>
-    <main>{pilot && user.role !== 'member' && <PilotBanner/>}
-      <Notice error={error}/>{user.role === 'admin'
-        ? <Admin onAuthError={onAuthError} signedInAs={user.email}
-            onSignedOut={message => { setFarewell(message); setError(null); setUser(null); }}/>
-      : user.role === 'staff' ? <Staff onAuthError={onAuthError}/>
-      : user.member ? <MemberApp member={user.member} gym={gym} onLogout={logout}
-          refresh={async () => { try { await refresh(); } catch(e) { onAuthError(e); throw e; } }}/>
-        : <Onboarding onSaved={refresh}/>}</main>
-    <footer>{brand} · ทุกวันเป็นวันเริ่มต้นที่ดี</footer></PilotContext.Provider>;
+  /** The same bar on every screen; what sits on the right of it changes. */
+  const appHeader = actions => <header className="app-header"><div className="container">
+    <span className="brand">
+      <span className="brand-symbol" aria-hidden="true">SF</span>
+      <span><span className="brand-name">{brand}</span>
+        {gym?.profile?.name && gym.profile.name !== brand && <span className="brand-sub">{gym.profile.name}</span>}</span>
+    </span>
+    {actions}
+  </div></header>;
+  const shell = (children, header = null) => <PilotContext.Provider value={pilot}>
+    <div className="app">{header}{children}
+      <footer className="app-footer"><div className="container">
+        <span>{brand} · ทุกวันเป็นวันเริ่มต้นที่ดี</span>
+        <span className="fine">ระบบจัดการสมาชิกและเช็คอิน</span>
+      </div></footer>
+    </div>
+  </PilotContext.Provider>;
+
+  if (!user) {
+    return shell(<>
+      {farewell && <main className="app-main"><div className="container">
+        <div className="notice" role="status">{farewell}</div>
+        <Notice error={error}/>
+      </div></main>}
+      <Login onLogin={u => { setError(null); setFarewell(''); setUser(u); }}/>
+    </>, appHeader(null));
+  }
+
+  const notice = <Notice error={error}/>;
+  // One header on every screen: who the gym is, who you are signed in as, and
+  // the way out. The old build had none of it on the member side at all.
+  const header = appHeader(<span className="header-actions">
+    <span className="role-label">{user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'staff' ? 'พนักงาน' : 'สมาชิก'}</span>
+    <button className="sm" onClick={logout}><Icon name="out"/>ออกจากระบบ</button>
+  </span>);
+
+  return shell(user.role === 'admin'
+    ? <Admin onAuthError={onAuthError} signedInAs={user.email} notice={notice}
+        onSignedOut={message => { setFarewell(message); setError(null); setUser(null); }}/>
+    : user.role === 'staff' ? <Staff onAuthError={onAuthError} notice={notice}/>
+    : user.member ? <MemberApp member={user.member} gym={gym} onLogout={logout} notice={notice}
+        refresh={async () => { try { await refresh(); } catch(e) { onAuthError(e); throw e; } }}/>
+      : <Onboarding onSaved={refresh} notice={notice}/>, header);
 }
 createRoot(document.getElementById('root')).render(<App/>);
