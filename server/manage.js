@@ -1,3 +1,4 @@
+import './load-env.js';
 import { randomUUID } from 'node:crypto';
 import { openDatabase, migrate, rollback, transaction, createMember, audit } from './db.js';
 import { email, parse } from './validation.js';

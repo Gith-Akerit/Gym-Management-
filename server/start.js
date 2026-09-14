@@ -1,3 +1,4 @@
+import './load-env.js';
 import express from 'express';
 import { resolve } from 'node:path';
 import { openDatabase, migrate } from './db.js';

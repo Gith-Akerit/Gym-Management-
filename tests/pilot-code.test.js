@@ -35,7 +35,7 @@ function fixture(t) {
       APP_ORIGIN: 'https://gym.example.test', ...extra };
     for (const [key, value] of Object.entries(extra)) if (value === undefined) delete env[key];
     try {
-      return { code: 0, stdout: execFileSync(process.execPath, [CLI, ...args], { env, encoding: 'utf8' }) };
+      return { code: 0, stdout: execFileSync(process.execPath, [CLI, ...args], { cwd: dir, env, encoding: 'utf8' }) };
     } catch (error) {
       return { code: error.status, stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
     }
@@ -85,6 +85,26 @@ test('an admin gets a code that actually signs them in', async t => {
   // Closed here rather than in a hook: the fixture removes the directory the
   // file lives in, and Windows will not delete a file somebody still has open.
   app.locals.stopSweeper?.(); live.close();
+});
+
+test('the first thing on the screen is the code, not a note about a missing file', async t => {
+  // In a container there is no .env: compose passes the values straight in.
+  // node --env-file-if-exists announced that absence on every run, and the
+  // owner reading "「.env not found」" while hunting for six digits has no way
+  // to know it is harmless.
+  const { user, run } = fixture(t);
+  user('owner@example.test', 'admin');
+
+  const result = run(['owner@example.test']);
+  assert.equal(result.code, 0, result.stderr);
+  const noise = `${result.stdout}${result.stderr ?? ''}`;
+  assert.ok(!/not found|Continuing without it/i.test(noise), `still announcing the missing file:\n${noise}`);
+
+  const [first] = result.stdout.split('\n').filter(line => line.trim());
+  assert.match(first, /^รหัสเข้าใช้งานของ owner@example\.test$/, `first line was: ${first}`);
+  // And the configuration still arrived -- from the environment, which is the
+  // only place it exists here.
+  assert.match(digitsIn(result.stdout) ?? '', /^\d{6}$/);
 });
 
 test('a second code retires the first, so only the newest opens the door', async t => {

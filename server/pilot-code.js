@@ -2,7 +2,7 @@
 /**
  * Issue the first sign-in code for an administrator, in pilot mode.
  *
- *   npm run pilot:code -- owner@example.com
+ *   npm --silent run pilot:code -- owner@example.com
  *
  * Pilot mode shows codes in the admin console instead of emailing them, which
  * leaves the very first administrator with nowhere to read their own: the
@@ -15,6 +15,7 @@
  * recover: the database holds an HMAC, and guessing digits against it until one
  * matches is not a tool anybody should be handed.
  */
+import './load-env.js';
 import { randomInt, randomUUID } from 'node:crypto';
 import { audit, openDatabase, transaction } from './db.js';
 import { otpCodeHash } from './otp.js';
@@ -37,38 +38,57 @@ if (process.env.PILOT_MODE !== '1') {
 const secret = process.env.OTP_SECRET ?? '';
 if (secret.length < 32) fail('OTP_SECRET ยังไม่ได้ตั้งหรือสั้นเกินไป');
 
-const db = openDatabase(process.env.DATABASE_PATH || './data/gym.sqlite');
+const dbPath = process.env.DATABASE_PATH || './data/gym.sqlite';
 const now = Date.now();
 
-const user = db.prepare('SELECT * FROM users WHERE email=?').get(email);
-if (!user) fail(`ไม่พบบัญชี ${email} ในระบบ`);
+/**
+ * Everything that touches the database, with one readable sentence instead of
+ * a stack trace if it goes wrong. The person running this is the gym owner in
+ * a hosting panel, looking for six digits.
+ */
+function issueCode() {
+  const db = openDatabase(dbPath);
+  const user = db.prepare('SELECT * FROM users WHERE email=?').get(email);
+  if (!user) fail(`ไม่พบบัญชี ${email} ในระบบ`);
 // Narrow on purpose. A member's code is readable from the admin console by the
 // people who are supposed to read it; this path exists only for the account
 // that cannot reach that console yet.
-if (user.role !== 'admin') {
-  fail(`บัญชี ${email} ไม่ใช่ผู้ดูแลระบบ คำสั่งนี้ออกรหัสให้เฉพาะผู้ดูแลระบบ\n`
-    + 'รหัสของสมาชิกและพนักงานดูได้จากแท็บ "รหัส OTP" ในหน้าผู้ดูแลระบบ');
+  if (user.role !== 'admin') {
+    fail(`บัญชี ${email} ไม่ใช่ผู้ดูแลระบบ คำสั่งนี้ออกรหัสให้เฉพาะผู้ดูแลระบบ\n`
+      + 'รหัสของสมาชิกและพนักงานดูได้จากแท็บ "รหัส OTP" ในหน้าผู้ดูแลระบบ');
+  }
+
+  const id = randomUUID();
+  const code = String(randomInt(0, 1000000)).padStart(6, '0');
+  transaction(db, () => {
+    // Same rule as the login screen: asking for a code retires the one before
+    // it, so only the newest set of digits ever opens the door.
+    db.prepare('UPDATE otp_challenges SET consumed_at=? WHERE email=? AND consumed_at IS NULL').run(now, email);
+    db.prepare('INSERT INTO otp_challenges(id,email,code_hash,created_at,expires_at) VALUES(?,?,?,?,?)')
+      .run(id, email, otpCodeHash(secret, id, code), now, now + CODE_LIFETIME_MS);
+    // The code is never written anywhere, including here. What is recorded is
+    // that somebody with root on this machine issued one, and for whom.
+    audit(db, user.id, 'auth.pilot_code_cli', user.id, null, null, now, 'user');
+  });
+  db.close();
+  return { id, code };
 }
 
-const id = randomUUID();
-const code = String(randomInt(0, 1000000)).padStart(6, '0');
-transaction(db, () => {
-  // Same rule as the login screen: asking for a code retires the one before it,
-  // so only the newest set of digits ever opens the door.
-  db.prepare('UPDATE otp_challenges SET consumed_at=? WHERE email=? AND consumed_at IS NULL').run(now, email);
-  db.prepare('INSERT INTO otp_challenges(id,email,code_hash,created_at,expires_at) VALUES(?,?,?,?,?)')
-    .run(id, email, otpCodeHash(secret, id, code), now, now + CODE_LIFETIME_MS);
-  // The code is never written anywhere, including here. What is recorded is
-  // that somebody with root on this machine issued one, and for whom.
-  audit(db, user.id, 'auth.pilot_code_cli', user.id, null, null, now, 'user');
-});
-db.close();
+let issued;
+try { issued = issueCode(); }
+catch (error) {
+  if (error?.code === 'ERR_INVALID_ARG_VALUE' || !(error instanceof Error)) throw error;
+  fail(`อ่านฐานข้อมูลที่ ${dbPath} ไม่สำเร็จ\n`
+    + 'ตรวจว่ารันคำสั่งนี้ในคอนเทนเนอร์ของแอป และ DATABASE_PATH ถูกต้อง\n'
+    + `รายละเอียด: ${error.message}`);
+}
+const { id, code } = issued;
 
 const origin = (process.env.APP_ORIGIN || '').replace(/\/$/, '');
 const until = new Intl.DateTimeFormat('th-TH', { timeStyle: 'short', timeZone: 'Asia/Bangkok' })
   .format(new Date(now + CODE_LIFETIME_MS));
 
-console.log(`\nรหัสเข้าใช้งานของ ${email}\n`);
+console.log(`รหัสเข้าใช้งานของ ${email}\n`);
 console.log(`    ${code}\n`);
 console.log(`ใช้ได้ครั้งเดียว ภายใน 5 นาที (ถึงเวลา ${until} น.)`);
 if (origin) {
