@@ -17,13 +17,21 @@ import {
 import { buildPromptPayPayload } from './promptpay.js';
 import { MAX_SLIP_BYTES, SlipError } from './slips.js';
 import {
-  approveMismatchSchema, approveSchema, bangkokLocalToEpoch, grantSchema, HttpError, orderSchema,
-  parse, rejectSchema, reverseSchema, slipSchema,
+  approveMismatchSchema, approveSchema, bangkokLocalToEpoch, grantSchema, HttpError, manualGrantSchema,
+  orderSchema, parse, rejectSchema, reverseSchema, slipSchema,
 } from './validation.js';
 
 const DAY_MS = 86400000;
 
-export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId }) {
+export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPayId, pilotMode = false }) {
+  /**
+   * Pilot mode has no PromptPay account and no mail, so there is nothing for a
+   * member to pay into. The buy, QR and slip routes say so in Thai instead of
+   * failing obscurely, and the admin hands packages over directly.
+   */
+  const notWhilePiloting = (req, res, next) => (pilotMode
+    ? next(new HttpError(403, 'ขณะนี้อยู่ในโหมดทดลอง ยังไม่เปิดการชำระเงิน กรุณาติดต่อเจ้าหน้าที่เพื่อรับแพ็กเกจ'))
+    : next());
   // Staff at the counter can see what is waiting, so they can tell a member
   // whether their slip has been looked at. Deciding it stays with an admin.
   const readQueue = (req, res, next) => (['staff', 'admin'].includes(req.user.role)
@@ -64,14 +72,14 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
       entitlement: publicEntitlement(entitlement),
       payment_sla_text: settings().payment_sla_text,
       free: order.price_satang_snapshot === 0,
-      promptpay_payload: includePayload && view.status === order.status && owesMoney(order)
+      promptpay_payload: promptPayId && includePayload && view.status === order.status && owesMoney(order)
         ? buildPromptPayPayload(promptPayId, order.price_satang_snapshot) : null,
     };
   }
 
   // ------------------------------------------------------------------ member
 
-  app.post('/api/orders', (req, res) => {
+  app.post('/api/orders', notWhilePiloting, (req, res) => {
     const member = requireMember(req);
     const input = parse(orderSchema, req.body);
     const result = transaction(db, () => {
@@ -124,7 +132,7 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
 
   app.get('/api/orders/:id', (req, res) => res.json(orderView(memberOrder(req).order)));
 
-  app.get('/api/orders/:id/qr.png', async (req, res) => {
+  app.get('/api/orders/:id/qr.png', notWhilePiloting, async (req, res) => {
     const { order } = memberOrder(req);
     if (order.price_satang_snapshot === 0) throw new HttpError(409, 'แพ็กเกจนี้ไม่มีค่าใช้จ่าย ไม่ต้องโอนเงิน');
     if (!owesMoney(order) || order.expires_at <= now()) {
@@ -148,7 +156,7 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
     res.json(orderView(getOrder(db, order.id)));
   });
 
-  app.post('/api/orders/:id/slip', upload.single('slip'), (req, res) => {
+  app.post('/api/orders/:id/slip', notWhilePiloting, upload.single('slip'), (req, res) => {
     const { order } = memberOrder(req);
     if (!['pending_payment', 'awaiting_review', 'rejected'].includes(order.status)) {
       throw new HttpError(409, 'คำสั่งซื้อนี้ส่งสลิปเพิ่มไม่ได้แล้ว');
@@ -269,6 +277,66 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
   });
 
   /**
+   * The membership itself, from an order that has just become paid.
+   *
+   * order_id is UNIQUE, which is what stops a double-click minting a second
+   * membership. After a reversal the revoked row is still there, so this
+   * inserts and reinstates in one statement rather than colliding with it
+   * (P2-BUG-02).
+   */
+  function grantEntitlement(order) {
+    const limited = order.package_type_snapshot === 'limited_sessions';
+    db.prepare(`INSERT INTO entitlements(id,order_id,member_id,package_id,starts_at,expires_at,
+      sessions_total,sessions_remaining,created_at) VALUES(?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(order_id) DO UPDATE SET
+        member_id=excluded.member_id, package_id=excluded.package_id,
+        starts_at=excluded.starts_at, expires_at=excluded.expires_at,
+        sessions_total=excluded.sessions_total, sessions_remaining=excluded.sessions_remaining,
+        status='active', revoked_at=NULL, revoked_reason=NULL, created_at=excluded.created_at`)
+      .run(randomUUID(), order.id, order.member_id, order.package_id, now(),
+        now() + order.duration_days_snapshot * DAY_MS,
+        limited ? order.session_limit_snapshot : null,
+        limited ? order.session_limit_snapshot : null, now());
+  }
+
+  /**
+   * The admin hands a member a package directly: no order to pay, no slip, no
+   * QR. In pilot mode this is the only way in; outside it, it is how a gym
+   * comps a membership or fixes a payment that arrived by some other route.
+   *
+   * The order it writes is a real one and looks like any other everywhere the
+   * member can see, but it is flagged manual_grant so the daily sales total --
+   * the number reconciled against the bank statement -- leaves it out.
+   */
+  app.post('/api/members/:id/grant', admin, (req, res) => {
+    const input = parse(manualGrantSchema, req.body);
+    const result = transaction(db, () => {
+      const member = db.prepare('SELECT * FROM members WHERE id=?').get(req.params.id);
+      if (!member) throw new HttpError(404, 'ไม่พบสมาชิก');
+      if (member.status !== 'active') throw new HttpError(409, 'สมาชิกรายนี้ถูกระงับ กรุณาแก้สถานะสมาชิกก่อนมอบแพ็กเกจ');
+      const pkg = getPackage(db, input.package_id);
+      if (!pkg) throw new HttpError(404, 'ไม่พบแพ็กเกจนี้');
+      // The price is recorded even though nobody paid it: it is what the
+      // membership would have cost, and the report needs it to say what was
+      // given away. A package with no price yet has no such number.
+      if (pkg.price_satang === null) throw new HttpError(409, 'แพ็กเกจนี้ยังไม่ได้กำหนดราคา กรุณากรอกราคาก่อน');
+
+      const id = randomUUID();
+      db.prepare(`INSERT INTO orders(id,member_id,package_id,package_code_snapshot,package_name_snapshot,
+        package_type_snapshot,duration_days_snapshot,session_limit_snapshot,price_satang_snapshot,
+        status,manual_grant,reviewed_by,reviewed_at,review_note,created_at,expires_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,'paid',1,?,?,?,?,?,?)`)
+        .run(id, member.id, pkg.id, pkg.code, pkg.name_th, pkg.type, pkg.duration_days,
+          pkg.session_limit, pkg.price_satang, req.user.id, now(), input.note, now(), now(), now());
+      const order = getOrder(db, id);
+      grantEntitlement(order);
+      audit(db, req.user.id, 'order.grant_manual', id, null, order, now(), 'order');
+      return order;
+    });
+    res.status(201).json(orderView(result, { includePayload: false }));
+  });
+
+  /**
    * Turns a confirmed transfer into membership. The UPDATE is conditional on the
    * order still being under review, so a second click changes zero rows and is
    * rejected rather than granting a second entitlement.
@@ -295,21 +363,7 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
         .run(req.user.id, now(), input.note, now(), before.id);
       if (claimed.changes !== 1) throw new HttpError(409, 'คำสั่งซื้อนี้ถูกดำเนินการไปแล้ว');
 
-      const limited = before.package_type_snapshot === 'limited_sessions';
-      // order_id is UNIQUE, which is what stops a double-click minting a second
-      // membership. After a reversal the revoked row is still there, so insert
-      // and reinstate in one statement rather than colliding with it (P2-BUG-02).
-      db.prepare(`INSERT INTO entitlements(id,order_id,member_id,package_id,starts_at,expires_at,
-        sessions_total,sessions_remaining,created_at) VALUES(?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(order_id) DO UPDATE SET
-          member_id=excluded.member_id, package_id=excluded.package_id,
-          starts_at=excluded.starts_at, expires_at=excluded.expires_at,
-          sessions_total=excluded.sessions_total, sessions_remaining=excluded.sessions_remaining,
-          status='active', revoked_at=NULL, revoked_reason=NULL, created_at=excluded.created_at`)
-        .run(randomUUID(), before.id, before.member_id, before.package_id, now(),
-          now() + before.duration_days_snapshot * DAY_MS,
-          limited ? before.session_limit_snapshot : null,
-          limited ? before.session_limit_snapshot : null, now());
+      grantEntitlement(before);
 
       const after = getOrder(db, before.id);
       audit(db, req.user.id, 'order.approve', before.id, before, after, now(), 'order');
@@ -393,7 +447,9 @@ export function registerPaymentRoutes({ app, db, now, admin, slipStore, promptPa
   /** Daily totals of approved orders, for reconciling against the bank statement. */
   app.get('/api/admin/sales', admin, (req, res) => {
     const rows = db.prepare(`SELECT date(reviewed_at/1000,'unixepoch','+7 hours') AS day,
-      count(*) AS orders, sum(price_satang_snapshot) AS total_satang
+      count(*) AS orders,
+      sum(CASE WHEN manual_grant=0 THEN price_satang_snapshot ELSE 0 END) AS total_satang,
+      sum(manual_grant) AS manual_grants
       FROM orders WHERE status='paid' GROUP BY day ORDER BY day DESC LIMIT 90`).all();
     res.json({ items: rows.map(row => ({ ...row, total_thb: row.total_satang / 100 })) });
   });

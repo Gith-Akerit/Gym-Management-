@@ -215,6 +215,17 @@ export const grantSchema = z.object({
   note: z.string().trim().max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร').default(''),
 }).strict();
 
+/**
+ * Handing a member a package with no money involved. The note is required
+ * rather than optional: a membership nobody paid for is exactly the entry
+ * somebody will ask about in six months, and "because the owner said so" is
+ * only useful if it is written down at the time.
+ */
+export const manualGrantSchema = z.object({
+  package_id: z.uuid('กรุณาเลือกแพ็กเกจ'),
+  note: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่มอบแพ็กเกจนี้').max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร'),
+}).strict();
+
 export const rejectSchema = z.object({
   version: z.coerce.number().int().positive(),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ปฏิเสธ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
