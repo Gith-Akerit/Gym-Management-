@@ -125,6 +125,39 @@ test('actual SMTP adapter delivers to local test server without external email',
     assert.equal(received[0].to, 'recipient@example.test'); assert.match(received[0].body, /Subject:/);
   } finally { await new Promise(resolve => smtp.close(resolve)); }
 });
+test('a provider that demands a username and password is what production gets', async () => {
+  // Every hosted mail service -- Brevo, SES, Mailgun, the SMTP that comes with
+  // the hosting -- takes a login and a key rather than an open relay. This is
+  // the shape docs/deploy.md tells the gym to fill in, so it is worth one test.
+  const seen = { auth: null, to: null };
+  const smtp = new SMTPServer({
+    disabledCommands: ['STARTTLS'], logger: false,
+    onAuth(auth, session, callback) {
+      seen.auth = { method: auth.method, user: auth.username };
+      if (auth.username === 'gym@example.test' && auth.password === 'an-smtp-key') return callback(null, { user: auth.username });
+      return callback(new Error('Invalid username or password'));
+    },
+    onData(stream, session, callback) { stream.resume(); stream.on('end', () => { seen.to = session.envelope.rcptTo[0].address; callback(); }); },
+  });
+  await new Promise(resolve => smtp.listen(0, '127.0.0.1', resolve));
+  const env = {
+    SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.server.address().port),
+    MAIL_FROM: 'noreply@example.test', SMTP_USER: 'gym@example.test', SMTP_PASSWORD: 'an-smtp-key',
+  };
+  try {
+    await createMailer(env)({ email: 'member@example.test', code: '246810' });
+    assert.equal(seen.to, 'member@example.test');
+    assert.equal(seen.auth.user, 'gym@example.test');
+
+    // A wrong key must fail loudly here rather than quietly dropping the code
+    // a member is waiting for.
+    await assert.rejects(createMailer({ ...env, SMTP_PASSWORD: 'stale-key' })({ email: 'member@example.test', code: '1' }));
+
+    // And production refuses to start on an unauthenticated relay at all.
+    assert.throws(() => createMailer({ ...env, NODE_ENV: 'production', SMTP_USER: '', SMTP_PASSWORD: '' }),
+      /authenticated SMTP/);
+  } finally { await new Promise(resolve => smtp.close(resolve)); }
+});
 test('self enrollment forces member role, unique profile and rejects extra role/status fields', async t => {
   const { login, call } = fixture(t); const token = await login('self@example.test');
   await call('put', '/me/profile', token, { name: 'ทดสอบ', phone: '0891111111', role: 'admin' }).expect(400);

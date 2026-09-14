@@ -244,7 +244,7 @@ API คืนทั้ง `price_satang` และ `price_thb` เพื่อ�
 
 ## การทดสอบ
 
-- `npm test` — 93 เคสระดับ API ครอบคลุม migration ขึ้น-ลง-ขึ้น, OTP และ lockout, สิทธิ์, IDOR, injection, การ seed,
+- `npm test` — 94 เคสระดับ API ครอบคลุม migration ขึ้น-ลง-ขึ้น, OTP และ lockout, สิทธิ์, IDOR, injection, การ seed,
   validation ของแพ็กเกจ, PromptPay payload/CRC, การอัปโหลดสลิปและการปลอมชนิดไฟล์, การอนุมัติซ้ำ และการเพิกถอนสิทธิ์
 - `npm run test:ui` — 14 เส้นทางผ่านเบราว์เซอร์จริง รวมหน้าจอ 320-390 px และตรวจว่าไม่มี JS error
 - ที่ยัง **ไม่ได้** ทดสอบ: การสแกน QR ด้วยแอปธนาคารจริง (จะเกิดการโอนเงินจริง),

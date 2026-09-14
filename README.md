@@ -41,7 +41,7 @@ npm run dev               # เว็บที่ http://localhost:5173 (proxy �
 | `npm start` | รัน API และเสิร์ฟไฟล์ที่ build แล้วจาก `dist/` |
 | `npm run dev` | เว็บโหมดพัฒนา |
 | `npm run build` | build เว็บลง `dist/` |
-| `npm test` | ทดสอบ API 93 เคส |
+| `npm test` | ทดสอบ API 94 เคส |
 | `npm run test:ui` | build แล้วทดสอบผ่านเบราว์เซอร์ 14 เส้นทาง (ต้องมี browser ของ Playwright หรือกำหนด `PLAYWRIGHT_CHANNEL=msedge`) |
 | `npm run db:migrate` | อัปเดตโครงสร้างฐานข้อมูล |
 | `npm run db:rollback` | ย้อน migration ล่าสุด ต้องตั้ง `ALLOW_DESTRUCTIVE_ROLLBACK=yes` |
