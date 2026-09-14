@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
         'With --pilot: skip the PromptPay question and set PILOT_MODE=1.' \
         'Rerunning the same command without --pilot asks for the missing PromptPay' \
         'value, then clears PILOT_MODE and restarts.' \
-        'Preserve existing OTP_SECRET, credentials and persistent volume on rerun.' \
+        'Preserve existing CARD_SIGNING_SECRET, credentials and volume on rerun.' \
         'Build app; allow only TCP 22/80/443 on a dedicated host; start Caddy/app.' \
         'Install daily consistent backup and monthly prune; check HTTPS health.'
       return 0 ;;

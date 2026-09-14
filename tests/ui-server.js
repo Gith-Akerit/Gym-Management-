@@ -8,10 +8,11 @@ import { seedConfiguration } from '../server/seed.js';
 import { SlipStore } from '../server/slips.js';
 import { MAX_PHOTO_BYTES } from '../server/cards-routes.js';
 import { hashPassword } from '../server/passwords.js';
+import { issueSetupToken } from '../server/password-setup.js';
 import { createApp } from '../server/app.js';
-// Two of these run side by side: the normal gym on 4310 and a pilot one on
-// 4311, because pilot mode changes what the counter is offered.
-const PORT = Number(process.env.UI_PORT || 4310);
+// Two of these run side by side, on whichever pair of ports this run owns.
+import { UI_PORT } from './ports.js';
+const PORT = Number(process.env.UI_PORT || UI_PORT);
 const PILOT = process.env.PILOT_MODE === '1';
 
 /** Every browser journey signs in with this. It exists only here. */
@@ -34,6 +35,10 @@ seedUsers('admin', ['layout-admin@example.test', 'admin@example.test',
 // when they add them before their first shift.
 db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'staff',?)")
   .run(randomUUID(), 'nopassword-ui@example.test', Date.now());
+// And an administrator in the same state: the machine that was installed
+// before passwords existed, which the set-password link is for.
+db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)")
+  .run(randomUUID(), 'relink-ui@example.test', Date.now());
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),
   photoStore: new SlipStore(resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos'),
@@ -44,6 +49,14 @@ const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `ht
 // The one thing a browser cannot find out for itself. Test-only: this route
 // does not exist in the real server.
 app.get('/__test/password', (req, res) => res.json({ password: UI_PASSWORD }));
+// Stands in for `npm run admin:set-password-link`, which a browser has no way
+// to run. The command itself is covered in tests/set-password-link.test.js;
+// what the browser suite checks is the screen the link opens.
+app.post('/__test/setup-link', express.json(), (req, res) => {
+  const user = db.prepare('SELECT id FROM users WHERE email=?').get(req.body?.email);
+  if (!user) return res.status(404).json({ error: 'no such account' });
+  res.json(issueSetupToken(db, { userId: user.id, now: Date.now() }));
+});
 app.use(express.static(resolve('dist')));
 const server = app.listen(PORT, '127.0.0.1');
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { db.close(); process.exit(0); }));

@@ -18,9 +18,11 @@
     "db:admin": "node server/manage.js admin",
     "db:seed:demo": "node server/manage.js seed:demo",
     "slips:prune": "node server/prune-slips.js",
-    "env:set": "node server/env-set.js"
+    "env:set": "node server/env-set.js",
+    "admin:set-password-link": "node server/admin-link.js"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "@fontsource/noto-sans-thai": "^5.3.0",
     "@napi-rs/canvas": "^1.0.9",
     "bcryptjs": "^3.0.3",

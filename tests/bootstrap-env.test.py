@@ -30,7 +30,7 @@ class BootstrapEnvironmentTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        (self.root / '.env.example').write_text('OTP_SECRET=\nADMIN_PASSWORD=\n# template comment\n', encoding='utf-8')
+        (self.root / '.env.example').write_text('CARD_SIGNING_SECRET=\nADMIN_PASSWORD=\n# template comment\n', encoding='utf-8')
         self.path = self.root / '.env'
 
     def create(self):
@@ -48,7 +48,7 @@ class BootstrapEnvironmentTests(unittest.TestCase):
         self.assertEqual(values['ADMIN_EMAIL'], 'owner@example.test')
         self.assertEqual(values['PROMPTPAY_ID'], '0812345678')
         self.assertNotIn(ADMIN_PASSWORD, out.getvalue())
-        self.assertEqual(len(values['OTP_SECRET']), 64)
+        self.assertEqual(len(values['CARD_SIGNING_SECRET']), 64)
         self.assertEqual(values['PHOTO_STORAGE_PATH'], '/data/photos')
         self.assertIn('# template comment', self.path.read_text())
 
@@ -73,7 +73,7 @@ class BootstrapEnvironmentTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 module.configure(self.root)
         self.assertEqual(self.path.read_bytes(), before)
-        secret = module.read_env(self.path)['OTP_SECRET']
+        secret = module.read_env(self.path)['CARD_SIGNING_SECRET']
 
         with contextlib.redirect_stdout(io.StringIO()):
             module.configure(self.root, clear_admin=True)
@@ -82,7 +82,7 @@ class BootstrapEnvironmentTests(unittest.TestCase):
         # server is a password somebody finds in a backup two years later.
         self.assertEqual(values['ADMIN_EMAIL'], '')
         self.assertEqual(values['ADMIN_PASSWORD'], '')
-        self.assertEqual(values['OTP_SECRET'], secret)
+        self.assertEqual(values['CARD_SIGNING_SECRET'], secret)
 
     def test_unsafe_serialization_and_unowned_env_are_not_overwritten(self):
         self.path.write_text('EXISTING=keep\n')
@@ -103,7 +103,7 @@ class PilotModeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / '.env.example').write_text(
-            'NODE_ENV=development\nPILOT_MODE=\nPROMPTPAY_ID=\nOTP_SECRET=\n', encoding='utf-8')
+            'NODE_ENV=development\nPILOT_MODE=\nPROMPTPAY_ID=\nCARD_SIGNING_SECRET=\n', encoding='utf-8')
         self.path = self.root / '.env'
 
     def install_pilot(self):
@@ -118,7 +118,7 @@ class PilotModeTests(unittest.TestCase):
         self.assertEqual(values['PILOT_MODE'], '1')
         self.assertEqual(values['ADMIN_EMAIL'], 'owner@example.test')
         self.assertEqual(values['ADMIN_PASSWORD'], ADMIN_PASSWORD)
-        self.assertEqual(len(values['OTP_SECRET']), 64)
+        self.assertEqual(len(values['CARD_SIGNING_SECRET']), 64)
         self.assertEqual(values['APP_ORIGIN'], 'https://srv1979069.hstgr.cloud')
         self.assertEqual(values['NODE_ENV'], 'production')
         # The template's development default must not survive as something that
@@ -137,7 +137,7 @@ class PilotModeTests(unittest.TestCase):
         self.assertEqual(values['ADMIN_PASSWORD'], '')
 
     def test_rerunning_without_pilot_collects_promptpay_and_goes_live(self):
-        secret = self.install_pilot()['OTP_SECRET']
+        secret = self.install_pilot()['CARD_SIGNING_SECRET']
         with patch.object(module, 'ask', side_effect=['0812345678']), \
                 patch('builtins.open', return_value=MagicMock()):
             with contextlib.redirect_stdout(io.StringIO()):
@@ -146,7 +146,7 @@ class PilotModeTests(unittest.TestCase):
         self.assertEqual(values['PILOT_MODE'], '')
         self.assertEqual(values['PROMPTPAY_ID'], '0812345678')
         # Changing this would invalidate every membership card already sent out.
-        self.assertEqual(values['OTP_SECRET'], secret)
+        self.assertEqual(values['CARD_SIGNING_SECRET'], secret)
 
     def test_a_bad_promptpay_id_leaves_the_gym_in_pilot_mode(self):
         self.install_pilot()
@@ -208,7 +208,7 @@ class TerminalGuardTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
-        (root / '.env.example').write_text('OTP_SECRET=\n', encoding='utf-8')
+        (root / '.env.example').write_text('CARD_SIGNING_SECRET=\n', encoding='utf-8')
         with patch('builtins.open', side_effect=self.tty_open(secondary)), \
                 patch.object(module, 'ask', side_effect=['owner@example.test', ADMIN_PASSWORD, ADMIN_PASSWORD]):
             with contextlib.redirect_stdout(io.StringIO()):

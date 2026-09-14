@@ -68,7 +68,7 @@ test('cash across the counter is recorded as revenue and grants the package', as
   const card = await call('get', `/members/${member.id}/card`, owner).expect(200);
   const scan = await call('post', '/check-ins/verify', owner, { qr: card.body.qr }).expect(200);
   assert.equal(scan.body.result, 'allowed');
-  assert.match(card.body.subtitle, /รายเดือน/);
+  assert.match(card.body.membership.package, /รายเดือน/);
 });
 
 test('a transfer can carry the slip the member just showed', async t => {

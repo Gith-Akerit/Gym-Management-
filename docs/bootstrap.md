@@ -6,7 +6,7 @@ Use the full commit SHA from the delivery comment in both places.
 
 **Pilot: nothing to prepare but an email address and a password.** `--pilot` sets
 `PILOT_MODE=1`, asks only for the administrator email and the password they will
-sign in with, generates `OTP_SECRET` itself, and skips PromptPay entirely.
+sign in with, generates `CARD_SIGNING_SECRET` itself, and skips PromptPay entirely.
 Members never sign in: what they hold is a picture of a card, and packages are
 sold across the counter.
 

@@ -88,7 +88,8 @@ test('the card is a PNG with the member on it, and it scans', async t => {
   const card = await call('get', `/members/${member.id}/card`, owner).expect(200);
   assert.equal(card.body.card_version, 1);
   assert.match(card.body.qr, /^GYMCARD1\./);
-  assert.match(card.body.subtitle, /ยังไม่มีแพ็กเกจ/);
+  assert.equal(card.body.membership.package, null);
+  assert.equal(card.body.membership.expires_at, null);
 
   const png = await call('get', `/members/${member.id}/card.png`, owner)
     .buffer(true).parse((res, cb) => {

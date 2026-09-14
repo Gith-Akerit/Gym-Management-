@@ -5,16 +5,17 @@ import { z } from 'zod';
 import { registerCardRoutes } from './cards-routes.js';
 import { registerCheckInRoutes } from './checkin.js';
 import { hashPassword, verifyPassword } from './passwords.js';
+import { readSetupToken, setupTokenHash } from './password-setup.js';
 import { registerPaymentRoutes } from './payments.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
-import { gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, roleSchema, updateSchema, userSchema } from './validation.js';
+import { gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, roleSchema, setPasswordSchema, updateSchema, userSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
 export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, secret, origin = 'http://localhost:5173', production = false,
   now = Date.now, trustProxy = 1, slipStore, photoStore, promptPayId, pilotMode = false }) {
-  if (!secret || secret.length < 32) throw new Error('OTP_SECRET must have at least 32 characters');
+  if (!secret || secret.length < 32) throw new Error('CARD_SIGNING_SECRET must have at least 32 characters');
   if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
   const app = express();
   app.disable('x-powered-by');
@@ -69,6 +70,10 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
         updated_at=?`).run(address, now(), now(), now(), now());
     db.prepare('UPDATE otp_lockouts SET locked_until=? WHERE email=? AND failures>=? AND locked_until IS NULL')
       .run(now() + SIGN_IN_LOCK_MS, address, SIGN_IN_MAX_FAILURES);
+    // How many tries are left, so somebody mistyping their own password is
+    // warned before the door shuts rather than after (Designer).
+    const row = db.prepare('SELECT failures FROM otp_lockouts WHERE email=?').get(address);
+    return Math.max(0, SIGN_IN_MAX_FAILURES - (row?.failures ?? 0));
   }
   const clearSignInFailures = address => db.prepare('DELETE FROM otp_lockouts WHERE email=?').run(address);
 
@@ -79,6 +84,9 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     db.prepare('DELETE FROM sessions WHERE expires_at<?').run(now());
     db.prepare('DELETE FROM rate_limits WHERE expires_at<?').run(now());
     db.prepare('DELETE FROM otp_lockouts WHERE locked_until IS NOT NULL AND locked_until<?').run(now() - 900000);
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='password_setup_tokens'").get()) {
+      db.prepare('DELETE FROM password_setup_tokens WHERE expires_at<?').run(now() - 86400000);
+    }
     // Reading an order used to perform this UPDATE on every GET. Reads now
     // project the expired state instead, and the durable change happens here.
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='orders'").get()) {
@@ -132,7 +140,6 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   app.post('/api/auth/login', (req, res) => {
     limit(`login-ip:${req.ip}`, 60, 900000);
     const input = parse(loginSchema, req.body);
-    const wrong = () => new HttpError(401, 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
     assertNotLockedOut(input.email);
 
     const user = db.prepare('SELECT * FROM users WHERE email=?').get(input.email);
@@ -140,8 +147,12 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     // the reply for an unknown address takes as long as one for a real account.
     const correct = verifyPassword(input.password, user?.password_hash);
     if (!correct || !['admin', 'staff'].includes(user.role)) {
-      recordSignInFailure(input.email);
-      throw wrong();
+      // The count is the same for an address with no account, so the warning
+      // says nothing about whether this one exists.
+      const left = recordSignInFailure(input.email);
+      throw new HttpError(401, left > 0
+        ? `อีเมลหรือรหัสผ่านไม่ถูกต้อง เหลืออีก ${left} ครั้งก่อนถูกล็อก 15 นาที`
+        : 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
     }
     // Only now, with the right password in hand, does the real reason come out.
     if (user.status === 'suspended') throw new HttpError(403, 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ');
@@ -154,6 +165,46 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     });
     if (req.get('X-Gym-Client') === 'mobile') return res.json({ ...result, token, expires_in: 43200 });
     res.cookie('gym_session', token, { httpOnly: true, secure: production, sameSite: 'strict', maxAge: 43200000, path: '/api' });
+    res.json(result);
+  });
+
+  /**
+   * The set-password link, issued at the terminal by `npm run
+   * admin:set-password-link`. Both halves sit above the session check because
+   * the whole point is that the person opening them cannot sign in yet.
+   *
+   * The reply says only whether the link still works and whose it is. A caller
+   * guessing tokens learns nothing from a live one that they did not already
+   * need the token to learn.
+   */
+  app.get('/api/auth/set-password/:token', (req, res) => {
+    limit(`setpw-ip:${req.ip}`, 60, 900000);
+    const row = readSetupToken(db, req.params.token, now());
+    if (!row) throw new HttpError(404, 'ลิงก์นี้หมดอายุหรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่');
+    res.json({ email: row.email, expires_at: row.expires_at });
+  });
+
+  app.post('/api/auth/set-password', (req, res) => {
+    limit(`setpw-ip:${req.ip}`, 60, 900000);
+    const input = parse(setPasswordSchema, req.body);
+    const result = transaction(db, () => {
+      const row = readSetupToken(db, input.token, now());
+      if (!row) throw new HttpError(404, 'ลิงก์นี้หมดอายุหรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่');
+      // Claim the token first: two submissions of the same form must not both
+      // count as the one use it is allowed.
+      const claimed = db.prepare('UPDATE password_setup_tokens SET used_at=? WHERE token_hash=? AND used_at IS NULL')
+        .run(now(), setupTokenHash(input.token));
+      if (claimed.changes !== 1) throw new HttpError(404, 'ลิงก์นี้หมดอายุหรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่');
+      db.prepare('UPDATE users SET password_hash=?,password_set_at=? WHERE id=?')
+        .run(hashPassword(input.password), now(), row.user_id);
+      // Anything that account had open elsewhere ends here, and the lockout
+      // from whoever was guessing at it is cleared.
+      db.prepare('DELETE FROM sessions WHERE user_id=?').run(row.user_id);
+      db.prepare('DELETE FROM otp_lockouts WHERE email=?').run(row.email);
+      audit(db, row.user_id, 'user.password_set_by_link', row.user_id, null,
+        { via: 'setup_link' }, now(), 'user');
+      return { email: row.email };
+    });
     res.json(result);
   });
 
@@ -194,6 +245,27 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
 
   // Check-in at the counter.
   registerCheckInRoutes({ app, db, now, admin, counter, secret, limit });
+  /**
+   * What a member's membership currently is, in the shape every screen needs:
+   * the list row, the summary panel before a sale, and the card footer all ask
+   * the same question, and they must not answer it three different ways.
+   */
+  const membershipDate = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' })
+    .format(new Date(value));
+  function withMembership(member) {
+    const entitlement = db.prepare(`SELECT e.*, p.name_th FROM entitlements e
+      JOIN packages p ON p.id=e.package_id
+      WHERE e.member_id=? AND e.status='active' AND e.expires_at>?
+      ORDER BY e.expires_at DESC LIMIT 1`).get(member.id, now());
+    return {
+      ...member,
+      membership: entitlement
+        ? { package: entitlement.name_th, expires_at: entitlement.expires_at,
+          expires: membershipDate(entitlement.expires_at), sessions_remaining: entitlement.sessions_remaining }
+        : { package: null, expires_at: null, expires: null, sessions_remaining: null },
+    };
+  }
+
   app.get('/api/members', counter, (req, res) => {
     const { q = '', page = 1, limit: size = 20 } = parse(z.object({
       q: z.string().max(120).optional(), page: z.coerce.number().int().min(1).max(100000).optional(),
@@ -206,7 +278,8 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
       OR m.member_code LIKE ? ESCAPE '\\' OR m.id=? OR m.phone=?)`;
     const params = [term, term, term, q, phoneTerm];
     const total = db.prepare(`SELECT count(*) AS total FROM members m LEFT JOIN users u ON u.id=m.user_id ${where}`).get(...params).total;
-    const items = db.prepare(`${memberSelect} ${where} ORDER BY m.joined_at DESC,m.id LIMIT ? OFFSET ?`).all(...params, size, (page - 1) * size).map(publicMember);
+    const items = db.prepare(`${memberSelect} ${where} ORDER BY m.joined_at DESC,m.id LIMIT ? OFFSET ?`)
+      .all(...params, size, (page - 1) * size).map(row => withMembership(publicMember(row)));
     res.json({ items, total, page, limit: size });
   });
 
@@ -232,12 +305,12 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
       }
       return createMember(db, userId, input, req.user.id, now());
     });
-    res.status(201).json(result);
+    res.status(201).json(withMembership(result));
   });
   app.get('/api/members/:id', counter, (req, res) => {
     const row = getMember(db, req.params.id);
     if (!row) throw new HttpError(404, 'ไม่พบสมาชิก');
-    res.json(publicMember(row));
+    res.json(withMembership(publicMember(row)));
   });
   function update(req, deactivate = false) {
     const input = deactivate ? parse(z.object({ version: z.number().int().positive() }).strict(), req.body) : parse(updateSchema, req.body);

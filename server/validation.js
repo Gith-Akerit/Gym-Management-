@@ -267,6 +267,12 @@ export const loginSchema = z.object({
 
 export const passwordSchema = z.object({ password }).strict();
 
+/** Setting a password from a one-time link, with nobody signed in. */
+export const setPasswordSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, "ลิงก์ไม่ถูกต้อง"),
+  password,
+}).strict();
+
 /**
  * A staff or admin account, created by an admin rather than by signing up.
  * The password is optional here so an owner can add the person now and hand

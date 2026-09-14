@@ -1,23 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
- * Reads a QR from the tablet's camera.
+ * Reads a QR from the counter's camera.
  *
- * The reporter asked for "staff or the tablet at the counter" to scan, so the
- * counter screen cannot assume a USB reader is plugged in. Where the browser
- * ships BarcodeDetector (Chrome and Edge on Android and desktop) that does the
- * work; everywhere else the frames go through jsQR, which is slower but needs
- * nothing installed.
+ * "Staff or the tablet at the counter" scan, so this cannot assume a USB reader
+ * is plugged in. Where the browser ships BarcodeDetector (Chrome and Edge on
+ * Android and desktop) that does the work; everywhere else the frames go
+ * through jsQR, which is slower but needs nothing installed.
+ *
+ * Refusing permission is reported upward rather than drawn here: the scan
+ * screen turns it into a way to carry on working, which is what somebody with
+ * a customer in front of them needs before they need a fix (Designer).
  *
  * @param {(text: string) => void} onScan called once per distinct code read
+ * @param {(error: Error) => void} onError camera unavailable or refused
  */
-export function CameraScanner({ onScan, active }) {
+export function CameraScanner({ onScan, active, onError }) {
   const video = useRef(null);
   const canvas = useRef(null);
   const stream = useRef(null);
   const lastCode = useRef({ text: '', at: 0 });
-  const [error, setError] = useState(null);
-  const [ready, setReady] = useState(false);
 
   /** The same code held in front of the lens must not fire over and over. */
   const emit = useCallback(text => {
@@ -36,7 +38,7 @@ export function CameraScanner({ onScan, active }) {
 
     async function start() {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError(new Error('เบราว์เซอร์นี้เปิดกล้องไม่ได้ กรุณาใช้เครื่องอ่าน QR หรือวางรหัสในช่องด้านล่าง'));
+        onError?.(new Error('เบราว์เซอร์นี้เปิดกล้องไม่ได้'));
         return;
       }
       try {
@@ -45,15 +47,13 @@ export function CameraScanner({ onScan, active }) {
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false,
         });
       } catch (cause) {
-        setError(new Error(cause?.name === 'NotAllowedError'
-          ? 'ยังไม่ได้อนุญาตให้ใช้กล้อง กรุณากดอนุญาตในเบราว์เซอร์ แล้วลองใหม่'
-          : 'เปิดกล้องไม่ได้ อาจมีแอปอื่นใช้อยู่ กรุณาใช้เครื่องอ่าน QR หรือวางรหัสในช่องด้านล่าง'));
+        onError?.(new Error(cause?.name === 'NotAllowedError'
+          ? 'ยังไม่ได้อนุญาตให้ใช้กล้อง' : 'เปิดกล้องไม่ได้ อาจมีแอปอื่นใช้อยู่'));
         return;
       }
       if (cancelled) { stream.current.getTracks().forEach(track => track.stop()); return; }
       video.current.srcObject = stream.current;
       await video.current.play().catch(() => {});
-      setReady(true);
 
       if ('BarcodeDetector' in window) {
         try { detector = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch { detector = null; }
@@ -98,18 +98,14 @@ export function CameraScanner({ onScan, active }) {
       cancelAnimationFrame(frame);
       stream.current?.getTracks().forEach(track => track.stop());
       stream.current = null;
-      setReady(false);
     };
-  }, [active, emit]);
+  }, [active, emit, onError]);
 
   if (!active) return null;
-  return <div className="camera">
-    {error
-      ? <div className="notice warn" role="alert">{error.message}</div>
-      : <p className="fine">{ready ? 'หันกล้องไปที่จอของสมาชิก ระบบจะอ่านเองเมื่อเห็น QR' : 'กำลังเปิดกล้อง…'}</p>}
-    <video ref={video} className="camera-view" muted playsInline aria-label="ภาพจากกล้องสำหรับสแกน QR"/>
+  return <>
+    <video ref={video} muted playsInline aria-label="ภาพจากกล้องสำหรับสแกน QR"/>
     <canvas ref={canvas} hidden/>
-  </div>;
+  </>;
 }
 
 /**
@@ -117,13 +113,13 @@ export function CameraScanner({ onScan, active }) {
  *
  * The same `getUserMedia` the scanner uses, pointed the other way: the front
  * camera, because the person holding the tablet is photographing somebody
- * standing opposite them and needs to see the frame. Choosing a file is offered
- * beside it and does the identical job -- a counter computer with no camera at
- * all is a real gym, and so is one where the member would rather send a photo.
+ * standing opposite them and needs to see the frame. The dashed circle is
+ * where the face has to end up -- the picture is cropped square from the
+ * middle, and the card and the scan screen both show it as a circle.
  *
  * @param {(file: File) => void} onCapture
  */
-export function PhotoCapture({ onCapture, busy }) {
+export function PhotoCapture({ onCapture, busy, preview }) {
   const video = useRef(null);
   const canvas = useRef(null);
   const stream = useRef(null);
@@ -164,14 +160,14 @@ export function PhotoCapture({ onCapture, busy }) {
   function take() {
     const source = video.current;
     if (!source?.videoWidth) return;
-    // Square, cropped from the middle of the frame: the card and the scan
-    // screen both show a circle, and a portrait squeezed into one is a face
-    // nobody can check against the person in front of them.
+    // Square, cropped from the middle of the frame, and no larger than the
+    // card needs: a 4000px phone photo makes a card too heavy to send.
     const side = Math.min(source.videoWidth, source.videoHeight);
-    canvas.current.width = side;
-    canvas.current.height = side;
+    const out = Math.min(side, 900);
+    canvas.current.width = out;
+    canvas.current.height = out;
     canvas.current.getContext('2d').drawImage(source,
-      (source.videoWidth - side) / 2, (source.videoHeight - side) / 2, side, side, 0, 0, side, side);
+      (source.videoWidth - side) / 2, (source.videoHeight - side) / 2, side, side, 0, 0, out, out);
     canvas.current.toBlob(blob => {
       if (blob) onCapture(new File([blob], 'member-photo.jpg', { type: 'image/jpeg' }));
       setOn(false);
@@ -179,15 +175,21 @@ export function PhotoCapture({ onCapture, busy }) {
   }
 
   return <div className="photo-capture">
-    {error && <div className="notice warn" role="alert">{error.message}</div>}
-    {on && <>
-      <video ref={video} className="camera-view" muted playsInline aria-label="ภาพจากกล้องสำหรับถ่ายรูปสมาชิก"/>
-      <canvas ref={canvas} hidden/>
-    </>}
-    <div className="actions">
-      <button type="button" disabled={busy} onClick={() => { setError(null); setOn(!on); }}>
-        {on ? 'ปิดกล้อง' : 'เปิดกล้องถ่ายรูป'}</button>
-      {on && <button type="button" className="primary" disabled={busy} onClick={take}>ถ่ายรูปนี้</button>}
+    {error && <div className="banner bad" role="alert"><div className="ic" aria-hidden="true">!</div>
+      <div><b>{error.message}</b></div></div>}
+    <div className="photoframe">
+      {on
+        ? <video ref={video} muted playsInline aria-label="ภาพจากกล้องสำหรับถ่ายรูปสมาชิก"/>
+        : preview && <img src={preview} alt="รูปที่เพิ่งถ่าย"/>}
+      <span className="ring" aria-hidden="true"/>
+      <span className="tip">ให้ใบหน้าอยู่ในวงกลม แสงส่องหน้า ไม่ย้อนแสง</span>
+    </div>
+    <canvas ref={canvas} hidden/>
+    <div className="btn-row" style={{ marginTop: 'var(--sp-4)' }}>
+      <button type="button" className="btn primary xl" disabled={busy}
+        onClick={() => { setError(null); if (on) take(); else setOn(true); }}>
+        {on ? 'ถ่ายรูปนี้' : preview ? 'ถ่ายรูปใหม่' : 'เปิดกล้องถ่ายรูป'}</button>
+      {on && <button type="button" className="btn ghost" disabled={busy} onClick={() => setOn(false)}>ปิดกล้อง</button>}
     </div>
   </div>;
 }

@@ -1,739 +1,463 @@
-/* ═══════════════════════════════════════════════════════════════════════
-   บล็อก 1/2 — DESIGN SYSTEM + APP SHELL
-   ทีมพัฒนายกทั้งบล็อกนี้ไปแทน index.css ได้เลย
-   ชื่อคลาสเดิมของระบบ (.card .field .badge .primary .muted .notice .eyebrow
-   .brand .brand-symbol .price .tag .empty .pagination .actions) ถูกคงไว้
-   ═══════════════════════════════════════════════════════════════════════ */
+/* ==========================================================================
+   สุขฤทัย ฟิตเนส — แอปพนักงาน/เจ้าของยิม
+   Design system "สแกนไว" · ยกไฟล์นี้ไปใช้แทน index.css ได้ทั้งก้อน
+   หลักการ: สแกน = มือถือ/แท็บเล็ตหน้าเคาน์เตอร์ · งานแอดมิน = คอม
+   ทุกคู่สีผ่าน WCAG 2.2 AA (ข้อความ >= 4.5:1, เส้นขอบ control >= 3:1)
+   ========================================================================== */
 
-/* ── 1.1 TOKENS ─────────────────────────────────────────────────────── */
+/* -------------------------------------------------- 1. Design tokens ----- */
 :root{
-  /* palette เดิม ไม่เปลี่ยนค่า */
-  --ink:#172B36;          /* ข้อความหลัก */
-  --muted:#52616B;        /* ข้อความรอง  — 4.9:1 บนพื้นขาว */
-  --line:#CCD5D8;         /* เส้นขอบ */
-  --line-soft:#E3E8E8;    /* เส้นคั่นในตาราง */
-  --primary:#175C50;      /* ปุ่มหลัก / สถานะใช้งานได้ */
-  --primary-dark:#0F4038; /* hover */
-  --tint:#E8F1EE;         /* พื้นอ่อนของ primary */
-  --accent:#975019;       /* รอดำเนินการ / เตือน */
-  --accent-tint:#FFF3E6;
-  --danger:#9B2C22;       /* ปฏิเสธ / เข้าไม่ได้ */
-  --danger-tint:#FBEDEB;
-  --paper:#F3F6F5;        /* พื้นหลังแอป */
-  --surface:#FFFFFF;      /* พื้นการ์ด */
+  /* พื้นผิว */
+  --canvas:#EFF2F4;      /* พื้นหลังหน้า */
+  --surface:#FFFFFF;     /* การ์ด/แผง */
+  --panel:#E4E9ED;       /* พื้นรอง เช่น skeleton, avatar */
+  --dark:#0D1512;        /* จอสแกน + หน้า login */
+  --dark-2:#16211C;      /* กรอบกล้องในจอมืด */
 
-  /* โครง */
-  --container:1100px;     /* ความกว้างสูงสุดของเนื้อหา */
-  --gutter:24px;
-  --sidebar:220px;
-  --radius:12px;
-  --radius-sm:8px;
-  --shadow:0 1px 2px rgba(23,43,54,.05),0 10px 28px rgba(23,43,54,.05);
+  /* เส้น */
+  --line:#C6CDD3;        /* เส้นตกแต่ง (ขอบการ์ด/ตาราง) ไม่ใช่ขอบ control */
+  --line-ctl:#878B8F;    /* ขอบของสิ่งที่กดได้ 3.05:1 บน canvas ตาม WCAG 1.4.11 */
+  --line-strong:#0E1418; /* เส้นหลัก/ขอบ control */
 
-  /* จังหวะระยะ 4 / 8 / 12 / 16 / 24 / 32 / 48 */
-  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
+  /* ตัวอักษร */
+  --ink:#0E1418;         /* 16.5:1 บน canvas */
+  --ink-2:#3D4852;       /* 8.3:1 บน canvas */
+  --on-dark:#FFFFFF;     /* 18.5:1 บน --dark */
+  --on-dark-2:#B8BFBB;   /* 9.9:1 บน --dark */
 
-  --font:"Noto Sans Thai","Leelawadee UI","IBM Plex Sans Thai",Tahoma,sans-serif;
-  --font-num:Arial,"Helvetica Neue",sans-serif;
+  /* สีสถานะ — ใช้คู่กับรูปทรงและคำเสมอ ห้ามสื่อด้วยสีอย่างเดียว */
+  --accent:#05603A;      --accent-soft:#DCEFE6;   /* ผ่าน / ปุ่มหลัก */
+  --pass:#07784C;        /* พื้นแถบผลผ่าน ขาวบนพื้นนี้ = 5.53:1 */
+  --bad:#9B1C13;         --bad-soft:#FBE7E5;
+  --deny:#C62A1E;        /* พื้นแถบผลไม่ผ่าน ขาวบนพื้นนี้ = 5.60:1 */
+  --warn:#7A4A00;        --warn-soft:#FDF2DF;
+
+  /* รูปทรง */
+  --r-1:12px; --r-2:18px; --r-3:26px;
+
+  /* เป้าสัมผัส — ปุ่มหลัก 60px เพราะใช้ขณะยืนและรีบ */
+  --tap:60px; --tap-lg:72px;
+
+  /* ตัวอักษร: base 18px (ไม่ใช่ 16) เพื่อให้อ่านจากระยะเคาน์เตอร์ได้ */
+  --fs-14:14px; --fs-16:16px; --fs-18:18px; --fs-20:20px;
+  --fs-24:24px; --fs-28:28px; --fs-36:36px; --fs-48:48px; --fs-64:64px;
+
+  /* ระยะ 4pt grid */
+  --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px;
+
+  /* ฟอนต์ — Noto Sans Thai รองรับวรรณยุกต์ครบ, Plex ใช้กับตัวเลขให้เรียงตรงหลัก */
+  --font:"Noto Sans Thai","Leelawadee UI",Tahoma,sans-serif;
+  --font-num:"IBM Plex Sans","Noto Sans Thai",Arial,sans-serif;
+
+  --dur:180ms;
 }
 
-/* ── 1.2 BASE ───────────────────────────────────────────────────────── */
+/* -------------------------------------------------- 2. Base ------------- */
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+html,body{margin:0;padding:0}
 body{
-  margin:0;background:var(--paper);color:var(--ink);
-  font-family:var(--font);font-size:16px;line-height:1.65; /* ไทย ≥1.6 เสมอ */
-  font-synthesis:none;-webkit-font-smoothing:antialiased;
+  background:var(--canvas);color:var(--ink);
+  font-family:var(--font);font-size:var(--fs-18);line-height:1.7;
+  -webkit-font-smoothing:antialiased;
 }
-h1,h2,h3,h4,p{margin:0 0 var(--s3)}
-h1{font-size:28px;line-height:1.45;font-weight:700}
-h2{font-size:22px;line-height:1.5;font-weight:700}
-h3{font-size:18px;line-height:1.55;font-weight:700;margin-bottom:var(--s2)}
-h4{font-size:15px;line-height:1.6;font-weight:700;margin-bottom:var(--s1)}
-p:last-child{margin-bottom:0}
-a{color:var(--primary)}
-small,.small{font-size:13px;line-height:1.7}
-.muted{color:var(--muted)}
-.fine{color:var(--muted);font-size:13px;line-height:1.7}
-.eyebrow{display:block;font:700 12px/1.6 var(--font-num);letter-spacing:1.4px;
-  text-transform:uppercase;color:var(--primary);margin-bottom:var(--s2)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
-:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:4px}
+.muted{color:var(--ink-2)}
+.note{font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+h1{margin:0 0 6px;font-size:var(--fs-28);font-weight:800;letter-spacing:-.01em}
+h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
+.sub{margin:0 0 var(--sp-5);color:var(--ink-2);font-size:var(--fs-16)}
 
-/* ── 1.3 LAYOUT — แกนกลางเดียว ทุกหน้าอยู่ในกริดเดียวกัน ─────────────── */
-.container{width:100%;max-width:var(--container);margin-inline:auto;padding-inline:var(--gutter)}
-@media (max-width:767px){ .container{padding-inline:var(--s4)} }
-
-.app{min-height:100vh;display:flex;flex-direction:column}
-.app-main{flex:1;padding-block:var(--s6) var(--s7)}
-@media (max-width:767px){ .app-main{padding-block:var(--s5) 96px} } /* เผื่อ bottom nav */
-
-/* สองคอลัมน์: sidebar + เนื้อหา (คอม) → คอลัมน์เดียว (มือถือ) */
-.with-sidebar{display:grid;grid-template-columns:var(--sidebar) minmax(0,1fr);
-  gap:var(--s6);align-items:start}
-@media (max-width:1099px){ .with-sidebar{grid-template-columns:minmax(0,1fr);gap:0} }
-
-/* ── 1.4 HEADER — app shell ที่หน้าเดิมไม่มี ─────────────────────────── */
-.app-header{position:sticky;top:0;z-index:30;background:var(--surface);
-  border-bottom:1px solid var(--line)}
-.app-header .container{display:flex;align-items:center;gap:var(--s4);min-height:68px}
-@media (max-width:767px){ .app-header .container{min-height:60px;gap:var(--s3)} }
-
-.brand{display:flex;align-items:center;gap:var(--s3);text-decoration:none;
-  color:inherit;margin-right:auto;min-width:0}
-.brand-symbol{flex:none;width:40px;height:40px;border-radius:10px;
-  background:var(--primary);color:#fff;display:grid;place-items:center;
-  font:700 15px/1 var(--font-num);letter-spacing:.5px}
-  /* ↑ แทนด้วย <img src="logo.svg" class="brand-symbol" alt="สุขฤทัย ฟิตเนส"> เมื่อได้ไฟล์โลโก้ */
-.brand-name{font-weight:700;font-size:17px;line-height:1.4;white-space:nowrap;
+/* -------------------------------------------------- 3. App shell -------- */
+.appbar{background:var(--surface);border-bottom:2px solid var(--line-strong);position:sticky;top:0;z-index:20}
+.appbar-in{max-width:1080px;margin:0 auto;padding:10px var(--sp-5);display:flex;align-items:center;gap:var(--sp-4);min-height:68px}
+.mark{width:46px;height:46px;border-radius:var(--r-1);background:var(--accent);color:#fff;
+  display:grid;place-items:center;font-size:var(--fs-16);font-weight:800;flex:none}
+.brand{font-size:var(--fs-20);font-weight:700;line-height:1.25;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand small{display:block;font-size:var(--fs-14);color:var(--ink-2);font-weight:500;
   overflow:hidden;text-overflow:ellipsis}
-.brand-sub{font-size:12px;line-height:1.5;color:var(--muted)}
-@media (max-width:480px){ .brand-sub{display:none} .brand-name{font-size:16px} }
+.spacer{flex:1}
+.wrap{max-width:1080px;margin:0 auto;padding:var(--sp-6) var(--sp-5) var(--sp-10)}
+.page{display:grid;grid-template-columns:224px 1fr;gap:var(--sp-6);align-items:start}
+.page>*{min-width:0}
 
-.header-actions{display:flex;align-items:center;gap:var(--s2)}
-.role-label{flex:none;border:1px solid var(--line);border-radius:999px;
-  padding:4px 12px;font-size:13px;font-weight:600;color:var(--muted);white-space:nowrap}
-@media (max-width:480px){ .role-label{display:none} }
+/* เมนูข้าง (คอม) — งานแอดมินอยู่บนคอมเป็นหลัก */
+.railnav{list-style:none;margin:0;padding:0;display:grid;gap:var(--sp-2);position:sticky;top:92px}
+.railnav a{display:flex;align-items:center;min-height:56px;padding:0 var(--sp-4);
+  border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface);
+  text-decoration:none;color:var(--ink);font-size:var(--fs-16);font-weight:600}
+.railnav a:hover{background:var(--panel)}
+.railnav a[aria-current]{background:var(--accent);border-color:var(--accent);color:#fff}
 
-/* ── 1.5 NAVIGATION — markup ชุดเดียว สองพฤติกรรม ───────────────────── */
-/* sidebar บนคอม (≥1024px) → bottom nav บนมือถือ */
-.sidenav{display:flex;flex-direction:column;gap:2px;position:sticky;top:92px}
-.sidenav a{display:flex;align-items:center;gap:var(--s3);min-height:44px;
-  padding:10px 14px;border-radius:10px;text-decoration:none;color:var(--ink);
-  font-weight:600;font-size:15px}
-.sidenav a:hover{background:var(--tint);color:var(--primary)}
-.sidenav a[aria-current=page]{background:var(--primary);color:#fff}
-.sidenav .nav-mobile-only{display:none}
-.sidenav-group{margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line)}
+/* เมนูล่าง (มือถือ) */
+.bottomnav{position:fixed;left:0;right:0;bottom:0;display:none;background:var(--surface);
+  border-top:2px solid var(--line-strong);z-index:30;padding-bottom:env(safe-area-inset-bottom)}
+.bottomnav ul{list-style:none;margin:0;padding:0;display:flex}
+.bottomnav li{flex:1;display:flex}
+.bottomnav a{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;
+  min-height:64px;text-decoration:none;font-size:var(--fs-14);font-weight:600;
+  color:var(--ink-2);border-top:4px solid transparent;text-align:center}
+.bottomnav a[aria-current]{color:var(--accent);border-top-color:var(--accent);background:var(--accent-soft)}
 
-@media (max-width:1099px){
-  .sidenav{position:fixed;inset:auto 0 0 0;z-index:40;flex-direction:row;gap:0;
-    background:var(--surface);border-top:1px solid var(--line);padding:4px 2px;
-    box-shadow:0 -2px 12px rgba(23,43,54,.06)}
-  .sidenav a{flex:1;flex-direction:column;gap:2px;min-height:58px;justify-content:center;
-    padding:6px 2px;font-size:11px;line-height:1.4;border-radius:var(--radius-sm);
-    text-align:center;color:var(--muted)}
-  .sidenav a:hover{background:transparent}
-  .sidenav a[aria-current=page]{background:transparent;color:var(--primary)}
-  .sidenav .nav-secondary{display:none}          /* เมนูรองย้ายไปอยู่ใต้ "เพิ่มเติม" */
-  .sidenav .nav-mobile-only{display:flex}
-  .sidenav-group{margin:0;padding:0;border:0;display:contents}
-}
+/* -------------------------------------------------- 4. Primitives ------- */
+.block{background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-2);padding:var(--sp-6)}
+.soft{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-5)}
+.stack{display:grid;gap:var(--sp-3)}
 
-/* แท็บแนวนอนสำหรับสมาชิก (เมนูน้อย) → bottom nav บนมือถือ */
-.tabnav{background:var(--surface);border-bottom:1px solid var(--line)}
-.tabnav .container{display:flex;gap:var(--s1)}
-.tabnav a{display:flex;align-items:center;gap:var(--s2);min-height:52px;
-  padding:0 var(--s4);text-decoration:none;color:var(--muted);font-weight:600;
-  border-bottom:3px solid transparent;margin-bottom:-1px}
-.tabnav a:hover{color:var(--primary)}
-.tabnav a[aria-current=page]{color:var(--primary);border-bottom-color:var(--primary)}
-@media (max-width:767px){
-  .tabnav{position:fixed;inset:auto 0 0 0;z-index:40;border-bottom:0;
-    border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(23,43,54,.06)}
-  .tabnav .container{padding:4px 2px}
-  .tabnav a{flex:1;flex-direction:column;gap:2px;min-height:58px;justify-content:center;
-    padding:6px 2px;font-size:11px;line-height:1.4;border:0;border-top:3px solid transparent;
-    margin:0;border-radius:var(--radius-sm);text-align:center}
-  .tabnav a[aria-current=page]{border-top-color:var(--primary)}
-}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+  min-height:var(--tap);padding:0 var(--sp-5);border-radius:var(--r-1);
+  border:2px solid var(--line-strong);background:var(--surface);
+  font-size:var(--fs-18);font-weight:700;cursor:pointer;transition:background var(--dur)}
+.btn:hover{background:var(--panel)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#044B2D}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.ghost{border-color:var(--line-ctl)}
+.btn.xl{min-height:var(--tap-lg);font-size:var(--fs-20)}
+.btn.auto{width:auto;min-height:48px;font-size:var(--fs-16);padding:0 var(--sp-4);white-space:nowrap}
+.btn[disabled],.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+.btn-row{display:flex;gap:var(--sp-3);flex-wrap:wrap}
+.btn-row>.btn{width:auto;flex:1 1 160px}
 
-.ico{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;
-  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.ico-lg{width:26px;height:26px}
+.field{margin-bottom:var(--sp-4)}
+.field label{display:block;font-size:var(--fs-16);font-weight:700;margin-bottom:8px}
+.field input,.field select,.field textarea{width:100%;min-height:var(--tap);padding:0 var(--sp-4);
+  border:2px solid var(--line-strong);border-radius:var(--r-1);background:var(--surface);font-size:var(--fs-18)}
+.field textarea{min-height:110px;padding:var(--sp-3) var(--sp-4);line-height:1.6}
+.field .hint{margin:6px 0 0;font-size:var(--fs-14);color:var(--ink-2)}
+/* ข้อผิดพลาดติดกับช่องที่ผิดเสมอ ไม่รวมไว้บนสุดของฟอร์ม */
+.field.invalid input,.field.invalid select{border-color:var(--bad)}
+.field .err{display:flex;gap:6px;margin:6px 0 0;font-size:var(--fs-14);font-weight:700;color:var(--bad)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)}
 
-/* ── 1.6 หัวเรื่องหน้า ─────────────────────────────────────────────── */
-.page-heading{display:flex;flex-wrap:wrap;gap:var(--s4);align-items:flex-end;
-  justify-content:space-between;margin-bottom:var(--s5)}
-.page-heading h1{margin:0 0 2px}
-.page-heading p{margin:0;color:var(--muted);font-size:15px}
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-16);font-weight:700;
+  padding:5px 12px;border-radius:var(--r-1);border:2px solid;white-space:nowrap}
+.chip.ok{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.chip.bad{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
+.chip.warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
+.chip.neutral{background:var(--panel);color:var(--ink-2);border-color:var(--ink-2)}
 
-/* ── 1.7 การ์ด ─────────────────────────────────────────────────────── */
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
-  padding:var(--s5);margin-bottom:var(--s4)}
-.card:last-child{margin-bottom:0}
-.card-head{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:baseline;
-  justify-content:space-between;margin-bottom:var(--s4)}
-.card-head h2,.card-head h3{margin:0}
-.card.flush{padding:0;overflow:hidden}
-.card.flush .card-head{padding:var(--s5) var(--s5) var(--s4);margin:0}
-.card.accent{border-left:4px solid var(--primary)}
-.grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s5);align-items:stretch}
-.grid-3 > .card{margin-bottom:0}
-.grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4);align-items:start}
-@media (max-width:899px){ .grid-3{grid-template-columns:1fr;gap:var(--s4)} }
-@media (max-width:767px){ .grid-2{grid-template-columns:1fr} }
+.row{display:flex;justify-content:space-between;gap:var(--sp-3);padding:10px 0;border-bottom:2px solid var(--panel)}
+.row:last-child{border-bottom:0}
 
-/* ── 1.8 ปุ่ม ──────────────────────────────────────────────────────── */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);
-  min-height:46px;padding:10px 18px;border:1px solid var(--line);border-radius:var(--radius-sm);
-  background:var(--surface);color:var(--primary);font:600 16px/1.5 var(--font);
-  cursor:pointer;text-decoration:none;white-space:nowrap}
-.btn:hover{background:var(--tint)}
-.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
-.btn.primary:hover{background:var(--primary-dark)}
-.btn.danger{color:var(--danger);border-color:var(--danger)}
-.btn.danger:hover{background:var(--danger-tint)}
-.btn.sm{min-height:38px;padding:6px 14px;font-size:14px}
-.btn.full{width:100%}
-.btn[disabled],.btn.is-disabled{background:var(--line-soft);border-color:#B7C2C5;
-  color:var(--muted);cursor:not-allowed}
-.actions{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.steps{display:flex;gap:var(--sp-2);margin-bottom:var(--sp-5)}
+.step{flex:1;padding:10px var(--sp-3);border-radius:var(--r-1);border:2px solid var(--line);
+  background:var(--surface);font-size:var(--fs-16);font-weight:700;color:var(--ink-2);text-align:center}
+.step.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.step.done{border-color:var(--accent);color:var(--accent)}
 
-/* ── 1.9 ฟอร์ม ─────────────────────────────────────────────────────── */
-.field{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--s4);font-size:15px}
-.field:last-child{margin-bottom:0}
-.field > span{font-weight:600}
-.field > span.fine{font-weight:400}
-.field input,.field select,.field textarea{
-  width:100%;min-height:46px;padding:10px 12px;border:1px solid #71838C;
-  border-radius:6px;background:var(--surface);color:var(--ink);font:16px/1.65 var(--font)}
-.field input::placeholder{color:#7B8890}
-.field input[aria-invalid=true]{border-color:var(--danger)}
-.field-error{color:var(--danger);font-size:13px;font-weight:600}
-.field-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4)}
-@media (max-width:767px){ .field-row{grid-template-columns:1fr;gap:0} }
-.search-row{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:flex-end}
-.search-row .field{flex:1;min-width:220px;margin-bottom:0}
-@media (max-width:767px){
-  .search-row{flex-direction:column;align-items:stretch}
-  .search-row .field{min-width:0;flex:none}
-  .search-row .btn{width:100%}
-}
-.input-icon{position:relative;display:flex}
-.input-icon .ico{position:absolute;left:12px;top:50%;margin-top:-10px;color:var(--muted)}
-.input-icon input{padding-left:40px}
+.banner{display:flex;align-items:center;gap:var(--sp-4);border-radius:var(--r-2);padding:var(--sp-5);margin-bottom:var(--sp-5)}
+.banner .ic{width:52px;height:52px;border-radius:var(--r-1);display:grid;place-items:center;font-size:26px;flex:none}
+.banner b{display:block;font-size:var(--fs-24);font-weight:800;line-height:1.3}
+.banner span{font-size:var(--fs-16)}
+.banner.ok{background:var(--accent);color:#fff}
+.banner.ok .ic{background:rgba(255,255,255,.2)}
+.banner.bad{background:var(--bad);color:#fff}
+.banner.bad .ic{background:rgba(255,255,255,.2)}
 
-/* ── 1.10 สถานะ — สี + รูปทรง + คำ เสมอ (ไม่ใช้สีอย่างเดียว) ────────── */
-.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 12px;
-  border:1px solid var(--line);border-radius:999px;background:var(--surface);
-  color:var(--muted);font-size:13px;font-weight:600;white-space:nowrap}
-.chip::before{font:700 12px/1 var(--font-num)}
-.chip.ok{color:var(--primary);background:var(--tint);border-color:#8FB8AC}
-.chip.ok::before{content:"✓"}
-.chip.wait{color:var(--accent);background:var(--accent-tint);border-color:#CFA478}
-.chip.wait::before{content:"◷"}
-.chip.off{color:var(--danger);background:var(--danger-tint);border-color:#CF9990}
-.chip.off::before{content:"✕"}
-.chip.draft::before{content:"◻"}
-.chip.role{color:var(--ink);background:var(--paper)}
-.chip.role::before{content:none}
-.table .chip{padding:3px 10px}
-.chip.on-dark{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.45);color:#fff}
+/* -------------------------------------------------- 5. สี่สถานะของทุกหน้า ---
+   มีข้อมูล = markup ปกติ · อีกสามสถานะใช้บล็อกด้านล่าง                        */
 
-/* ── 1.11 แถบแจ้งเตือน ─────────────────────────────────────────────── */
-.notice{display:flex;gap:var(--s3);border-left:4px solid var(--primary);
-  background:var(--tint);border-radius:var(--radius-sm);padding:var(--s3) var(--s4);
-  margin-bottom:var(--s4);font-size:15px}
-.notice .ico{margin-top:3px;color:inherit}
-.notice.warn{border-left-color:var(--accent);background:var(--accent-tint);color:#6F3A11}
-.notice.error{border-left-color:var(--danger);background:var(--danger-tint);color:#7A221A}
-.pilot-banner{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s3);align-items:baseline;
-  background:#FFF6DC;border:1px solid #D9A300;color:#5A4300;border-radius:var(--radius);
-  padding:10px var(--s4);margin-bottom:var(--s5);font-size:14px}
+/* 5.1 กำลังโหลด — ใช้ skeleton ไม่ใช่ spinner เพื่อไม่ให้หน้ากระตุก */
+.skel{background:var(--panel);border-radius:8px;position:relative;overflow:hidden}
+.skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.65),transparent);
+  animation:shimmer 1.4s infinite}
+@keyframes shimmer{100%{transform:translateX(100%)}}
+.skel-line{height:16px;margin:8px 0}
+.skel-row{display:flex;align-items:center;gap:var(--sp-4);background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-3) var(--sp-4);min-height:84px}
+.skel-av{width:60px;height:60px;border-radius:50%;flex:none}
 
-/* ── 1.12 ตาราง → การ์ดบนมือถือ (responsive จริง) ────────────────────── */
-.table-wrap{overflow-x:auto}
-.table{width:100%;border-collapse:collapse}
-.table th{text-align:left;padding:10px var(--s3);font-size:13px;font-weight:600;
-  color:var(--muted);border-bottom:1px solid var(--line);white-space:nowrap}
-.table td{padding:var(--s3);border-bottom:1px solid var(--line-soft);vertical-align:middle}
-.table tr:last-child td{border-bottom:0}
-.table .cell-actions{text-align:right;white-space:nowrap}
-.table .cell-actions .actions{flex-wrap:wrap;justify-content:flex-end;gap:6px}
-.table td > *{min-width:0}
-.person{display:flex;align-items:center;gap:var(--s3);min-width:0}
-.avatar{flex:none;width:40px;height:40px;border-radius:50%;background:var(--tint);
-  color:var(--primary);display:grid;place-items:center;font:700 15px/1 var(--font)}
-.person-name{display:block;font-weight:600;line-height:1.5;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.person-meta{display:block;font-size:13px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
-.person > span{min-width:0}
-.table .nowrap{white-space:nowrap}
-/* สัดส่วนคอลัมน์คงที่บนจอกว้าง: ชื่อคนได้พื้นที่มากสุด ปุ่มจัดการได้พื้นที่พอเรียงแถวเดียว */
-@media (min-width:768px){
-  .table-members,.table-users{table-layout:fixed}
-  .table-members th:nth-child(1){width:30%}
-  .table-members th:nth-child(2){width:15%}
-  .table-members th:nth-child(3){width:15%}
-  .table-members th:nth-child(4){width:15%}
-  .table-members th:nth-child(5){width:25%}
-  .table-users th:nth-child(1){width:29%}
-  .table-users th:nth-child(2){width:14%}
-  .table-users th:nth-child(3){width:14%}
-  .table-users th:nth-child(4){width:14%}
-  .table-users th:nth-child(5){width:29%}
-}
-.cell-actions .btn.sm{padding:6px 11px;font-size:13px}
-.card-body{padding:0 var(--s5) var(--s5)}
-@media (max-width:767px){ .card-body{padding:0 var(--s4) var(--s4)} }
+/* 5.2 ว่างเปล่า — บอกว่าทำอะไรต่อได้เสมอ ไม่ใช่แค่ "ไม่มีข้อมูล" */
+.empty{text-align:center;padding:var(--sp-10) var(--sp-5);background:var(--surface);
+  border:2px dashed var(--line);border-radius:var(--r-2)}
+.empty .ic{width:72px;height:72px;border-radius:50%;background:var(--panel);
+  display:grid;place-items:center;font-size:32px;margin:0 auto var(--sp-4)}
+.empty b{display:block;font-size:var(--fs-20);font-weight:700}
+.empty p{margin:6px auto var(--sp-5);max-width:42ch;color:var(--ink-2);font-size:var(--fs-16)}
 
-@media (max-width:767px){
-  .table,.table tbody,.table tr,.table td{display:block;width:100%}
-  /* ซ่อน thead แต่ยังอ่านได้ด้วย screen reader — ต้องดันออกไปทางซ้าย
-     ถ้าใช้ clip เฉย ๆ กล่องของ th จะยังกว้างและดันหน้าจอล้นทางขวา */
-  .table thead{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}
-  .table tr{border:1px solid var(--line);border-radius:var(--radius);
-    background:var(--surface);padding:var(--s4);margin-bottom:var(--s3)}
-  .table tr:last-child{margin-bottom:0}
-  .table td{border:0;padding:3px 0;display:flex;gap:var(--s3);
-    justify-content:space-between;align-items:center}
-  .table td::before{content:attr(data-label);color:var(--muted);font-size:13px;flex:none}
-  .table td[data-label=""]{display:block}
-  .table td[data-label=""]::before{display:none}
-  .table td.cell-actions{text-align:left;padding-top:var(--s3);margin-top:var(--s2);
-    border-top:1px solid var(--line-soft)}
-  .table td.cell-actions .actions{width:100%}
-  .table td.cell-actions .btn{flex:1}
-}
+/* 5.3 ผิดพลาด — ต้องมีปุ่มลองใหม่เสมอ ห้ามเป็นทางตัน */
+.errbox{background:var(--bad-soft);border:2px solid var(--bad);border-radius:var(--r-2);padding:var(--sp-6);text-align:center}
+.errbox .ic{width:72px;height:72px;border-radius:50%;background:var(--bad);color:#fff;
+  display:grid;place-items:center;font-size:34px;margin:0 auto var(--sp-4)}
+.errbox b{display:block;font-size:var(--fs-20);font-weight:800;color:var(--bad)}
+.errbox p{margin:6px auto var(--sp-5);max-width:46ch;font-size:var(--fs-16)}
 
-/* ── 1.13 ตัวกรองแบบชิป ────────────────────────────────────────────── */
-.filters{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4)}
-.filters button{display:inline-flex;align-items:center;gap:var(--s2);min-height:40px;
-  padding:6px 16px;border:1px solid var(--line);border-radius:999px;background:var(--surface);
-  color:var(--ink);font:600 14px/1.5 var(--font);cursor:pointer}
-.filters button:hover{background:var(--tint)}
-.filters button[aria-pressed=true]{background:var(--primary);border-color:var(--primary);color:#fff}
-.filters .count{font-family:var(--font-num);font-size:13px;opacity:.75}
+/* สปินเนอร์ในปุ่ม — ใช้เฉพาะตอนกดแล้วรอผล */
+.spin{width:22px;height:22px;border-radius:50%;border:3px solid rgba(255,255,255,.35);
+  border-top-color:#fff;animation:rot .8s linear infinite;flex:none}
+@keyframes rot{100%{transform:rotate(360deg)}}
 
-/* ── 1.14 บัตรสมาชิก + QR ──────────────────────────────────────────── */
-.member-card{background:var(--primary);color:#fff;border-radius:var(--radius);
-  padding:var(--s5);margin-bottom:var(--s4)}
-.member-card .eyebrow{color:#BFDCD4}
-.member-card h2{margin-bottom:2px}
-.member-code{font:600 14px/1.6 var(--font-num);letter-spacing:1.5px;opacity:.9;
-  margin-bottom:var(--s3)}
-.qr-frame{width:200px;height:200px;margin:var(--s4) auto var(--s2);
-  border:1px solid var(--line);border-radius:var(--radius);background:#fff;
-  display:grid;place-items:center;padding:10px}
-.qr-frame svg{width:100%;height:100%;display:block}
-.qr-caption{text-align:center;font-size:13px;color:var(--muted);margin-bottom:var(--s3)}
-.qr-timer{display:flex;align-items:center;gap:var(--s2);justify-content:center;
-  font-size:14px;font-weight:600;color:var(--primary);margin-bottom:var(--s2)}
-.meter{height:6px;border-radius:999px;background:var(--line-soft);overflow:hidden}
-.meter > i{display:block;height:100%;background:var(--primary);border-radius:999px}
-.meter.warn > i{background:var(--accent)}
+/* -------------------------------------------------- 6. หน้าสแกนเช็คอิน ---
+   จอมืด: ลดแสงสะท้อนบนหน้าจอลูกค้า ทำให้กล้องอ่านบัตรติดง่ายขึ้น           */
+.scanstage{background:var(--dark);min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;color:var(--on-dark)}
+.scanbar{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-4) var(--sp-5);
+  border-bottom:1px solid rgba(255,255,255,.14);min-height:68px}
+.scanbar .mark{background:rgba(255,255,255,.14)}
+.scanbar .brand{color:var(--on-dark)}
+.scanbar .brand small{color:var(--on-dark-2)}
+.scanbar .btn{background:transparent;border-color:rgba(255,255,255,.4);color:var(--on-dark)}
+.scanbody{flex:1;display:grid;grid-template-columns:420px 1fr;gap:var(--sp-5);
+  padding:var(--sp-5);align-items:start;max-width:1240px;margin:0 auto;width:100%}
+.scanbody>*{min-width:0}
 
-/* ── 1.15 รายการคู่ label/value ────────────────────────────────────── */
-.dl{display:grid;grid-template-columns:auto 1fr;gap:var(--s2) var(--s4);margin:0}
-.dl dt{color:var(--muted);font-size:14px}
-.dl dd{margin:0;font-weight:600;text-align:right}
-.list{display:flex;flex-direction:column;gap:0;margin:0;padding:0;list-style:none}
-.list li{display:flex;gap:var(--s3);justify-content:space-between;align-items:center;
-  padding:var(--s3) 0;border-bottom:1px solid var(--line-soft)}
-.list li:last-child{border-bottom:0;padding-bottom:0}
-.list li:first-child{padding-top:0}
-.feature{display:flex;gap:var(--s3);align-items:flex-start;margin-bottom:var(--s3)}
-.feature .ico{margin-top:3px;color:var(--primary)}
-.pagination{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;
-  justify-content:center;margin-top:var(--s4);color:var(--muted);font-size:14px}
+.cam{background:var(--dark-2);border-radius:var(--r-2);aspect-ratio:1/1;position:relative;
+  display:grid;align-items:end;justify-items:center;padding-bottom:18px;text-align:center;
+  color:var(--on-dark-2);font-size:var(--fs-16);overflow:hidden;border:1px solid rgba(255,255,255,.14)}
+.cam .frame{position:absolute;inset:14%;border:4px solid rgba(255,255,255,.9);border-radius:16px}
+.cam .laser{position:absolute;left:14%;right:14%;top:50%;height:4px;background:#38D89B;box-shadow:0 0 18px #38D89B}
+.cam.off .frame,.cam.off .laser{display:none}
 
-/* ── 1.16 หน้าแรกสาธารณะ ───────────────────────────────────────────── */
-.hero{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:var(--s7);
-  align-items:center;padding-block:var(--s7) var(--s6)}
-.hero h1{font-size:38px;line-height:1.45;margin-bottom:var(--s3)}
-.hero .lead{font-size:18px;color:var(--muted)}
-.hero-rule{width:56px;height:4px;background:var(--primary);margin:var(--s5) 0}
-.login-card{background:var(--surface);border:1px solid var(--line);
-  border-radius:var(--radius);padding:var(--s5);box-shadow:var(--shadow)}
-.icon-mark{width:44px;height:44px;border-radius:10px;background:var(--primary);
-  color:#fff;display:grid;place-items:center;margin-bottom:var(--s4)}
+.darkbtns{display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap}
+.darkbtns .btn{width:auto;flex:1 1 160px;background:transparent;border-color:rgba(255,255,255,.4);color:var(--on-dark)}
+.darkbtns .btn:hover{background:rgba(255,255,255,.1)}
+.darkbtns .btn.primary{background:#fff;border-color:#fff;color:var(--dark)}
+.darkbtns .btn.primary:hover{background:#E6E9E7}
+
+/* ผลลัพธ์ — รูปถ่ายใหญ่กว่าตัวหนังสือโดยตั้งใจ พนักงานต้องเห็นหน้าก่อนเห็นผล */
+.result{background:var(--pass);border-radius:var(--r-3);padding:var(--sp-8);
+  display:flex;gap:var(--sp-8);align-items:center;color:#fff}
+.result .rface{width:300px;height:300px;border-radius:50%;overflow:hidden;
+  border:8px solid rgba(255,255,255,.9);flex:none;background:var(--panel)}
+.result .rbody{flex:1;min-width:0}
+.result .rv{font-size:clamp(34px,3.6vw,60px);font-weight:800;line-height:1.1;letter-spacing:-.02em;
+  display:flex;align-items:center;gap:var(--sp-4);white-space:nowrap}
+.result .rv i{width:72px;height:72px;border-radius:22px;background:rgba(255,255,255,.22);
+  display:grid;place-items:center;font-style:normal;font-size:38px;flex:none}
+.result .rname{font-size:clamp(28px,2.7vw,44px);font-weight:800;margin-top:var(--sp-5);line-height:1.2}
+.result .rcode{font-family:var(--font-num);font-size:var(--fs-18);opacity:.85;letter-spacing:.06em}
+.result .rfacts{display:flex;gap:var(--sp-8);flex-wrap:wrap;margin-top:var(--sp-5);
+  padding-top:var(--sp-5);border-top:3px solid rgba(255,255,255,.3)}
+.result .rfacts span{display:block;font-size:var(--fs-16);opacity:.88}
+.result .rfacts b{font-size:var(--fs-28);font-weight:800}
+.result .reason{margin:var(--sp-5) 0 0;padding-top:var(--sp-5);border-top:3px solid rgba(255,255,255,.3);font-size:var(--fs-20);font-weight:700}
+.result.deny{background:var(--deny)}
+.result.wait{background:#243430}
+
+.checkline{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);
+  border-radius:var(--r-1);padding:var(--sp-4);font-size:var(--fs-16);color:var(--on-dark);margin-top:var(--sp-4)}
+
+.dlog{list-style:none;margin:var(--sp-4) 0 0;padding:0;display:grid;gap:var(--sp-2)}
+.dlog li{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3);
+  border-radius:var(--r-1);background:rgba(255,255,255,.07);font-size:var(--fs-16);color:var(--on-dark)}
+.dlog .mini{width:44px;height:44px;border-radius:50%;overflow:hidden;flex:none;background:var(--panel)}
+.dlog .chip{font-size:var(--fs-14);padding:3px 10px}
+
+/* สถานะว่าง/ผิดพลาดบนจอมืด */
+.dark-empty,.dark-err{border-radius:var(--r-3);padding:var(--sp-8);text-align:center;border:2px dashed rgba(255,255,255,.3)}
+.dark-err{border-style:solid;border-color:var(--deny);background:rgba(198,42,30,.16)}
+.dark-empty .ic,.dark-err .ic{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;
+  font-size:34px;margin:0 auto var(--sp-4);background:rgba(255,255,255,.14)}
+.dark-err .ic{background:var(--deny)}
+.dark-empty b,.dark-err b{display:block;font-size:var(--fs-28);font-weight:800}
+.dark-empty p,.dark-err p{margin:8px auto var(--sp-5);max-width:44ch;color:var(--on-dark-2);font-size:var(--fs-16)}
+.dark-err p{color:#F3D5D2}
+
+/* -------------------------------------------------- 7. บัตรสมาชิก PNG ----
+   artwork 1080x1350 — เซิร์ฟเวอร์ render ตามสเปคตัวเลขในไฟล์แนบ            */
+.mcard{width:1080px;height:1350px;position:relative;flex:none;background:#fff;
+  display:flex;flex-direction:column;font-family:var(--font);color:var(--ink);overflow:hidden}
+.mcard .top{background:var(--accent);color:#fff;padding:38px 56px;display:flex;align-items:center;gap:22px}
+.mcard .top .gm{width:74px;height:74px;border-radius:20px;background:rgba(255,255,255,.18);
+  display:grid;place-items:center;font-size:27px;font-weight:800;flex:none}
+.mcard .top .gn{font-size:42px;font-weight:800;line-height:1.2}
+.mcard .top .gn span{display:block;font-size:19px;letter-spacing:.2em;opacity:.8;font-weight:500;font-family:var(--font-num)}
+.mcard .idrow{display:flex;align-items:center;gap:36px;padding:38px 56px 16px}
+.mcard .face{width:232px;height:232px;border-radius:50%;overflow:hidden;flex:none;
+  border:7px solid var(--accent);background:var(--panel)}
+.mcard .idtext{min-width:0}
+.mcard .eyebrow{font-size:24px;font-weight:600;color:var(--ink-2)}
+.mcard .who{font-size:64px;font-weight:800;line-height:1.15;letter-spacing:-.015em;margin-top:2px}
+.mcard .code{font-family:var(--font-num);font-size:30px;letter-spacing:.09em;color:var(--ink-2);margin-top:8px;font-weight:600}
+.mcard .qrzone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 56px}
+.mcard .qrbox{width:640px;height:640px;padding:22px;border:6px solid var(--line-strong);border-radius:26px;background:#fff}
+.mcard .qrcap{margin-top:16px;font-size:32px;font-weight:700;line-height:1.3}
+.mcard .bar{background:var(--line-strong);color:#fff;padding:18px 56px 18px}
+.mcard .bar .brow{display:flex;justify-content:space-between;align-items:flex-end;font-size:26px;line-height:1.35}
+.mcard .bar b{font-weight:700}
+.mcard .bar .brow span{opacity:.78;font-size:22px;display:block;line-height:1.35}
+/* เบอร์โทรยิม: บรรทัดเล็กใต้แถบ ไม่ลดขนาด QR */
+.mcard .bar .tel{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.28);
+  font-size:21px;line-height:1.4;opacity:.9;display:flex;justify-content:space-between;gap:20px}
+.mcard .bar .tel .num{font-family:var(--font-num);font-weight:600;opacity:1;display:inline}
+/* บัตรที่ถูกยกเลิก */
+.mcard.void::before{content:"ยกเลิกแล้ว";position:absolute;inset:0;z-index:5;
+  display:grid;place-items:center;font-size:150px;font-weight:800;color:rgba(155,28,19,.26);
+  transform:rotate(-24deg);letter-spacing:.06em}
+.mcard.void .qrbox{opacity:.35}
+
+/* พรีวิวบัตรย่อส่วนในหน้าเว็บ (คงสัดส่วนจริง) */
+.cardscale{position:relative;overflow:hidden;min-width:0;width:100%;border:2px solid var(--line-strong);border-radius:var(--r-2)}
+.cardscale .mcard{position:absolute;top:0;left:0;transform-origin:0 0}
+
+/* -------------------------------------------------- 8. หน้าจัดการ -------- */
+.searchbig{position:relative;margin-bottom:var(--sp-4)}
+.searchbig input{width:100%;min-height:var(--tap-lg);padding:0 var(--sp-5) 0 58px;font-size:var(--fs-18);
+  border:2px solid var(--line-strong);border-radius:var(--r-1);background:var(--surface)}
+.searchbig svg{position:absolute;left:20px;top:24px;width:24px;height:24px}
+
+.list{display:grid;gap:var(--sp-3)}
+/* ห่อบรรทัดเมื่อคอลัมน์แคบ ดีกว่าบีบชื่อจนอ่านไม่ออก */
+.item{display:flex;align-items:center;flex-wrap:wrap;row-gap:10px;gap:var(--sp-4);background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-3) var(--sp-4);min-height:84px}
+.item .av{width:60px;height:60px;border-radius:50%;overflow:hidden;flex:none;background:var(--panel)}
+.item .who{flex:1 1 200px;min-width:0}
+.item .who b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.3}
+.item .who span{display:block;font-size:var(--fs-16);color:var(--ink-2)}
+.item .btn{width:auto;min-width:110px;min-height:50px;font-size:var(--fs-16)}
+
+/* ตัวเลือกแพ็กเกจ / วิธีรับเงิน */
+.pick{display:flex;align-items:center;gap:var(--sp-3);border:2px solid var(--line-ctl);
+  border-radius:var(--r-1);padding:var(--sp-3) var(--sp-4);cursor:pointer;background:var(--surface);min-height:var(--tap)}
+.pick input{width:22px;height:22px;accent-color:var(--accent);flex:none}
+.pick .n{flex:1}
+.pick b{display:block;font-weight:700}
+.pick .sm{font-size:var(--fs-14);color:var(--ink-2)}
+.pick.sel{border-color:var(--accent);background:var(--accent-soft);border-width:3px;padding:calc(var(--sp-3) - 1px) calc(var(--sp-4) - 1px)}
+
+/* สรุปยอดก่อนกดบันทึก */
+.total{display:flex;justify-content:space-between;align-items:baseline;
+  background:var(--dark);color:#fff;border-radius:var(--r-1);padding:var(--sp-4) var(--sp-5);margin-top:var(--sp-4)}
+.total b{font-family:var(--font-num);font-size:var(--fs-36);font-weight:800}
+
+/* ตารางสิทธิ์ผู้ใช้ */
+.utable{width:100%;border-collapse:collapse;font-size:var(--fs-16);background:var(--surface)}
+.utable th{text-align:left;font-size:var(--fs-14);color:var(--ink-2);font-weight:700;
+  padding:10px var(--sp-4);border-bottom:2px solid var(--line-strong);background:var(--panel)}
+.utable td{padding:12px var(--sp-4);border-bottom:2px solid var(--panel);vertical-align:middle}
+.utable tr:last-child td{border-bottom:0}
+.utable .btn{width:auto;min-height:46px;font-size:var(--fs-14);padding:0 var(--sp-3)}
+
+/* กล่องยืนยันก่อนทำสิ่งที่ย้อนยาก */
+.confirm{background:var(--surface);border:3px solid var(--bad);border-radius:var(--r-2);padding:var(--sp-6)}
+.confirm h2{color:var(--bad)}
+.confirm .warnlist{margin:0 0 var(--sp-5);padding-left:20px;font-size:var(--fs-16);color:var(--ink-2)}
+.confirm .warnlist li{margin-bottom:6px}
+
+/* -------------------------------------------------- 9. Responsive -------
+   ออกแบบที่ 390px ก่อน แล้วขยายขึ้น                                        */
 @media (max-width:899px){
-  .hero{grid-template-columns:1fr;gap:var(--s5);padding-block:var(--s5) var(--s5)}
-  .hero h1{font-size:30px}
-  .hero .lead{font-size:16px}
-  .hero-rule{margin:var(--s4) 0}
+  .wrap{padding:var(--sp-4) var(--sp-4) 88px}
+  .page{grid-template-columns:1fr}
+  .railnav{display:none}
+  .bottomnav{display:block}
+  .two{grid-template-columns:1fr}
+  h1{font-size:var(--fs-24)}
+  .step{padding:8px 6px;font-size:var(--fs-14)}
+
+  .scanbody{grid-template-columns:1fr;padding:var(--sp-4);gap:var(--sp-4)}
+  .scanbody>*{min-width:0}
+  .darkbtns .btn{min-width:0;flex:1 1 140px}
+  .result{flex-direction:column;text-align:center;padding:var(--sp-5);gap:var(--sp-5)}
+  .result .rface{width:220px;height:220px}
+  /* ไอคอนวางเหนือข้อความ เพราะ "เข้าใช้บริการไม่ได้" ยาวเกินความกว้าง 390px */
+  .result .rv{flex-direction:column;gap:var(--sp-3);white-space:normal;
+    font-size:40px;line-height:1.2;justify-content:center;text-align:center}
+  .result .rv i{width:56px;height:56px;font-size:28px;border-radius:18px}
+  .result .rname{font-size:var(--fs-36)}
+  .result .rfacts{justify-content:center;gap:var(--sp-6)}
+  .result .rbody{width:100%}
+
+  .item{flex-wrap:wrap;row-gap:10px}
+  .item .btn{width:100%;order:9}
+
+  /* ตารางสิทธิ์กลายเป็นการ์ดต่อคน ใช้ markup เดิม */
+  .utable thead{display:none}
+  .utable,.utable tbody,.utable tr,.utable td{display:block;width:100%}
+  .utable tr{border:2px solid var(--line);border-radius:var(--r-2);margin-bottom:var(--sp-3);padding:var(--sp-2)}
+  .utable td{border-bottom:0;padding:6px var(--sp-3);display:flex;justify-content:space-between;gap:var(--sp-3)}
+  .utable td::before{content:attr(data-label);font-weight:700;color:var(--ink-2);font-size:var(--fs-14)}
+  .utable .btn{width:100%}
 }
-.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s3);counter-reset:step}
-.steps li{list-style:none;counter-increment:step;font-size:14px;line-height:1.6}
-.steps li::before{content:counter(step);display:grid;place-items:center;width:28px;height:28px;
-  border-radius:50%;background:var(--tint);color:var(--primary);
-  font:700 14px/1 var(--font-num);margin-bottom:var(--s2)}
-@media (max-width:899px){ .steps{grid-template-columns:1fr;gap:var(--s3)}
-  .steps li{display:flex;gap:var(--s3);align-items:center}
-  .steps li::before{margin:0;flex:none} }
 
-.app-footer{border-top:1px solid var(--line);background:var(--surface);
-  padding-block:var(--s5);color:var(--muted);font-size:13px}
-.app-footer .container{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);
-  justify-content:space-between}
-@media (max-width:767px){ .app-footer{margin-bottom:0} }
-
-/* ── 1.17 หน้าสมาชิก ───────────────────────────────────────────────── */
-.member-layout{display:grid;grid-template-columns:380px minmax(0,1fr);gap:var(--s5);
-  align-items:start}
-@media (max-width:899px){ .member-layout{grid-template-columns:1fr} }
-
-/* ── 1.18 หน้าสแกนเช็คอิน (แท็บเล็ตแนวนอน) ─────────────────────────── */
-.scan-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:var(--s5);
-  align-items:start}
-@media (max-width:899px){ .scan-layout{grid-template-columns:1fr} }
-.scan-result{display:flex;gap:var(--s5);align-items:center;padding:var(--s6) var(--s5);
-  border:2px solid;border-radius:var(--radius);margin-bottom:var(--s4)}
-.scan-result .scan-icon{flex:none;width:76px;height:76px;border-radius:50%;
-  border:2px solid;background:#fff;display:grid;place-items:center;
-  font:700 44px/1 var(--font-num)}
-.scan-result h2{font-size:32px;line-height:1.4;margin:0 0 2px}
-.scan-result .scan-member{font-size:20px;font-weight:600;margin:0 0 var(--s1)}
-.scan-result.allowed{background:var(--tint);border-color:var(--primary);color:var(--primary-dark)}
-.scan-result.denied{background:var(--danger-tint);border-color:var(--danger);color:#7A221A}
-.scan-result.duplicate{background:var(--accent-tint);border-color:var(--accent);color:#6F3A11}
-@media (max-width:767px){
-  .scan-result{flex-direction:column;text-align:center;gap:var(--s4);padding:var(--s5) var(--s4)}
-  .scan-result h2{font-size:26px}
+/* -------------------------------------------------- 10. A11y / print ---- */
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+  .skel::after{display:none}
 }
-.code-input input{font:600 22px/1.5 var(--font-num);letter-spacing:2px;min-height:58px}
-.camera-view{width:100%;aspect-ratio:4/3;border:1px solid var(--line);border-radius:var(--radius);
-  background:#101A1F;color:#9FB3B0;display:grid;place-items:center;text-align:center;
-  font-size:14px;padding:var(--s4)}
+@media print{
+  .bottomnav,.railnav,.appbar .btn{display:none}
+  body{background:#fff}
+}
 
-/* ── 1.19 หน้าแพ็กเกจ ──────────────────────────────────────────────── */
-.pkg-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
-  padding:var(--s5);display:flex;flex-direction:column;gap:var(--s3)}
-.pkg-card.is-draft{border-style:dashed}
-.pkg-head{display:flex;gap:var(--s3);justify-content:space-between;align-items:flex-start}
-.price{font:700 26px/1.4 var(--font-num);color:var(--primary)}
-.price .unit{font:600 15px/1.5 var(--font);color:var(--muted)}
-.price.tbd{font:600 17px/1.5 var(--font);color:var(--accent)}
-
-/* ── 1.20 หน้าตรวจสลิป — หลักฐานกับตัวเลขต้องอยู่ในสายตาเดียวกัน ─────── */
-/* คิวเป็นแถบแนวนอนเสมอ ไม่ใช่คอลัมน์ที่สาม —
-   container 1100 หัก sidebar 220 แล้ว ไม่เหลือที่พอให้ภาพสลิปกับตัวเลขอยู่ข้างกัน
-   ซึ่งเป็นงานหลักของหน้านี้ จึงยอมเสียคอลัมน์คิวเพื่อรักษาการเทียบหลักฐานในจอเดียว */
-.queue-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s5)}
-.queue-list{display:flex;gap:var(--s2);overflow-x:auto;padding-bottom:var(--s1);
-  scroll-snap-type:x proximity}
-.queue-list > *{flex:0 0 250px;scroll-snap-align:start}
-@media (max-width:560px){ .queue-list > *{flex-basis:214px} }
-.queue-item{display:flex;gap:var(--s3);align-items:flex-start;width:100%;text-align:left;
-  padding:var(--s3);border:1px solid var(--line);border-radius:10px;background:var(--surface);
-  cursor:pointer;font:inherit;color:inherit}
-.queue-item:hover{background:var(--tint)}
-.queue-item[aria-current=true]{border-color:var(--primary);background:var(--tint);
-  box-shadow:inset 3px 0 0 var(--primary)}
-.queue-item b{display:block;font-size:15px;line-height:1.5}
-.queue-item small{display:block;color:var(--muted);font-size:13px;line-height:1.5}
-.queue-wait{flex:none;font:600 12px/1.5 var(--font-num);color:var(--accent)}
-/* หลักฐาน 2 คอลัมน์: ภาพสลิปซ้าย ตัวเลขที่ต้องเทียบขวา */
-.review-grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:var(--s5);align-items:start}
+/* ==========================================================================
+   บล็อกความเข้ากันได้ — ของที่ยังใช้ชื่อคลาสชุดเดิม
+   ยกบล็อกข้างบนมาทั้งก้อนตามที่สั่ง ส่วนนี้คือสิ่งที่หน้าตรวจสลิปเดิม
+   (คำสั่งซื้อค้างจากแอปสมาชิกรุ่นก่อน) กับฟอร์มตั้งค่ายังอ้างถึงอยู่
+   ========================================================================== */
+.card{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-6);margin-bottom:var(--sp-5)}
+.card.narrow{max-width:760px}
+.notice{border-radius:var(--r-2);padding:var(--sp-4) var(--sp-5);margin-bottom:var(--sp-4);
+  background:var(--accent-soft);border:2px solid var(--accent);color:var(--ink)}
+.notice.warn{background:var(--warn-soft);border-color:var(--warn)}
+.notice.error{background:var(--bad-soft);border-color:var(--bad)}
+.tabs{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.tabs button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:999px;
+  background:var(--surface);font-weight:700;cursor:pointer}
+.tabs button[aria-current=page]{background:var(--accent);border-color:var(--accent);color:#fff}
+.table-wrap{overflow-x:auto;border-radius:var(--r-2)}
+.pagination{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;margin-top:var(--sp-4)}
+.pagination button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:var(--r-1);
+  background:var(--surface);cursor:pointer}
+.actions{display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-4)}
+.review-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp-5);align-items:start}
 @media (max-width:899px){ .review-grid{grid-template-columns:1fr} }
-.slip-frame{width:100%;aspect-ratio:3/4;border:1px solid var(--line);border-radius:var(--radius);
-  background:var(--paper);display:grid;place-items:center;text-align:center;
-  color:var(--muted);font-size:14px;padding:var(--s4)}
-/* แถวเทียบยอด: ตัวเลขชิดขวาเพื่อให้กวาดตาเทียบกันได้ */
-.compare{display:flex;justify-content:space-between;gap:var(--s3);align-items:baseline;
-  padding:10px 0;border-bottom:1px solid var(--line-soft)}
-.compare:last-of-type{border-bottom:0}
-.compare dt,.compare .k{color:var(--muted);font-size:14px;flex:none}
-.compare dd,.compare .v{margin:0;font-weight:600;text-align:right;
-  font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere}
-.compare.total{border-top:2px solid var(--line);border-bottom:0;margin-top:var(--s2);padding-top:var(--s3)}
-.compare.total .v{font:700 22px/1.4 var(--font-num);color:var(--primary)}
-.compare.mismatch .v{color:var(--danger)}
-.check-row{display:flex;gap:var(--s3);align-items:flex-start;padding:var(--s3);
-  border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);
-  margin-block:var(--s4)}
-.check-row input{flex:none;width:22px;height:22px;margin-top:2px;accent-color:var(--primary)}
+.slip-review{width:100%;border-radius:var(--r-1);border:2px solid var(--line)}
+.queue-list{display:flex;gap:var(--sp-3);overflow-x:auto;padding-bottom:var(--sp-2);margin-bottom:var(--sp-5)}
+.queue-item{flex:0 0 260px;display:flex;gap:var(--sp-3);text-align:left;background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-4);cursor:pointer}
+.queue-item[aria-current]{border-color:var(--accent);background:var(--accent-soft)}
+.queue-item b{display:block}
+.queue-item small{display:block;font-size:var(--fs-14);color:var(--ink-2)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:6px var(--sp-4);margin:0 0 var(--sp-4)}
+dt{color:var(--ink-2);font-size:var(--fs-16)}
+dd{margin:0;font-weight:700;text-align:right}
+.fine{font-size:var(--fs-14);color:var(--ink-2)}
+.field-error{display:block;margin-top:6px;font-size:var(--fs-14);font-weight:700;color:var(--bad)}
+.hours-grid{display:grid;grid-template-columns:120px 130px 1fr 1fr;gap:var(--sp-3);align-items:center;
+  padding:10px 0;border-bottom:2px solid var(--panel)}
+.hours-grid input[type=time]{min-height:var(--tap);padding:0 var(--sp-3);border:2px solid var(--line-ctl);
+  border-radius:var(--r-1);font-family:var(--font-num)}
+@media (max-width:899px){ .hours-grid{grid-template-columns:1fr 1fr} .hours-grid>strong{grid-column:1/-1} }
+.check-row{display:flex;gap:var(--sp-3);align-items:center;margin:var(--sp-3) 0}
+.check-row input{width:22px;height:22px;accent-color:var(--accent);flex:none}
+.pilot-banner{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;flex-wrap:wrap;
+  background:var(--warn-soft);border-bottom:2px solid var(--warn);color:var(--warn);
+  padding:10px var(--sp-4);font-size:var(--fs-16)}
+.sales{width:100%;border-collapse:collapse;font-size:var(--fs-16)}
+.sales th,.sales td{padding:10px var(--sp-3);border-bottom:2px solid var(--panel);text-align:left}
+.sales td:not(:first-child),.sales th:not(:first-child){text-align:right;font-family:var(--font-num)}
 
-/* ── 1.21 ชำระเงิน / QR พร้อมเพย์ ──────────────────────────────────── */
-.pay-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:var(--s5);align-items:start}
-@media (max-width:899px){ .pay-layout{grid-template-columns:1fr} }
-.pay-qr{width:230px;height:230px;margin:var(--s4) auto var(--s2);border:1px solid var(--line);
-  border-radius:var(--radius);background:#fff;display:grid;place-items:center;padding:10px}
-.pay-qr svg{width:100%;height:100%;display:block}
-.pay-amount{text-align:center;font:700 30px/1.4 var(--font-num);color:var(--primary)}
-.steps-num{margin:0;padding:0;list-style:none;counter-reset:s}
-.steps-num li{counter-increment:s;display:flex;gap:var(--s3);align-items:flex-start;
-  padding:var(--s2) 0;font-size:15px;line-height:1.65}
-.steps-num li::before{content:counter(s);flex:none;display:grid;place-items:center;
-  width:26px;height:26px;border-radius:50%;background:var(--tint);color:var(--primary);
-  font:700 13px/1 var(--font-num);margin-top:2px}
-.countdown{display:flex;gap:var(--s2);align-items:center;justify-content:center;
-  font-weight:600;color:var(--accent);margin-bottom:var(--s2)}
-.dropzone{display:grid;place-items:center;text-align:center;gap:var(--s1);
-  border:2px dashed #71838C;border-radius:var(--radius);background:var(--paper);
-  padding:var(--s5) var(--s4);color:var(--muted);font-size:14px;cursor:pointer}
-.dropzone b{color:var(--primary);font-size:15px}
+/* ชื่อยาวต้องขึ้นบรรทัดที่สองแทนการถูกตัด — ชื่อคนละคนที่ขึ้นต้นเหมือนกัน
+   จะแยกไม่ออกถ้าตัดท้ายทิ้ง (QA ข้อ ค) */
+.item .who b,.result .rname,.utable td b{overflow-wrap:anywhere}
+.item .who b{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
-/* ── 1.22 ตั้งค่าข้อมูลยิม ─────────────────────────────────────────── */
-/* 4 คอลัมน์บนคอม → 2 บนแท็บเล็ต → ป้ายวันเต็มแถวบนมือถือ */
-.hours-grid{display:grid;grid-template-columns:110px 1fr 1fr 150px;gap:var(--s3);
-  align-items:center;padding:10px 0;border-bottom:1px solid var(--line-soft)}
-.hours-grid:last-of-type{border-bottom:0}
-.hours-grid input[type=time]{width:100%;min-height:46px;padding:8px 10px;
-  border:1px solid #71838C;border-radius:6px;font:16px/1.65 var(--font-num)}
-.hours-day{font-weight:600}
-.hours-closed{display:flex;gap:var(--s2);align-items:center;font-size:14px;color:var(--muted)}
-.hours-closed input{width:20px;height:20px;accent-color:var(--primary)}
-@media (max-width:899px){
-  .hours-grid{grid-template-columns:1fr 1fr;gap:var(--s2) var(--s3);padding:var(--s3) 0}
-  .hours-day{grid-column:1/-1}
-  .hours-closed{grid-column:1/-1}
-}
+/* กล้องจริงในกรอบสแกนของจอมืด */
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam.off video{display:none}
+.cam > .camhint{position:relative;z-index:2;text-align:center;padding:var(--sp-4);
+  background:rgba(0,0,0,.45);border-radius:var(--r-1)}
 
-/* ── 1.23 STATE: โหลด / ไม่มีข้อมูล / เน็ตหลุด / error ───────────────── */
-/* โหลด — โครงเทาแทนสปินเนอร์ ผู้ใช้เห็นว่ากำลังจะได้อะไร */
-.skeleton{background:linear-gradient(90deg,#E7ECEC 25%,#F2F5F5 50%,#E7ECEC 75%);
-  background-size:400% 100%;border-radius:6px;animation:sk 1.4s ease-in-out infinite}
-@keyframes sk{0%{background-position:100% 0}100%{background-position:0 0}}
-@media (prefers-reduced-motion:reduce){ .skeleton{animation:none} }
-.sk-line{height:14px;margin-bottom:10px}
-.sk-line.t{height:20px;width:45%}
-.sk-line.s{width:70%}
-.sk-line.xs{width:35%;margin-bottom:0}
-.sk-row{display:flex;gap:var(--s3);align-items:center;padding:var(--s3) 0;
-  border-bottom:1px solid var(--line-soft)}
-.sk-row:last-child{border-bottom:0}
-.sk-avatar{flex:none;width:40px;height:40px;border-radius:50%}
-.loading-note{display:flex;gap:var(--s2);align-items:center;color:var(--muted);
-  font-size:14px;margin-top:var(--s3)}
-/* ไม่มีข้อมูล — บอกสาเหตุ แล้วชี้ทางออกด้วยปุ่มเดียว */
-.empty{text-align:center;color:var(--muted);padding:var(--s6) var(--s4)}
-.empty .ico{width:40px;height:40px;color:#9AABAF;margin-bottom:var(--s3)}
-.empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:var(--s1)}
-.empty p{max-width:380px;margin:0 auto var(--s4);font-size:14px}
-/* เน็ตหลุด / error — สีต่างกันและมีปุ่มลองใหม่เสมอ */
-.state-box{display:flex;gap:var(--s4);align-items:flex-start;padding:var(--s5);
-  border:1px solid;border-radius:var(--radius)}
-.state-box .ico{width:28px;height:28px;flex:none;margin-top:2px}
-.state-box h3{margin-bottom:var(--s1)}
-.state-box p{font-size:14px;margin-bottom:var(--s3)}
-.state-box.offline{background:var(--accent-tint);border-color:#CFA478;color:#6F3A11}
-.state-box.error{background:var(--danger-tint);border-color:#CF9990;color:#7A221A}
-.state-box .btn{background:var(--surface)}
-@media (max-width:560px){ .state-box{flex-direction:column;gap:var(--s3)} }
-/* ป้ายกำกับตัวอย่างในหน้ารวม state */
-.spec{font:600 12px/1.6 var(--font-num);letter-spacing:.8px;text-transform:uppercase;
-  color:var(--muted);border:1px solid var(--line);border-radius:999px;
-  padding:2px 10px;display:inline-block;margin-bottom:var(--s3)}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   บล็อก 3/3 — คลาสของระบบที่ยังใช้อยู่ ไม่ได้อยู่ในชุดของ Designer
-   ทุกอย่างที่นี่ใช้ token เดิมทั้งหมด ไม่มีสีหรือระยะที่คิดขึ้นใหม่
-   ═══════════════════════════════════════════════════════════════════════ */
-
-/* ── นาวิเกชันเป็นปุ่ม ไม่ใช่ลิงก์ ─────────────────────────────────────
-   หน้าจอเปลี่ยนด้วยสถานะในหน้าเดียว ไม่มี URL ให้ไป การใช้ลิงก์ที่ไม่พาไป
-   ไหนจะบอกเครื่องอ่านหน้าจอผิด ปุ่มจึงตรงกว่า และรับรูปลักษณ์เดียวกับ
-   .sidenav a / .tabnav a ทุกประการ */
-.sidenav button{display:flex;align-items:center;gap:var(--s3);min-height:44px;width:100%;
-  padding:10px 14px;border:0;border-radius:10px;background:none;color:var(--ink);
-  font:600 15px/1.5 var(--font);text-align:left;cursor:pointer}
-.sidenav button:hover{background:var(--tint);color:var(--primary)}
-.sidenav button[aria-current=page]{background:var(--primary);color:#fff}
-.tabnav button{display:flex;align-items:center;justify-content:center;gap:var(--s2);
-  min-height:52px;padding:0 var(--s4);border:0;border-bottom:3px solid transparent;
-  margin-bottom:-1px;background:none;color:var(--muted);font:600 16px/1.5 var(--font);cursor:pointer}
-.tabnav button:hover{color:var(--primary);background:none}
-.tabnav button[aria-current=page]{color:var(--primary);border-bottom-color:var(--primary)}
-@media (max-width:1099px){
-  .sidenav button{flex:1;flex-direction:column;gap:2px;min-height:58px;justify-content:center;
-    padding:6px 2px;font-size:11px;line-height:1.4;border-radius:var(--radius-sm);
-    text-align:center;color:var(--muted)}
-  .sidenav button:hover{background:transparent}
-  .sidenav button[aria-current=page]{background:transparent;color:var(--primary)}
-}
-@media (max-width:767px){
-  .tabnav button{flex:1;flex-direction:column;gap:2px;min-height:58px;padding:6px 2px;
-    font-size:11px;line-height:1.4;border:0;border-top:3px solid transparent;margin:0;
-    border-radius:var(--radius-sm)}
-  .tabnav button[aria-current=page]{border-top-color:var(--primary)}
-}
-
-/* ── ปุ่มทั่วไป ───────────────────────────────────────────────────────
-   ระบบเขียนปุ่มเปล่าไว้หลายร้อยจุด จึงให้หน้าตาเดียวกับ .btn ของชุด
-   ออกแบบ แทนการไล่เติมคลาสทีละที่ ซึ่งเสี่ยงกว่าโดยไม่ได้อะไรเพิ่ม */
-button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);
-  min-height:46px;padding:10px 18px;border:1px solid var(--line);border-radius:var(--radius-sm);
-  background:var(--surface);color:var(--primary);font:600 16px/1.5 var(--font);
-  cursor:pointer}
-button:hover{background:var(--tint)}
-button.primary{background:var(--primary);border-color:var(--primary);color:#fff}
-button.primary:hover{background:var(--primary-dark)}
-button.danger{color:var(--danger);border-color:var(--danger);background:var(--surface)}
-button.danger:hover{background:var(--danger-tint)}
-button.full{width:100%}
-button[disabled]{background:var(--line-soft);border-color:#B7C2C5;color:var(--muted);cursor:not-allowed}
-.sidenav button,.tabnav button{white-space:normal}
-
-/* ── แถวรายการที่ยังไม่ใช่ตาราง (รหัส OTP, ประวัติเช็คอิน, คิวสลิป) ──── */
-.member-list{display:flex;flex-direction:column}
-.member-row{display:flex;gap:var(--s3);align-items:center;justify-content:space-between;
-  width:100%;padding:var(--s3) 0;border:0;border-bottom:1px solid var(--line-soft);
-  border-radius:0;background:none;color:inherit;font:inherit;text-align:left;min-height:56px}
-.member-row:last-child{border-bottom:0}
-button.member-row:hover{background:var(--tint)}
-.member-name{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
-.member-name strong{font-weight:600;overflow-wrap:anywhere}
-.member-name small{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
-.list-avatar{flex:none;width:40px;height:40px;border-radius:50%;background:var(--tint);
-  color:var(--primary);display:grid;place-items:center;font:700 15px/1 var(--font)}
-@media (max-width:767px){
-  .member-row{flex-wrap:wrap;align-items:flex-start}
-  .member-row .inline-field{width:100%}
-}
-
-/* ── ป้ายสถานะเดิม (.badge, .tag) ใช้รูปทรงเดียวกับ .chip ───────────── */
-.badge,.tag{display:inline-flex;align-items:center;gap:6px;padding:3px 12px;
-  border:1px solid var(--line);border-radius:999px;background:var(--surface);
-  color:var(--muted);font-size:13px;font-weight:600;white-space:nowrap}
-.badge.active,.tag.active{color:var(--primary);background:var(--tint);border-color:#8FB8AC}
-.badge.suspended,.tag.draft{color:var(--danger);background:var(--danger-tint);border-color:#CF9990}
-.badge.expired{color:var(--accent);background:var(--accent-tint);border-color:#CFA478}
-
-/* ── แท็บแบบชิป (ประวัติเช็คอิน, คิวสถานะคำสั่งซื้อ) ─────────────────── */
-.tabs{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4)}
-.tabs button{min-height:40px;padding:6px 16px;border-radius:999px;font-size:14px;color:var(--ink)}
-.tabs button[aria-current=page]{background:var(--primary);border-color:var(--primary);color:#fff}
-
-/* ── ฟอร์ม ──────────────────────────────────────────────────────────── */
-.field-error{color:var(--danger);font-size:13px;font-weight:600}
-.field input[aria-invalid=true]{border-color:var(--danger)}
-.inline-field{margin-bottom:0;min-width:190px}
-.narrow{max-width:640px}
-.row-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4)}
-@media (max-width:767px){ .row-2{grid-template-columns:1fr;gap:0} }
-.secondary-actions{display:flex;flex-wrap:wrap;gap:var(--s3);margin-top:var(--s5);
-  padding-top:var(--s4);border-top:1px solid var(--line-soft)}
-details{margin-bottom:var(--s4)}
-summary{cursor:pointer;font-weight:600;color:var(--primary);min-height:44px;
-  display:flex;align-items:center}
-
-/* ── หน้าแรกสาธารณะ / เข้าสู่ระบบ — ชื่อคลาสเดิม บนโครง .hero ของชุด ── */
-.login-layout{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:var(--s7);
-  align-items:start;padding-block:var(--s6) var(--s7)}
-.welcome h1{font-size:38px;line-height:1.45;margin-bottom:var(--s3)}
-.welcome p{font-size:18px;color:var(--muted)}
-.welcome-line{width:56px;height:4px;background:var(--primary);margin:var(--s5) 0}
-.login-actions{display:flex;flex-wrap:wrap;gap:var(--s2);margin:var(--s4) 0 var(--s3)}
-.public-info{grid-column:1/-1}
-.public-info dl{display:grid;grid-template-columns:auto 1fr;gap:var(--s2) var(--s4);margin:0 0 var(--s4)}
-.public-info dt{color:var(--muted);font-size:14px}
-.public-info dd{margin:0;font-weight:600;text-align:right}
-@media (max-width:899px){
-  .login-layout{grid-template-columns:1fr;gap:var(--s5);padding-block:var(--s5)}
-  .welcome h1{font-size:30px}
-  .welcome p{font-size:16px}
-  .welcome-line{margin:var(--s4) 0}
-}
-
-/* ── หน้าสมาชิก ─────────────────────────────────────────────────────── */
-/* minmax(0,1fr) not auto: an auto grid column sizes to its widest content,
-   which is how a 200px QR card ended up 530px wide on a 390px phone. */
-.member-shell{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s4)}
-.member-shell > *{min-width:0}
-.member-card .eyebrow{color:#BFDCD4}
-/* The QR is a data URL rendered at its natural 512px unless told otherwise.
-   240px is the size the member guide tells people to hold up to a scanner. */
-.checkin-qr{width:240px;max-width:100%;height:auto;display:block;margin:0 auto;
-  border:1px solid var(--line);border-radius:var(--radius);background:#fff;padding:8px}
-.qr-image{width:200px;height:200px;display:block;margin:0 auto}
-.qr-hint{font-size:13px;color:var(--muted);text-align:center}
-.card-foot{display:flex;flex-wrap:wrap;gap:var(--s3);justify-content:space-between;
-  align-items:center;margin-top:var(--s4);padding-top:var(--s3);border-top:1px solid var(--line-soft)}
-.qr-amount{font:700 26px/1.4 var(--font-num);color:var(--primary);text-align:center;margin-bottom:var(--s2)}
-.slip-preview{max-width:100%;border-radius:var(--radius-sm);border:1px solid var(--line)}
-
-/* ── หน้าตรวจสลิปของแอดมิน ──────────────────────────────────────────── */
-.slip-review{width:100%;border-radius:var(--radius-sm);border:1px solid var(--line);display:block}
-.review-grid dl{display:grid;grid-template-columns:auto 1fr;gap:var(--s2) var(--s4);margin:0 0 var(--s4)}
-.review-grid dt{color:var(--muted);font-size:14px}
-.review-grid dd{margin:0;font-weight:600;text-align:right;overflow-wrap:anywhere}
-
-/* ── หน้าสแกน ───────────────────────────────────────────────────────── */
-.scan-icon{flex:none;width:76px;height:76px;border-radius:50%;border:2px solid;background:#fff;
-  display:grid;place-items:center;font:700 44px/1 var(--font-num)}
-.scan-member{font-size:20px;font-weight:600;margin:0 0 var(--s1)}
-.scan-reason{margin:0}
-.camera{margin-bottom:var(--s4)}
-.camera-view{width:100%;aspect-ratio:4/3;border:1px solid var(--line);border-radius:var(--radius);
-  background:#101A1F;display:block;object-fit:cover}
-
-/* ── ตารางสรุปยอดขายและประวัติการแก้ไข ──────────────────────────────── */
-.sales{width:100%;border-collapse:collapse}
-.sales th{text-align:left;padding:10px var(--s3);font-size:13px;font-weight:600;
-  color:var(--muted);border-bottom:1px solid var(--line)}
-.sales td{padding:var(--s3);border-bottom:1px solid var(--line-soft);font-family:var(--font-num)}
-.audit{margin-top:var(--s5);padding-top:var(--s4);border-top:1px solid var(--line-soft)}
-.audit > div{padding:var(--s2) 0;border-bottom:1px solid var(--line-soft)}
-
-/* ── รหัส OTP ในโหมดทดลอง ───────────────────────────────────────────── */
-.otp-code{font:700 30px/1.4 var(--font-num);letter-spacing:.32em;color:var(--primary);margin:6px 0}
-.otp-code.used{font:600 14px/1.6 var(--font);letter-spacing:normal;color:var(--muted)}
-.pilot-otp{background:var(--accent-tint);border-color:#CFA478}
-
-/* การ์ดแพ็กเกจของแอดมินเป็นปุ่ม จึงต้องล้างรูปลักษณ์ปุ่มทั่วไปออก และ
-   หัวการ์ดต้องขึ้นบรรทัดใหม่ได้เมื่อชื่อยาวชนราคาบนจอแคบ */
-button.pkg-card{text-align:left;min-height:0;color:inherit}
-button.pkg-card:hover{background:var(--tint)}
-.pkg-head{flex-wrap:wrap}
-
-/* ชื่อยิมและชื่ออังกฤษเป็นคนละบรรทัด ไม่ใช่ข้อความต่อกัน */
-.brand-name,.brand-sub{display:block}
-
-/* ── เมนู "เพิ่มเติม" บนมือถือ ────────────────────────────────────────
-   ชุดออกแบบซ่อน .nav-secondary และแสดง .nav-mobile-only ไว้แล้ว ที่เหลือคือ
-   ทำให้ปุ่มนั้นเปิดรายการที่ซ่อนอยู่ขึ้นมาเหนือแถบล่าง */
-@media (max-width:1099px){
-  .sidenav .sidenav-group.is-open{display:flex;flex-direction:column;position:fixed;
-    inset:auto 8px 74px 8px;z-index:41;background:var(--surface);border:1px solid var(--line);
-    border-radius:var(--radius);box-shadow:var(--shadow);padding:var(--s2)}
-  .sidenav .sidenav-group.is-open .nav-secondary{display:flex;flex:none;flex-direction:row;
-    gap:var(--s3);min-height:48px;padding:10px 14px;font-size:15px;text-align:left;
-    justify-content:flex-start;color:var(--ink)}
-  .sidenav .sidenav-group.is-open .nav-secondary[aria-current=page]{color:var(--primary);background:var(--tint)}
-  .nav-scrim{position:fixed;inset:0;z-index:39;border:0;border-radius:0;padding:0;min-height:0;
-    background:rgba(23,43,54,.28)}
-}
-
-/* ── หน้าชำระเงินและหน้าแพ็กเกจของสมาชิก (ต้นแบบหน้า 8-9) ───────────── */
-/* ปุ่มซื้ออยู่ก้นการ์ดเสมอ การ์ดสองใบข้างกันจึงมีปุ่มตรงแนวเดียวกัน */
-.pkg-buy{margin-top:auto}
-.pay-qr .qr-image{width:100%;height:100%;max-width:210px;max-height:210px;margin:0}
-.pay-amount,.countdown{margin:0 0 var(--s2)}
-/* มุมขวาของหัวเรื่อง: ราคาและป้ายสถานะ */
-.heading-side{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center}
-/* ช่องเลือกไฟล์ของเบราว์เซอร์อยู่ในกรอบเส้นประ ไม่ได้ซ่อน เพราะปุ่มจริง
-   ของระบบปฏิบัติการคือสิ่งที่เปิดกล้องหรือคลังภาพบนมือถือได้ */
-.dropzone input[type=file]{max-width:100%;font:14px/1.6 var(--font);color:var(--muted)}
-
-/* QR เช็คอินที่หมดอายุแล้วต้องไม่ดูเหมือนใช้ได้ */
-.checkin-qr.is-stale{opacity:.25;filter:grayscale(1)}
-
-/* ลิงก์ที่ต้องดูเป็นปุ่ม (เช่น "บันทึกรูป QR" ที่ต้องเป็น <a download>) */
-a.button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);
-  min-height:46px;padding:10px 18px;border:1px solid var(--line);border-radius:var(--radius-sm);
-  background:var(--surface);color:var(--primary);font:600 16px/1.5 var(--font);
-  text-decoration:none;cursor:pointer}
-a.button:hover{background:var(--tint)}
-a.button.full{width:100%}
-
-/* ปุ่มย้อนกลับเป็นข้อความ ไม่ใช่แถบเต็มความกว้างเหนือหัวเรื่อง */
-button.back{justify-self:start;align-self:start;width:auto;min-height:0;
-  padding:4px 0;border:0;background:none;font-weight:600}
-button.back:hover{background:none;color:var(--primary-dark)}
-
-/* ── แอปเคาน์เตอร์: รูปสมาชิก บัตร และผลการสแกน ─────────────────────
-   รูปถ่ายคือด่านเดียวที่กันการส่งบัตรต่อให้เพื่อนได้จริง หน้าจอจึงต้องทำให้
-   "มองหน้า" ง่ายกว่า "กดผ่าน" — รูปมาก่อนคำว่าเข้าได้ และใหญ่กว่า */
-.scan-photo{flex:none;width:200px;height:200px;border-radius:50%;object-fit:cover;
-  border:4px solid currentColor;background:var(--surface)}
-.empty-photo{display:grid;place-items:center;color:var(--muted);background:var(--line-soft);
-  font:600 15px/1.5 var(--font);border:2px dashed #71838C}
-.scan-check{margin:var(--s3) 0 var(--s2);font-weight:600}
-.scan-result .scan-icon{width:52px;height:52px;font-size:26px;margin-bottom:var(--s2)}
-@media (max-width:719px){
-  .scan-result{flex-direction:column;text-align:center}
-  .scan-photo{width:160px;height:160px}
-}
-
-/* รูปถ่ายในหน้าสมาชิก */
-.photo-row{display:flex;gap:var(--s5);align-items:flex-start;flex-wrap:wrap}
-.photo-row > div{flex:1 1 240px;min-width:0}
-.member-photo{flex:none;width:160px;height:160px;border-radius:50%;object-fit:cover;border:1px solid var(--line)}
-.photo-capture .camera-view{max-width:320px;aspect-ratio:1/1;object-fit:cover}
-img.avatar{object-fit:cover}
-
-/* บัตรสมาชิกเป็นรูปภาพ แสดงตามสัดส่วนจริง 4:5 ไม่ยืด */
-.member-card-image{display:block;width:100%;max-width:320px;margin:var(--s4) auto;
-  border-radius:var(--radius);border:1px solid var(--line);box-shadow:var(--shadow)}
+/* รูปถ่ายจริงแทนภาพตัวอย่างของต้นแบบ */
+.rface img,.mini img,.av img,.face img{width:100%;height:100%;object-fit:cover;display:block}
+.rface,.mini,.av{overflow:hidden}
+.av{display:grid;place-items:center;color:var(--ink-2);font-weight:700}
+/* The card beside the buttons, and the three steps beside the summary. Here
+   rather than inline on the element, because an inline grid-template is a rule
+   no media query can reach: on a phone it kept a 320px second column and the
+   whole page scrolled sideways. */
+.cardgrid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--sp-6);align-items:start}
+@media (max-width:899px){ .cardgrid{grid-template-columns:1fr} }
+.cardshot{display:block;width:100%;border:2px solid var(--line-strong);border-radius:var(--r-2)}
+.photoframe{position:relative;aspect-ratio:1/1;max-width:440px;margin:0 auto;background:var(--dark);
+  border-radius:var(--r-2);overflow:hidden}
+.photoframe video,.photoframe img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.photoframe .ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:66%;aspect-ratio:1;
+  border:4px dashed rgba(255,255,255,.75);border-radius:50%}
+.photoframe .tip{position:absolute;left:0;right:0;bottom:0;padding:12px;background:rgba(0,0,0,.62);
+  color:#fff;font-size:var(--fs-16);font-weight:600;text-align:center}

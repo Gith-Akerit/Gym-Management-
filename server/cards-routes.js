@@ -4,15 +4,26 @@
 // picture, and hands them the card. Only reissuing is the owner's, because a
 // reissue quietly cancels the card somebody is already carrying.
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
 import { audit, getGym, getMember, publicMember, transaction } from './db.js';
-import { cardQrFor, CardRenderError, renderCard } from './cards.js';
+import { cardQrFor, CardRenderError, renderCard, shrinkPhoto } from './cards.js';
 import { SlipError } from './slips.js';
 import { HttpError, parse } from './validation.js';
 
 /** A face needs far fewer bytes than a bank slip, and phones send far more. */
 export const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+
+/**
+ * How long a "send the card again" link lives.
+ *
+ * Seven days, because the reason it exists is that a member lost the picture
+ * and messaged the gym about it -- a link that dies before somebody gets round
+ * to opening it is a link that generates a second phone call. It is signed and
+ * carries the card number, so it stops working the moment the card is reissued.
+ */
+export const CARD_LINK_TTL_MS = 7 * 86400000;
 
 const dateTh = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' })
   .format(new Date(value));
@@ -26,25 +37,62 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
     return member;
   };
 
-  /** What the bottom of the card says: the package, or why there is not one. */
-  function subtitleFor(memberId) {
+  /**
+   * What the bottom of the card says: the package, or nothing.
+   *
+   * Nothing is `null`, not the words "ยังไม่มีแพ็กเกจ" -- the same shape the
+   * member list returns, so a screen can test it rather than compare strings.
+   * The card renderer is the one place that turns an absent package into words.
+   */
+  function membershipFor(memberId) {
     const entitlement = db.prepare(`SELECT e.*, p.name_th FROM entitlements e
       JOIN packages p ON p.id=e.package_id
       WHERE e.member_id=? AND e.status='active' AND e.expires_at>?
       ORDER BY e.expires_at DESC LIMIT 1`).get(memberId, now());
-    if (!entitlement) return 'ยังไม่มีแพ็กเกจที่ใช้งานได้';
-    const sessions = entitlement.sessions_remaining === null
-      ? 'ไม่จำกัดครั้ง' : `เหลือ ${entitlement.sessions_remaining} ครั้ง`;
-    return `${entitlement.name_th} · ${sessions} · ใช้ได้ถึง ${dateTh(entitlement.expires_at)}`;
+    if (!entitlement) return { package: null, expires: null, expires_at: null, sessions_remaining: null };
+    return {
+      package: entitlement.name_th,
+      expires: dateTh(entitlement.expires_at),
+      expires_at: entitlement.expires_at,
+      sessions_remaining: entitlement.sessions_remaining,
+    };
+  }
+
+  const readPhoto = member => {
+    if (!member.photo_stored_name) return null;
+    try { return photoStore?.read(member.photo_stored_name) ?? null; } catch { return null; }
+  };
+
+  async function draw(member, { voided = false } = {}) {
+    return renderCard({
+      member,
+      gym: db.prepare('SELECT * FROM gym_profile WHERE id=1').get() ?? getGym(db).profile,
+      qr: cardQrFor(secret, member),
+      photo: readPhoto(member),
+      membership: membershipFor(member.id),
+      voided,
+    });
+  }
+
+  function sendCard(res, member, png) {
+    res.set('Content-Type', 'image/png');
+    // The name the browser suggests when staff save it to send on: a folder of
+    // card.png files helps nobody.
+    res.set('Content-Disposition', `inline; filename="${member.member_code}.png"`);
+    res.send(png);
   }
 
   // ------------------------------------------------------------- photograph
 
-  app.put('/api/members/:id/photo', counter, upload.single('photo'), (req, res) => {
+  app.put('/api/members/:id/photo', counter, upload.single('photo'), async (req, res) => {
     if (!photoStore) throw new HttpError(503, 'ระบบยังไม่ได้ตั้งค่าที่เก็บรูป กรุณาติดต่อผู้ดูแลระบบ');
     const member = load(req.params.id);
     let saved;
-    try { saved = photoStore.save(req.file?.buffer); }
+    // Down to 700px on the long edge before anything is written: the card draws
+    // the face at 232 and the scan screen at about 300, so the rest of a phone
+    // camera's pixels are disk and waiting time nobody sees (Mika).
+    const bytes = req.file?.buffer ? await shrinkPhoto(req.file.buffer) : req.file?.buffer;
+    try { saved = photoStore.save(bytes); }
     catch (error) {
       if (error instanceof SlipError) throw new HttpError(400, error.message);
       throw error;
@@ -66,9 +114,7 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
   app.get('/api/members/:id/photo', counter, (req, res) => {
     const member = load(req.params.id);
     if (!member.photo_stored_name) throw new HttpError(404, 'สมาชิกรายนี้ยังไม่มีรูปถ่าย');
-    let bytes;
-    try { bytes = photoStore?.read(member.photo_stored_name); }
-    catch { throw new HttpError(404, 'ไม่พบไฟล์รูปถ่าย'); }
+    const bytes = readPhoto(member);
     if (!bytes) throw new HttpError(404, 'ไม่พบไฟล์รูปถ่าย');
     res.set('Content-Type', member.photo_content_type);
     // no-store is set for every /api response: a face is not something a shared
@@ -78,12 +124,65 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
 
   // -------------------------------------------------------------- the card
 
+  /**
+   * A link the gym can paste into a chat when a member loses the picture.
+   *
+   * Signed rather than stored: the counter hands these out casually and a row
+   * per handout is a table nobody prunes. The signature covers the card number,
+   * so reissuing a card kills every link to the old one at the same moment it
+   * kills the card itself.
+   */
+  const linkSignature = (memberId, version, expires) =>
+    createHmac('sha256', secret).update(`cardlink:${memberId}:${version}:${expires}`).digest('hex').slice(0, 32);
+
+  function checkLink(memberId, version, expires, signature) {
+    if (!/^\d+$/.test(String(expires)) || !/^[0-9a-f]{32}$/.test(String(signature ?? ''))) return false;
+    const expected = linkSignature(memberId, version, expires);
+    if (!timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'))) return false;
+    return Number(expires) > now();
+  }
+
+  app.post('/api/members/:id/card/link', counter, (req, res) => {
+    const member = load(req.params.id);
+    const expires = now() + CARD_LINK_TTL_MS;
+    const signature = linkSignature(member.id, member.card_version, expires);
+    audit(db, req.user.id, 'member.card_link', member.id, null,
+      { card_version: member.card_version, expires_at: expires }, now());
+    res.json({
+      url: `/card/${member.id}.png?v=${member.card_version}&e=${expires}&s=${signature}`,
+      expires_at: expires,
+      card_version: member.card_version,
+    });
+  });
+
+  /**
+   * The link itself. Outside /api on purpose: it is opened by whoever the gym
+   * sent it to, in a browser with no session, and the path is what they see.
+   */
+  app.get('/card/:id.png', async (req, res, next) => {
+    try {
+      const member = getMember(db, req.params.id);
+      const { v, e, s } = req.query;
+      if (!member || Number(v) !== member.card_version || !checkLink(member.id, member.card_version, e, s)) {
+        // One message for every way of failing: a wrong signature, an expired
+        // link and a reissued card are the same answer to whoever is holding it.
+        return res.status(404).type('text/plain; charset=utf-8')
+          .send('ลิงก์นี้หมดอายุหรือถูกยกเลิกแล้ว กรุณาขอลิงก์ใหม่จากยิม');
+      }
+      res.set('Cache-Control', 'no-store');
+      sendCard(res, member, await draw(member));
+    } catch (error) {
+      if (error instanceof CardRenderError) return next(new HttpError(503, error.message));
+      next(error);
+    }
+  });
+
   app.get('/api/members/:id/card', counter, (req, res) => {
     const member = load(req.params.id);
     res.json({
       member: publicMember(member),
       qr: cardQrFor(secret, member),
-      subtitle: subtitleFor(member.id),
+      membership: membershipFor(member.id),
       card_version: member.card_version,
       card_issued_at: member.card_issued_at,
     });
@@ -92,21 +191,10 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
   app.get('/api/members/:id/card.png', counter, async (req, res, next) => {
     try {
       const member = load(req.params.id);
-      const photo = member.photo_stored_name
-        ? (() => { try { return photoStore?.read(member.photo_stored_name); } catch { return null; } })()
-        : null;
-      const png = await renderCard({
-        member,
-        gym: db.prepare('SELECT * FROM gym_profile WHERE id=1').get() ?? getGym(db).profile,
-        qr: cardQrFor(secret, member),
-        photo,
-        subtitle: subtitleFor(member.id),
-      });
-      res.set('Content-Type', 'image/png');
-      // The name the browser suggests when staff save it to send on: a folder
-      // of card.png files helps nobody.
-      res.set('Content-Disposition', `inline; filename="${member.member_code}.png"`);
-      res.send(png);
+      // ?voided=1 draws the cancelled version for the history screen. It is
+      // never sent to a member; it exists so an admin can see which picture is
+      // the dead one (Designer).
+      sendCard(res, member, await draw(member, { voided: req.query.voided === '1' }));
     } catch (error) {
       if (error instanceof CardRenderError) return next(new HttpError(503, error.message));
       next(error);

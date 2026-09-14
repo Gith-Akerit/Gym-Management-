@@ -117,7 +117,7 @@ def configure(root, clear_admin=False, pilot=False):
                       APP_ORIGIN='https://srv1979069.hstgr.cloud', TRUST_PROXY='1',
                       DATABASE_PATH='/data/gym.sqlite', SLIP_STORAGE_PATH='/data/slips',
                       PHOTO_STORAGE_PATH='/data/photos',
-                      SLIP_RETENTION_DAYS='365', OTP_SECRET=secrets.token_hex(32),
+                      SLIP_RETENTION_DAYS='365', CARD_SIGNING_SECRET=secrets.token_hex(32),
                       ADMIN_EMAIL=admin, ADMIN_PASSWORD=admin_password,
                       ALLOW_DESTRUCTIVE_ROLLBACK='')
         # A pilot has no merchant account yet. The key is written empty rather

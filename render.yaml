@@ -35,7 +35,7 @@ services:
         value: "1"
       # Generated once and then kept. Changing it signs everybody out and
       # invalidates every OTP in flight, so do not "refresh" it.
-      - key: OTP_SECRET
+      - key: CARD_SIGNING_SECRET
         generateValue: true
 
       # Filled in from the Render dashboard; never committed.

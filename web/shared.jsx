@@ -74,20 +74,25 @@ export async function upload(path, formData, method = 'POST') {
   return data;
 }
 
-export function Field({ label, name, value, onChange, error, children, ...props }) {
-  return <label className="field">{label}
+export function Field({ label, name, value, onChange, error, hint, children, ...props }) {
+  return <div className={`field${error ? ' invalid' : ''}`}>
+    <label htmlFor={name}>{label}</label>
     {children
-      ? React.cloneElement(children, { name, value: value ?? '', onChange: e => onChange(e.target.value), 'aria-invalid': !!error })
-      : <input name={name} value={value ?? ''} onChange={e => onChange(e.target.value)}
+      ? React.cloneElement(children, { id: name, name, value: value ?? '', onChange: e => onChange(e.target.value), 'aria-invalid': !!error })
+      : <input id={name} name={name} value={value ?? ''} onChange={e => onChange(e.target.value)}
           aria-invalid={!!error} aria-describedby={error ? `${name}-error` : undefined} {...props}/>}
-    {error && <span className="field-error" id={`${name}-error`}>{error}</span>}</label>;
+    {hint && !error && <p className="hint">{hint}</p>}
+    {error && <p className="err" id={`${name}-error`}>✕ {error}</p>}
+  </div>;
 }
 
-export function Notice({ error }) {
-  if (!error) return null;
-  return <div className="notice error" role="alert">
-    {error.message || error}
-    {error.requestId && <span className="fine"> (รหัสอ้างอิงสำหรับแจ้งปัญหา: {error.requestId})</span>}
+export function Notice({ error, children }) {
+  if (!error && !children) return null;
+  if (!error) return <div className="banner ok"><div className="ic" aria-hidden="true">✓</div><div>{children}</div></div>;
+  return <div className="banner bad" role="alert">
+    <div className="ic" aria-hidden="true">!</div>
+    <div><b>{error.message || error}</b>
+      {error.requestId && <span>รหัสอ้างอิงสำหรับแจ้งปัญหา: {error.requestId}</span>}</div>
   </div>;
 }
 
@@ -99,60 +104,59 @@ export function Notice({ error }) {
  */
 
 /** A grey outline the shape of the thing being fetched, not a spinner. */
-export function Skeleton({ rows = 3, avatar = false }) {
-  return <div aria-hidden="true">{Array.from({ length: rows }, (_, i) =>
-    <div className="sk-row" key={i}>
-      {avatar && <span className="skeleton sk-avatar"/>}
-      <span style={{ flex: 1 }}>
-        <span className="skeleton sk-line t" style={{ display: 'block' }}/>
-        <span className="skeleton sk-line s xs" style={{ display: 'block' }}/>
-      </span>
-    </div>)}</div>;
+export function Skeleton({ rows = 4, avatar = true }) {
+  const widths = [['46%', '72%'], ['38%', '64%'], ['52%', '68%'], ['42%', '58%']];
+  return <div className="list" aria-busy="true" aria-label="กำลังโหลด">
+    {Array.from({ length: rows }, (_, i) =>
+      <div className="skel-row" key={i}>
+        {avatar && <span className="skel skel-av"/>}
+        <span style={{ flex: 1 }}>
+          <span className="skel skel-line" style={{ width: widths[i % 4][0], height: 22, display: 'block' }}/>
+          <span className="skel skel-line" style={{ width: widths[i % 4][1], display: 'block' }}/>
+        </span>
+      </div>)}
+  </div>;
 }
 
-/** Cards rather than rows: the catalogue and the package screens load into this. */
-export function SkeletonCards({ count = 2 }) {
-  return <div aria-hidden="true">{Array.from({ length: count }, (_, i) =>
-    <div className="card" key={i}>
-      <span className="skeleton sk-line t" style={{ display: 'block' }}/>
-      <span className="skeleton sk-line s" style={{ display: 'block' }}/>
-      <span className="skeleton sk-line xs" style={{ display: 'block' }}/>
-    </div>)}</div>;
-}
-
-/** What is being waited for, in words, under the grey shapes. */
-export function Loading({ label, rows, cards, avatar }) {
+/** What is being waited for, in words, beside the grey shapes. */
+export function Loading({ label, rows, avatar }) {
   return <>
-    {cards ? <SkeletonCards count={cards}/> : <Skeleton rows={rows} avatar={avatar}/>}
-    <p className="loading-note" role="status">{label}</p>
+    <p className="sub" role="status">{label}</p>
+    <Skeleton rows={rows} avatar={avatar}/>
   </>;
 }
 
 /**
- * Nothing here, and why. An empty queue is a good state and gets no button; an
- * empty list somebody can fill gets exactly one.
+ * Nothing here, and why. Never only "no results": the Designer's rule is that
+ * an empty screen says what to try next and offers the way to do it.
  */
-export function Empty({ title, children, action }) {
-  return <div className="empty"><b>{title}</b><p>{children}</p>{action}</div>;
+export function Empty({ icon = '🔍', title, children, action }) {
+  return <div className="empty">
+    <div className="ic" aria-hidden="true">{icon}</div>
+    <b>{title}</b>
+    <p>{children}</p>
+    {action}
+  </div>;
 }
 
 /**
- * A request that did not come back. Losing the network is not the system's
- * fault and is drawn in the warning colour with what the member should try;
- * anything else is an error, and never shows a raw message or a stack trace.
+ * A request that did not come back. Losing the network is not the counter's
+ * fault: it is drawn with what to try, a way to try it, and a reminder that
+ * nothing was lost -- and never a raw message or a stack trace.
  */
 export function StateBox({ error, onRetry, children }) {
   if (!error) return null;
   const offline = !!error.offline;
-  return <div className={`state-box ${offline ? 'offline' : 'error'}`} role="alert">
-    <div>
-      <h3>{offline ? 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' : 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง'}</h3>
-      <p>{offline
-        ? 'กรุณาตรวจอินเทอร์เน็ตแล้วกดลองใหม่ ข้อมูลที่กรอกไว้ยังอยู่ ไม่ต้องกรอกซ้ำ'
-        : 'ถ้ายังไม่ได้ กรุณาติดต่อพนักงานที่เคาน์เตอร์หรือทาง LINE'}
-        {error.requestId && <span className="fine"> (รหัสอ้างอิงสำหรับแจ้งปัญหา: {error.requestId})</span>}</p>
+  return <div className="errbox" role="alert">
+    <div className="ic" aria-hidden="true">!</div>
+    <b>{offline ? 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' : 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง'}</b>
+    <p>{offline
+      ? 'อาจเป็นเพราะอินเทอร์เน็ตหลุดชั่วคราว ข้อมูลไม่ได้หายไปไหน ลองอีกครั้งได้เลย'
+      : 'ถ้าเกิดซ้ำหลายครั้ง แจ้งทีมติดตั้งพร้อมเวลาที่เกิด'}
+      {error.requestId && <span className="note"> (รหัสอ้างอิง: {error.requestId})</span>}</p>
+    <div className="btn-row" style={{ justifyContent: 'center', maxWidth: 420, margin: '0 auto' }}>
+      {onRetry && <button className="btn primary" onClick={() => onRetry()}>ลองอีกครั้ง</button>}
       {children}
-      {onRetry && <button onClick={() => onRetry()}>ลองใหม่</button>}
     </div>
   </div>;
 }

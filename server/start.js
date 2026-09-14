@@ -6,6 +6,7 @@ import { createApp } from './app.js';
 import { SlipStore } from './slips.js';
 import { MAX_PHOTO_BYTES } from './cards-routes.js';
 import { loadPromptPayId } from './promptpay.js';
+import { cardSecret } from './secret.js';
 
 /**
  * Pilot mode now means one thing: the gym has no PromptPay account yet. Staff
@@ -32,7 +33,11 @@ const db = openDatabase(process.env.DATABASE_PATH || './data/gym.sqlite');
 migrate(db);
 const app = createApp({
   db,
-  secret: process.env.OTP_SECRET,
+  // Renamed from OTP_SECRET: it signs the QR on every membership card, so it
+  // is a key that can never be rotated without invalidating every card the gym
+  // has already sent out. The old name is still read so an installed gym keeps
+  // working across the upgrade, and warns rather than silently depending on it.
+  secret: cardSecret(),
   origin: process.env.APP_ORIGIN,
   production: process.env.NODE_ENV === 'production',
   trustProxy: Number(process.env.TRUST_PROXY ?? 1),

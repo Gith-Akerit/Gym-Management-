@@ -1,7 +1,11 @@
-// Playwright refuses to start when port 4310 is still held by a test server it
-// failed to reap on a previous run. Clear it before handing over.
+// Playwright refuses to start when a port is still held by a test server it
+// failed to reap on a previous run. Clear ONLY the ports this run will use --
+// never a fixed pair, or two runs on one machine take turns killing each
+// other's servers.
 import { execFileSync } from 'node:child_process';
-const PORTS = [4310, 4311];
+import { UI_PILOT_PORT, UI_PORT } from './ports.js';
+
+const PORTS = [UI_PORT, UI_PILOT_PORT];
 try {
   const netstat = execFileSync('netstat', ['-ano']).toString().split('\n');
   for (const port of PORTS) {
