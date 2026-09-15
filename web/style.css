@@ -136,8 +136,14 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
   border:2px solid var(--line-strong);background:var(--surface);
   font-size:var(--fs-18);font-weight:700;cursor:pointer;transition:background var(--dur)}
 .btn:hover{background:var(--panel)}
-.btn.primary{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
-.btn.primary:hover{background:var(--brand-2);border-color:var(--brand-2);color:var(--on-brand-2)}
+/* ขอบใช้ --brand-line ไม่ใช่ --brand-surface เพราะสองค่านี้ตอบคนละคำถาม
+   --brand-surface ถูกดันจนตัวอักษรที่อยู่ "บนมัน" อ่านออก ไม่มีอะไรรับประกันว่า
+   มันจะต่างจากการ์ดที่มันวางอยู่ ยิมสีขาวจึงได้ปุ่มที่ตัวหนังสืออ่านสบาย 18:1
+   แต่ตัวปุ่มมองไม่เห็นเลย (1:1) ส่วน --brand-line คำนวณมาเทียบกับพื้นหน้าและ
+   รับประกัน 3:1 ซึ่งเป็นเกณฑ์ของขอบเขตตัวควบคุมตาม WCAG 1.4.11 คนละเกณฑ์กับ
+   4.5:1 ของตัวอักษร แก้ที่ class เดียวจึงครอบปุ่มหลักทุกปุ่มทั้งแอป */
+.btn.primary{background:var(--brand-surface);border-color:var(--brand-line);color:var(--on-brand)}
+.btn.primary:hover{background:var(--brand-2);border-color:var(--brand-line);color:var(--on-brand-2)}
 .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
 .btn.ghost{border-color:var(--line-ctl)}
 .btn.xl{min-height:var(--tap-lg);font-size:var(--fs-20)}
