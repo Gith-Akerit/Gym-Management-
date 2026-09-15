@@ -40,7 +40,7 @@ node qa/ui-audit.mjs                              # ตรวจการแส�
 | `PLAYWRIGHT_CHANNEL=msedge npm run test:ui` | **41/41** บน Edge (รวม `09-tokens.spec.js` ที่ยก BRAND-UI-04 เข้าชุดถาวร) |
 | `python3 -B tests/bootstrap-env.test.py` | **ยังรันไม่ได้** ไม่มี Python ในเครื่องนี้ |
 | `node qa/live-round*.mjs` บนเครื่องจริง | ไล่หมวด A–G และ I ครบเท่าที่ทำจากระยะไกลได้ ที่ `170ee35` |
-| `npx playwright test --config qa/playwright.qa.config.js` | **4/4** |
+| `npx playwright test --config qa/playwright.qa.config.js` | **4/5** — ที่แดงคือ `BRAND-UI-05` ซึ่งเฝ้า BUG-BRAND-06 (ขอบปุ่มหลักหายไปเมื่อสีแบรนด์อ่อน) |
 
 ## probe ที่ถูกปลดออกในรอบนี้ และเหตุผล
 

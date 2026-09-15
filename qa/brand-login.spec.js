@@ -192,3 +192,46 @@ test('BRAND-UI-04 no screen asks for a colour the stylesheet does not define', a
   console.log('BRAND-UI-04 colours the app asks for and nothing defines:', JSON.stringify(dangling));
   expect(dangling, 'a style names a custom property that is defined nowhere').toEqual([]);
 });
+
+test('BRAND-UI-05 a button still looks like a button whatever colour the gym picked', async ({ page }) => {
+  // `--brand-surface` is nudged until TEXT on it is readable. Nothing nudges it
+  // against the page it sits on, and the primary button uses it for both fill
+  // and border -- so a pale gym gets a button whose label reads perfectly and
+  // whose edges are not there. WCAG 1.4.11: the visual boundary of a control
+  // needs 3:1, which is a different bar from the 4.5:1 of the words on it.
+  const report = {};
+  for (const colour of ['#05603A', '#C81E1E', '#F2C200', '#FFFFFF', '#808080']) {
+    await paint(page, colour);
+    await page.context().clearCookies();
+    await page.goto('/');
+    await page.locator('.btn.primary').waitFor();
+    await page.waitForFunction(want => getComputedStyle(document.documentElement)
+      .getPropertyValue('--brand-surface').trim().toUpperCase() === want, colour);
+    const seen = await page.evaluate(() => {
+      const el = document.querySelector('.btn.primary');
+      const style = getComputedStyle(el);
+      let card = 'rgb(255, 255, 255)';
+      for (let node = el.parentElement; node; node = node.parentElement) {
+        const c = getComputedStyle(node).backgroundColor;
+        if (c && !/, 0\)$/.test(c)) { card = c; break; }
+      }
+      return { fill: style.backgroundColor, border: style.borderTopColor,
+        width: style.borderTopWidth, label: style.color, card };
+    });
+    report[colour] = {
+      outline: Math.max(ratio(seen.fill, seen.card),
+        seen.width === '0px' ? 0 : ratio(seen.border, seen.card)),
+      label_on_fill: ratio(seen.label, seen.fill),
+      fill: seen.fill, card: seen.card,
+    };
+  }
+  console.log('BRAND-UI-05 the primary button in five gyms:\n' + JSON.stringify(report, null, 1));
+  for (const [colour, row] of Object.entries(report)) {
+    // The words on it are the part that already works, kept here so a fix that
+    // trades one for the other is caught.
+    expect(row.label_on_fill, `${colour}: the label on the button is ${row.label_on_fill}:1`)
+      .toBeGreaterThanOrEqual(4.5);
+    expect(row.outline, `${colour}: the button is ${row.fill} on ${row.card}, an outline of ${row.outline}:1`)
+      .toBeGreaterThanOrEqual(3);
+  }
+});
