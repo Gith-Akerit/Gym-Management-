@@ -7,6 +7,7 @@ import { registerCheckInRoutes } from './checkin.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { readSetupToken, setupTokenHash } from './password-setup.js';
 import { registerPaymentRoutes } from './payments.js';
+import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
 import { gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, roleSchema, setPasswordSchema, updateSchema, userSchema } from './validation.js';
 
@@ -14,7 +15,7 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
 export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, secret, origin = 'http://localhost:5173', production = false,
-  now = Date.now, trustProxy = 1, slipStore, photoStore, promptPayId, pilotMode = false }) {
+  now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, promptPayId, pilotMode = false }) {
   if (!secret || secret.length < 32) throw new Error('CARD_SIGNING_SECRET must have at least 32 characters');
   if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
   const app = express();
@@ -117,6 +118,9 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   // number staff chose to publish, and the packages actually on sale. Somebody
   // deciding whether to join should not have to create an account first.
   app.get('/api/public/gym', (req, res) => res.json(publicGym(db)));
+  // The gym's own colours and logo, for the screens drawn before anybody has
+  // signed in. Nothing in it is private: it is what is painted on the door.
+  registerPublicThemeRoutes({ app, db, logoStore });
   app.get('/api/public/packages', (req, res) => res.json({
     items: db.prepare("SELECT * FROM packages WHERE status='active' ORDER BY sort_order, created_at")
       .all().map(publicPackage),
@@ -241,7 +245,8 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   }
 
   // The photograph and the card it goes on.
-  registerCardRoutes({ app, db, now, admin, counter, photoStore, secret });
+  registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret });
+  registerSettingsRoutes({ app, db, now, admin, counter, logoStore });
 
   // Check-in at the counter.
   registerCheckInRoutes({ app, db, now, admin, counter, secret, limit });

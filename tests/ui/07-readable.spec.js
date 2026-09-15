@@ -54,6 +54,16 @@ function tapTargets(page) {
     })));
 }
 
+/** Sets the gym colour the way the settings screen will: from the app itself. */
+const paint = (page, colour) => page.evaluate(async hex => {
+  const response = await fetch('/api/gym/settings', {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-Gym-Client': 'web' },
+    body: JSON.stringify({ color_primary: hex }),
+  });
+  return response.status;
+}, colour);
+
 const tooFaint = found => found.filter(item => item.ratio < 4.5);
 const tooSmall = found => found.filter(item => item.height < 44);
 
@@ -118,4 +128,37 @@ test('a thumb can hit every control on a phone', async ({ page }) => {
   await expect(page.getByLabel('เวลาเปิดวันจันทร์')).toBeVisible();
   expect(tooSmall(await tapTargets(page)), 'หน้าข้อมูลยิม').toEqual([]);
   await page.screenshot({ path: 'artifacts/ui-gym-390.png', fullPage: true });
+});
+
+test('the gym own colour reaches the screen, and stays readable there', async ({ page }) => {
+  // 07 runs last, so this is the one spec that may repaint the whole app.
+  await signIn(page, 'contrast2-ui@example.test');
+  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  const accent = () => page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().toUpperCase());
+  expect(await accent()).toBe('#05603A');
+
+  // A bright yellow: the case where white text would disappear and the server
+  // has to hand back black instead.
+  // Through the page rather than the API context: the session cookie is
+  // SameSite=Strict, which is exactly what stops anything but the app itself
+  // from using it.
+  expect(await paint(page, '#FFD400')).toBe(200);
+  await page.reload();
+  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  expect(await accent()).toBe('#FFD400');
+  expect(await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--on-accent').trim().toUpperCase())).toBe('#0E1418');
+
+  // The colours are the gym's, the contrast rule is still the app's.
+  await go(page, 'สมาชิก');
+  expect(tooFaint(await contrastIn(page)), 'หน้าสมาชิกด้วยสีของยิม').toEqual([]);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(tooFaint(await contrastIn(page)), `หน้าสมาชิกด้วยสีของยิม at ${width}px`).toEqual([]);
+    await page.screenshot({ path: `artifacts/ui-branding-${width}.png`, fullPage: true });
+  }
+
+  // Put it back, so a rerun of the suite starts where this one did.
+  expect(await paint(page, '#05603A')).toBe(200);
 });

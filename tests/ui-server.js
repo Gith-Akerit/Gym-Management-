@@ -47,6 +47,7 @@ const photoRoot = resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos')
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),
   photoStore: new SlipStore(photoRoot, { maxBytes: MAX_PHOTO_BYTES }),
+  logoStore: new SlipStore(resolve(PILOT ? 'data/test-logo-pilot' : 'data/test-logo')),
   // Exactly what a pilot deployment has: no merchant account at all.
   promptPayId: PILOT ? null : '0899999999',
   pilotMode: PILOT });

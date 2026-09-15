@@ -34,6 +34,7 @@ export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00
     db, secret: randomBytes(32).toString('hex'), now: () => time,
     slipStore: new SlipStore(join(root, 'slips')),
     photoStore: new SlipStore(join(root, 'photos')),
+    logoStore: new SlipStore(join(root, 'logo')),
     promptPayId, pilotMode,
   });
   t.after(() => {

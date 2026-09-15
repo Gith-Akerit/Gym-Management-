@@ -14,6 +14,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import QRCode from 'qrcode';
+import { normalizeHex, readableInk } from './theme.js';
 
 const require = createRequire(import.meta.url);
 
@@ -184,10 +185,16 @@ function trackedText(ctx, text, x, y, tracking) {
  * @param {Buffer|null} photo  the member's photograph, already read from disk
  * @param {{package?: string, expires?: string}} membership  what the footer says
  * @param {boolean} voided draw the cancelled version, for the history screen
+ * @param {object} [theme] the gym colours from theme.js — the header band and
+ *   the ink on it. The QR is never tinted: it has to read off a dim phone.
+ * @param {Buffer|null} [logo] the gym logo, for the square in the header
+ * @param {string} [brandShort] what goes in that square when there is no logo
+ * @param {string} [lineId] the gym's LINE id, printed beside its phone number
  * @param {() => void} [onPhotoFailure] called when the photograph would not draw
  * @returns {Promise<Buffer>} PNG bytes
  */
-export async function renderCard({ member, gym, qr, photo, membership = {}, voided = false, onPhotoFailure }) {
+export async function renderCard({ member, gym, qr, photo, membership = {}, voided = false,
+  theme, logo = null, brandShort = '', lineId = '', onPhotoFailure }) {
   // Loaded here rather than at the top of the file: a machine without a build
   // of the drawing library should still be able to run the counter, scan
   // members in and take money. Only the card is unavailable, and it says so.
@@ -204,17 +211,41 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
   ctx.fillRect(0, 0, CARD.width, CARD.height);
 
   // --- header --------------------------------------------------------------
-  ctx.fillStyle = CARD.green;
+  // The gym's own colour, or the one the app shipped with. The ink on top is
+  // whichever of black and white a person can actually read on it -- worked
+  // out in theme.js, so the card and the screen never disagree about it.
+  const band = normalizeHex(theme?.primary) ?? CARD.green;
+  const ink = normalizeHex(theme?.on_primary) ?? readableInk(band);
+  ctx.fillStyle = band;
   ctx.fillRect(0, 0, CARD.width, CARD.header.height);
   const { x: lx, y: ly, size: ls, radius: lr } = CARD.logo;
-  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  // A real logo gets a plate of its own. A gym's logo is usually its own
+  // colour, and its own colour on its own colour is a shape nobody can see --
+  // which is exactly the square the owner will look at first.
+  ctx.fillStyle = logo ? CARD.white : (ink === CARD.white ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)');
   roundedRect(ctx, lx, ly, ls, ls, lr);
   ctx.fill();
-  ctx.fillStyle = CARD.white;
-  ctx.font = font.th(CARD.logo.font, 800);
-  const initials = logoInitials(gym?.brand_name_th || gym?.name);
-  ctx.fillText(initials, lx + (ls - ctx.measureText(initials).width) / 2, ly + (ls - CARD.logo.font * 1.35) / 2 + 4);
+  ctx.fillStyle = ink;
+  // The gym's own logo goes in the square when there is one. Contained, never
+  // cropped: a logo with its edges cut off looks like a mistake, and it is the
+  // one thing on the card the owner will look at first.
+  let mark = null;
+  if (logo) {
+    try { mark = await loadImage(logo); } catch { mark = null; }
+    if (!mark?.width || !mark?.height) mark = null;
+  }
+  if (mark) {
+    const pad = 8;
+    const scale = Math.min((ls - pad * 2) / mark.width, (ls - pad * 2) / mark.height);
+    const [w, h] = [mark.width * scale, mark.height * scale];
+    ctx.drawImage(mark, lx + (ls - w) / 2, ly + (ls - h) / 2, w, h);
+  } else {
+    ctx.font = font.th(CARD.logo.font, 800);
+    const initials = brandShort || logoInitials(gym?.brand_name_th || gym?.name);
+    ctx.fillText(initials, lx + (ls - ctx.measureText(initials).width) / 2, ly + (ls - CARD.logo.font * 1.35) / 2 + 4);
+  }
 
+  ctx.fillStyle = ink;
   ctx.font = font.th(CARD.gymTh.size, 800);
   ctx.fillText(fitted(ctx, gym?.brand_name_th || gym?.name || 'ยิม', CARD.gymTh.max), CARD.gymTh.x, CARD.gymTh.y);
   if (gym?.name) {
@@ -263,7 +294,7 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
     ctx.fill();
   }
   ctx.restore();
-  ctx.strokeStyle = CARD.green;
+  ctx.strokeStyle = band;
   ctx.lineWidth = ring;
   ctx.beginPath();
   ctx.arc(px + radius, py + radius, radius - ring / 2, 0, Math.PI * 2);
@@ -348,8 +379,12 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
   ctx.fillText(fitted(ctx, place, half + 60), CARD.margin, f.telY);
   const phone = gym?.phone_display === 'hidden' ? ''
     : (gym?.phone_display === 'secondary' ? gym?.phone_secondary : gym?.phone_primary) || '';
-  if (phone) {
-    const label = `โทร ${prettyPhone(phone)}`;
+  // How to reach the gym, on the line a member reads when they want to ask
+  // something. LINE is where they will actually write, so it sits with the
+  // phone number rather than somewhere else.
+  const reach = [phone && `โทร ${prettyPhone(phone)}`, lineId && `LINE ${lineId}`].filter(Boolean).join(' · ');
+  if (reach) {
+    const label = fitted(ctx, reach, half);
     ctx.fillText(label, right - ctx.measureText(label).width, f.telY);
   }
   ctx.globalAlpha = 1;

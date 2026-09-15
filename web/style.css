@@ -25,8 +25,14 @@
   --on-dark:#FFFFFF;     /* 18.5:1 บน --dark */
   --on-dark-2:#B8BFBB;   /* 9.9:1 บน --dark */
 
-  /* สีสถานะ — ใช้คู่กับรูปทรงและคำเสมอ ห้ามสื่อด้วยสีอย่างเดียว */
+  /* สีของยิม เจ้าของตั้งเองได้ที่หน้าตั้งค่ายิม ค่าข้างล่างคือค่าตั้งต้น
+     ก่อนธีมจะโหลดมา · --on-accent คือสีตัวอักษรบนสีหลัก และ --accent-ink คือ
+     สีหลักที่เข้มพอจะอ่านบนพื้น --accent-soft ได้ ทั้งหมดเซิร์ฟเวอร์คำนวณให้
+     ที่ server/theme.js เพื่อให้บัตรกับหน้าจอใช้ตัวเลขชุดเดียวกัน */
   --accent:#05603A;      --accent-soft:#DCEFE6;   /* ผ่าน / ปุ่มหลัก */
+  --on-accent:#FFFFFF;   --accent-ink:#05603A;    --accent-hover:#044B2D;
+
+  /* สีสถานะ — ใช้คู่กับรูปทรงและคำเสมอ ห้ามสื่อด้วยสีอย่างเดียว */
   --pass:#07784C;        /* พื้นแถบผลผ่าน ขาวบนพื้นนี้ = 5.53:1 */
   --bad:#9B1C13;         --bad-soft:#FBE7E5;
   --deny:#C62A1E;        /* พื้นแถบผลไม่ผ่าน ขาวบนพื้นนี้ = 5.60:1 */
@@ -73,8 +79,13 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 /* -------------------------------------------------- 3. App shell -------- */
 .appbar{background:var(--surface);border-bottom:2px solid var(--line-strong);position:sticky;top:0;z-index:20}
 .appbar-in{max-width:1080px;margin:0 auto;padding:10px var(--sp-5);display:flex;align-items:center;gap:var(--sp-4);min-height:68px}
-.mark{width:46px;height:46px;border-radius:var(--r-1);background:var(--accent);color:#fff;
+.mark{width:46px;height:46px;border-radius:var(--r-1);background:var(--accent);color:var(--on-accent);
   display:grid;place-items:center;font-size:var(--fs-16);font-weight:800;flex:none}
+/* A real logo sits on white and keeps its own shape: brand colours on top of a
+   brand colour is how a logo stops being recognisable. */
+.mark.haslogo{background:var(--surface);border:2px solid var(--line);padding:3px}
+.mark img{width:100%;height:100%;object-fit:contain}
+.scanbar .mark.haslogo{background:#fff;border-color:transparent}
 .brand{font-size:var(--fs-20);font-weight:700;line-height:1.25;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .brand small{display:block;font-size:var(--fs-14);color:var(--ink-2);font-weight:500;
@@ -90,7 +101,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
   border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface);
   text-decoration:none;color:var(--ink);font-size:var(--fs-16);font-weight:600}
 .railnav a:hover{background:var(--panel)}
-.railnav a[aria-current]{background:var(--accent);border-color:var(--accent);color:#fff}
+.railnav a[aria-current]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 
 /* เมนูล่าง (มือถือ) */
 .bottomnav{position:fixed;left:0;right:0;bottom:0;display:none;background:var(--surface);
@@ -100,7 +111,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .bottomnav a{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;
   min-height:64px;text-decoration:none;font-size:var(--fs-14);font-weight:600;
   color:var(--ink-2);border-top:4px solid transparent;text-align:center}
-.bottomnav a[aria-current]{color:var(--accent);border-top-color:var(--accent);background:var(--accent-soft)}
+.bottomnav a[aria-current]{color:var(--accent-ink);border-top-color:var(--accent);background:var(--accent-soft)}
 
 /* -------------------------------------------------- 4. Primitives ------- */
 /* The colour is not decoration: .block carries a white background, and it is
@@ -118,8 +129,8 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
   border:2px solid var(--line-strong);background:var(--surface);
   font-size:var(--fs-18);font-weight:700;cursor:pointer;transition:background var(--dur)}
 .btn:hover{background:var(--panel)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.btn.primary:hover{background:#044B2D}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{background:var(--accent-hover)}
 .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
 .btn.ghost{border-color:var(--line-ctl)}
 .btn.xl{min-height:var(--tap-lg);font-size:var(--fs-20)}
@@ -141,7 +152,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 
 .chip{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-16);font-weight:700;
   padding:5px 12px;border-radius:var(--r-1);border:2px solid;white-space:nowrap}
-.chip.ok{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.chip.ok{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--accent)}
 .chip.bad{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
 .chip.warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
 .chip.neutral{background:var(--panel);color:var(--ink-2);border-color:var(--ink-2)}
@@ -152,14 +163,14 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .steps{display:flex;gap:var(--sp-2);margin-bottom:var(--sp-5)}
 .step{flex:1;padding:10px var(--sp-3);border-radius:var(--r-1);border:2px solid var(--line);
   background:var(--surface);font-size:var(--fs-16);font-weight:700;color:var(--ink-2);text-align:center}
-.step.on{background:var(--accent);border-color:var(--accent);color:#fff}
-.step.done{border-color:var(--accent);color:var(--accent)}
+.step.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.step.done{border-color:var(--accent);color:var(--accent-ink)}
 
 .banner{display:flex;align-items:center;gap:var(--sp-4);border-radius:var(--r-2);padding:var(--sp-5);margin-bottom:var(--sp-5)}
 .banner .ic{width:52px;height:52px;border-radius:var(--r-1);display:grid;place-items:center;font-size:26px;flex:none}
 .banner b{display:block;font-size:var(--fs-24);font-weight:800;line-height:1.3}
 .banner span{font-size:var(--fs-16)}
-.banner.ok{background:var(--accent);color:#fff}
+.banner.ok{background:var(--accent);color:var(--on-accent)}
 .banner.ok .ic{background:rgba(255,255,255,.2)}
 .banner.bad{background:var(--bad);color:#fff}
 .banner.bad .ic{background:rgba(255,255,255,.2)}
@@ -267,7 +278,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
    artwork 1080x1350 — เซิร์ฟเวอร์ render ตามสเปคตัวเลขในไฟล์แนบ            */
 .mcard{width:1080px;height:1350px;position:relative;flex:none;background:#fff;
   display:flex;flex-direction:column;font-family:var(--font);color:var(--ink);overflow:hidden}
-.mcard .top{background:var(--accent);color:#fff;padding:38px 56px;display:flex;align-items:center;gap:22px}
+.mcard .top{background:var(--accent);color:var(--on-accent);padding:38px 56px;display:flex;align-items:center;gap:22px}
 .mcard .top .gm{width:74px;height:74px;border-radius:20px;background:rgba(255,255,255,.18);
   display:grid;place-items:center;font-size:27px;font-weight:800;flex:none}
 .mcard .top .gn{font-size:42px;font-weight:800;line-height:1.2}
@@ -403,7 +414,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .tabs{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
 .tabs button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:999px;
   background:var(--surface);font-weight:700;cursor:pointer}
-.tabs button[aria-current=page]{background:var(--accent);border-color:var(--accent);color:#fff}
+.tabs button[aria-current=page]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .table-wrap{overflow-x:auto;border-radius:var(--r-2)}
 .pagination{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;margin-top:var(--sp-4)}
 .pagination button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:var(--r-1);

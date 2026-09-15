@@ -1,14 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Field, formatDateTime, Loading, StateBox, useResource } from './shared.jsx';
+import { Field, formatDateTime, Loading, Mark, StateBox, useResource } from './shared.jsx';
 import { CameraScanner } from './camera.jsx';
 
 const resultLabels = { allowed: 'เข้าใช้บริการได้', duplicate: 'เช็คอินไปแล้ว', denied: 'เข้าใช้บริการไม่ได้' };
 const resultIcon = { allowed: '✓', duplicate: '!', denied: '✕' };
-
-const initials = name => {
-  const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
-  return words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? 'ยม').slice(0, 2);
-};
 
 /**
  * The counter screen.
@@ -22,7 +17,7 @@ const initials = name => {
  * than the verdict, and "ไม่ใช่คนนี้" sits beside the confirmation so refusing
  * is an ordinary thing to do rather than something to go and find.
  */
-export function StaffScanner({ brand = 'ยิมของเรา', role = 'staff', onLogout, onOpenMember, onLeave }) {
+export function StaffScanner({ brand = 'ยิมของเรา', branding, role = 'staff', onLogout, onOpenMember, onLeave }) {
   const [device, setDevice] = useState(() => localStorage.getItem('gym.device') || '');
   const [code, setCode] = useState('');
   const [outcome, setOutcome] = useState(null);
@@ -69,7 +64,7 @@ export function StaffScanner({ brand = 'ยิมของเรา', role = 'st
 
   return <div className="scanstage">
     <div className="scanbar">
-      <div className="mark" aria-hidden="true">{initials(brand)}</div>
+      <Mark branding={branding} brand={brand}/>
       <div className="brand">จุดสแกน{device ? ` · ${device}` : ''}
         <small>{brand} · {role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}</small></div>
       <div className="spacer"/>

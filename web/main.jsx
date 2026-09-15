@@ -1,27 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import {
   api, Empty, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Loading,
-  Notice, orderStatusLabels, packageStatusLabels, PilotContext, StateBox, upload, useResource, usePilot,
+  initials, Mark, Notice, orderStatusLabels, packageStatusLabels, PilotContext, StateBox, upload,
+  useBranding, useResource, usePilot,
 } from './shared.jsx';
 import { SalesReport } from './payments.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { PhotoCapture } from './camera.jsx';
-
-/**
- * The gym's initials, for the square before its name.
- *
- * One placeholder, used in the app bar, on the login screen and on the printed
- * card, so the three never disagree — which they did, with "SF" in the header
- * and "G" on the login card of the same page (QA ข้อ ง). It goes when the owner
- * sends a logo file.
- */
-export function initials(name) {
-  const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return 'ยม';
-  return words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0];
-}
 
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
 const blankPackage = { code: '', name_th: '', type: 'unlimited', duration_days: 30, session_limit: '', price_satang: '', description: '', status: 'draft', sort_order: 0 };
@@ -58,11 +45,11 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
 // ------------------------------------------------------------------ sign in
 
 /** The dark stage the login and set-password screens share. */
-const Stage = ({ brand, title, children }) => <div className="scanstage" style={{ justifyContent: 'center' }}>
+const Stage = ({ brand, branding, title, children }) => <div className="scanstage" style={{ justifyContent: 'center' }}>
   <div style={{ maxWidth: 430, width: '100%', margin: '0 auto', padding: 'var(--sp-6)' }}>
     <div style={{ textAlign: 'center', marginBottom: 'var(--sp-6)' }}>
-      <div className="mark" style={{ width: 66, height: 66, margin: '0 auto var(--sp-4)', fontSize: 22, background: '#fff', color: 'var(--accent)' }}>
-        {initials(brand)}</div>
+      <Mark branding={branding} brand={brand}
+        style={{ width: 66, height: 66, margin: '0 auto var(--sp-4)', fontSize: 22, background: '#fff', color: 'var(--accent-ink)' }}/>
       <h1 style={{ color: '#fff' }}>{brand}</h1>
       <p style={{ margin: '4px 0 0', color: 'var(--on-dark-2)', fontSize: 'var(--fs-16)' }}>{title}</p>
     </div>
@@ -76,7 +63,7 @@ const Stage = ({ brand, title, children }) => <div className="scanstage" style={
  * Only the people who work here have an account, so there is no "sign up" and
  * nothing to explain about codes and mailboxes.
  */
-function Login({ brand, onLogin }) {
+function Login({ brand, branding, onLogin }) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(null);
   async function submit(e) {
@@ -87,7 +74,7 @@ function Login({ brand, onLogin }) {
     // character should fix that character, not type twelve again.
     catch (e) { setError(e); } finally { setBusy(false); }
   }
-  return <Stage brand={brand} title="สำหรับพนักงานและเจ้าของยิมเท่านั้น">
+  return <Stage brand={brand} branding={branding} title="สำหรับพนักงานและเจ้าของยิมเท่านั้น">
     <form className="block" onSubmit={submit}>
       <Field label="อีเมล" name="email" type="email" value={email} onChange={setEmail}
         required autoComplete="username" disabled={busy}/>
@@ -113,7 +100,7 @@ function Login({ brand, onLogin }) {
  * session is needed and none is created: the owner types a password and then
  * signs in with it like anybody else.
  */
-function SetPassword({ brand, token, onDone }) {
+function SetPassword({ brand, branding, token, onDone }) {
   const { data, error, busy } = useResource(`/auth/set-password/${token}`);
   const [password, setPassword] = useState(''), [again, setAgain] = useState('');
   const [working, setWorking] = useState(false), [failure, setFailure] = useState(null), [done, setDone] = useState(false);
@@ -126,9 +113,9 @@ function SetPassword({ brand, token, onDone }) {
     catch (e) { setFailure(e); } finally { setWorking(false); }
   }
 
-  if (busy) return <Stage brand={brand} title="กำลังตรวจสอบลิงก์…"><div className="block"><Skeletonish/></div></Stage>;
+  if (busy) return <Stage brand={brand} branding={branding} title="กำลังตรวจสอบลิงก์…"><div className="block"><Skeletonish/></div></Stage>;
   if (error) {
-    return <Stage brand={brand} title="ลิงก์ตั้งรหัสผ่าน">
+    return <Stage brand={brand} branding={branding} title="ลิงก์ตั้งรหัสผ่าน">
       <div className="block">
         <div className="banner bad"><div className="ic" aria-hidden="true">!</div>
           <div><b>ลิงก์นี้ใช้ไม่ได้แล้ว</b><span>{error.message}</span></div></div>
@@ -139,7 +126,7 @@ function SetPassword({ brand, token, onDone }) {
     </Stage>;
   }
   if (done) {
-    return <Stage brand={brand} title="ตั้งรหัสผ่านเรียบร้อย">
+    return <Stage brand={brand} branding={branding} title="ตั้งรหัสผ่านเรียบร้อย">
       <div className="block">
         <div className="banner ok"><div className="ic" aria-hidden="true">✓</div>
           <div><b>ตั้งรหัสผ่านให้ {data.email} แล้ว</b><span>เข้าสู่ระบบด้วยรหัสผ่านที่เพิ่งตั้งได้เลย</span></div></div>
@@ -147,7 +134,7 @@ function SetPassword({ brand, token, onDone }) {
       </div>
     </Stage>;
   }
-  return <Stage brand={brand} title={`ตั้งรหัสผ่านของ ${data.email}`}>
+  return <Stage brand={brand} branding={branding} title={`ตั้งรหัสผ่านของ ${data.email}`}>
     <form className="block" onSubmit={submit}>
       <div className="field">
         <label htmlFor="newpw">รหัสผ่านใหม่</label>
@@ -428,7 +415,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   // The readability goes in the key too: when a stored photograph turns out to
   // be unusable, the card on this screen has to be the one with the silhouette
   // -- the card that will actually be sent -- not the browser's memory of it.
-  const src = `/api/members/${member.id}/card.png?v=${data?.card_version ?? 0}-${stamp}-${data?.photo_readable}`;
+  const src = `/api/members/${member.id}/card.png?v=${data?.card_version ?? 0}-${stamp}-${data?.photo_readable}-${data?.theme_version ?? 0}`;
   // `photo_readable === false` means there is a photograph on file that the
   // server could not open -- an upload cut off halfway, usually. The card is
   // drawn with the silhouette instead of failing, so the only place anybody
@@ -1033,7 +1020,7 @@ const NAV = [
   ['checkin', 'ประวัติเช็คอิน', null],
 ];
 
-function Shell({ brand, role, tabs, tab, setTab, onLogout, pilot, children }) {
+function Shell({ brand, branding, role, tabs, tab, setTab, onLogout, pilot, children }) {
   const [more, setMore] = useState(false);
   const primary = tabs.filter(([, , short]) => short);
   const secondary = tabs.filter(([, , short]) => !short);
@@ -1041,7 +1028,7 @@ function Shell({ brand, role, tabs, tab, setTab, onLogout, pilot, children }) {
     {pilot && <div className="pilot-banner" role="status">
       <b>โหมดทดลอง</b><span>ยังไม่ได้ผูกบัญชีพร้อมเพย์ — รับเงินและมอบแพ็กเกจที่หน้าสมาชิกได้ตามปกติ</span></div>}
     <header className="appbar"><div className="appbar-in">
-      <div className="mark" aria-hidden="true">{initials(brand)}</div>
+      <Mark branding={branding} brand={brand}/>
       <div className="brand">{brand}<small>{role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}</small></div>
       <div className="spacer"/>
       <button className="btn auto" onClick={onLogout}>ออกจากระบบ</button>
@@ -1072,7 +1059,7 @@ function Shell({ brand, role, tabs, tab, setTab, onLogout, pilot, children }) {
   </>;
 }
 
-function Console({ user, gym, brand, onLogout, onAuthError, onSignedOut }) {
+function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAuthError, onSignedOut }) {
   const pilot = usePilot();
   const [tab, setTab] = useState('scan');
   const [open, setOpen] = useState(null);      // the member whose card is showing
@@ -1087,7 +1074,7 @@ function Console({ user, gym, brand, onLogout, onAuthError, onSignedOut }) {
   // The scan screen is a stage of its own: dark, full bleed, no rail. It is
   // the only screen used while standing up with somebody waiting.
   if (tab === 'scan') {
-    return <StaffScanner brand={brand} role={user.role} onLogout={onLogout}
+    return <StaffScanner brand={brand} branding={branding} role={user.role} onLogout={onLogout}
       onOpenMember={member => { setOpen(member); setTab('members'); }}
       onLeave={() => setTab('members')}/>;
   }
@@ -1095,7 +1082,7 @@ function Console({ user, gym, brand, onLogout, onAuthError, onSignedOut }) {
   const banner = notice && <div className="banner ok" role="status">
     <div className="ic" aria-hidden="true">✓</div><div><b>{notice}</b></div></div>;
 
-  return <Shell brand={brand} role={user.role} tabs={tabs} tab={tab} setTab={key => { setTab(key); setNotice(''); setOpen(null); }}
+  return <Shell brand={brand} branding={branding} role={user.role} tabs={tabs} tab={tab} setTab={key => { setTab(key); setNotice(''); setOpen(null); }}
     onLogout={onLogout} pilot={pilot}>
     {banner}
     {tab === 'signup' && <SignUp packages={sellable} onAuthError={onAuthError}
@@ -1143,6 +1130,7 @@ function App() {
   const [user, setUser] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(null);
   const [gym, setGym] = useState(null), [pilot, setPilot] = useState(false), [farewell, setFarewell] = useState('');
   const [setupToken, setSetupToken] = useState(setupTokenFromUrl);
+  const [branding, reloadBranding] = useBranding();
   const onAuthError = e => { if (e.status === 401) setUser(null); };
   useEffect(() => {
     api('/me').then(setUser).catch(e => { if (e.status !== 401) setError(e); }).finally(() => setLoading(false));
@@ -1155,21 +1143,22 @@ function App() {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* the session is gone either way */ }
     setUser(null);
   };
-  const brand = gym?.profile?.brand_name_th || gym?.profile?.name || 'ยิมของเรา';
+  const brand = branding?.brand || gym?.profile?.brand_name_th || gym?.profile?.name || 'ยิมของเรา';
 
   if (loading) return <main className="empty" role="status">กำลังเปิดยิมของเรา…</main>;
 
   return <PilotContext.Provider value={pilot}>
     {setupToken
-      ? <SetPassword brand={brand} token={setupToken} onDone={() => setSetupToken(null)}/>
+      ? <SetPassword brand={brand} branding={branding} token={setupToken} onDone={() => setSetupToken(null)}/>
       : !user
         ? <>
             {farewell && <div className="scanstage" style={{ minHeight: 0, padding: 'var(--sp-5)' }}>
               <div className="banner ok" style={{ maxWidth: 430, margin: '0 auto' }} role="status">
                 <div className="ic" aria-hidden="true">✓</div><div><b>{farewell}</b></div></div></div>}
-            <Login brand={brand} onLogin={u => { setError(null); setFarewell(''); setUser(u); }}/>
+            <Login brand={brand} branding={branding} onLogin={u => { setError(null); setFarewell(''); setUser(u); }}/>
           </>
-        : <Console user={user} gym={gym} brand={brand} onLogout={logout} onAuthError={onAuthError}
+        : <Console user={user} gym={gym} brand={brand} branding={branding} onBrandingChange={reloadBranding}
+            onLogout={logout} onAuthError={onAuthError}
             onSignedOut={message => { setFarewell(message); setError(null); setUser(null); }}/>}
     {error && !user && <div className="wrap"><Notice error={error}/></div>}
   </PilotContext.Provider>;

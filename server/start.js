@@ -5,6 +5,7 @@ import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
 import { SlipStore } from './slips.js';
 import { MAX_PHOTO_BYTES } from './cards-routes.js';
+import { MAX_LOGO_BYTES } from './theme.js';
 import { loadPromptPayId } from './promptpay.js';
 import { cardSecret } from './secret.js';
 
@@ -46,6 +47,10 @@ const app = createApp({
   // given one directory and not the other, and a backup of faces is a different
   // conversation from a backup of bank slips.
   photoStore: new SlipStore(process.env.PHOTO_STORAGE_PATH || './data/photos', { maxBytes: MAX_PHOTO_BYTES }),
+  // The gym's own logo. Its own directory because it is the one image here
+  // that is not personal data -- it is served without a session -- and a
+  // backup of faces should not be a backup of shop signs.
+  logoStore: new SlipStore(process.env.LOGO_STORAGE_PATH || './data/logo', { maxBytes: MAX_LOGO_BYTES }),
   promptPayId: pilotMode ? null : loadPromptPayId(),
   pilotMode,
 });

@@ -42,8 +42,8 @@ npm run dev               # เว็บที่ http://localhost:5173 (proxy �
 | `npm start` | รัน API และเสิร์ฟไฟล์ที่ build แล้วจาก `dist/` |
 | `npm run dev` | เว็บโหมดพัฒนา |
 | `npm run build` | build เว็บลง `dist/` |
-| `npm test` | ทดสอบ API 143 เคส |
-| `npm run test:ui` | build แล้วทดสอบผ่านเบราว์เซอร์ 33 เส้นทาง (ต้องมี browser ของ Playwright หรือกำหนด `PLAYWRIGHT_CHANNEL=msedge`) |
+| `npm test` | ทดสอบ API 162 เคส |
+| `npm run test:ui` | build แล้วทดสอบผ่านเบราว์เซอร์ 34 เส้นทาง (ต้องมี browser ของ Playwright หรือกำหนด `PLAYWRIGHT_CHANNEL=msedge`) |
 | `npm run db:migrate` | อัปเดตโครงสร้างฐานข้อมูล |
 | `npm run db:rollback` | ย้อน migration ล่าสุด ต้องตั้ง `ALLOW_DESTRUCTIVE_ROLLBACK=yes` |
 | `npm run db:seed` | ข้อมูลยิมและแพ็กเกจร่าง ปลอดภัยที่จะรันซ้ำบน production |
@@ -67,6 +67,7 @@ npm run dev               # เว็บที่ http://localhost:5173 (proxy �
 | `PROMPTPAY_ID` | ใช่ (Phase 2) | บัญชีที่รับเงิน: เบอร์มือถือไทย, เลขบัตรประชาชน 13 หลัก หรือ e-Wallet ID 15 หลัก เป็นข้อมูลส่วนตัวของเจ้าของ อย่าใส่ไว้ในโค้ด |
 | `SLIP_STORAGE_PATH` | ไม่ | ที่เก็บรูปสลิป ค่าเริ่มต้น `./data/slips` **ต้องไม่อยู่ในโฟลเดอร์ที่เสิร์ฟเป็นไฟล์สาธารณะ** |
 | `PHOTO_STORAGE_PATH` | ไม่ | ที่เก็บรูปถ่ายสมาชิก ค่าเริ่มต้น `./data/photos` เงื่อนไขเดียวกับสลิป และ**ต้องรวมอยู่ในชุดสำรองข้อมูล** |
+| `LOGO_STORAGE_PATH` | ไม่ | ที่เก็บโลโก้ยิม ค่าเริ่มต้น `./data/logo` ไม่ใช่ข้อมูลส่วนบุคคล (เสิร์ฟให้หน้าล็อกอินโดยไม่ต้องล็อกอิน) แต่**ต้องอยู่บนดิสก์ถาวรและอยู่ในชุดสำรองข้อมูล** |
 | `SLIP_RETENTION_DAYS` | ไม่ | ระยะเวลาเก็บรูปสลิป ค่าเริ่มต้น 365 วัน ใช้โดย `npm run slips:prune` |
 
 **ข้อมูลธุรกิจ เช่น เวลาเปิดทำการ เบอร์โทร ที่อยู่ ราคาแพ็กเกจ ข้อความแจ้งเวลาตรวจสลิป และเวลาที่ให้ชำระเงินต่อคำสั่งซื้อ ไม่ได้อยู่ใน environment**

@@ -96,9 +96,9 @@ test('a member signed up at the counter has no account, and the rollback keeps t
     card_version,joined_at,updated_at) VALUES(?,NULL,?,?,?,'','active',1,?,?)`)
     .run(walkIn, 'GYM-WALKIN00001', 'วาสนา เดินเข้ามา', '0897654321', NOW, NOW);
 
-  // 008 sits on top of 007 now, so going back one step is two steps.
-  rollback(db);
-  rollback(db);
+  // Everything stacked on top of 007 has to come off before 007 does, and the
+  // stack grows: count the migrations rather than repeat the call by hand.
+  for (let step = MIGRATIONS.length; step > 6; step -= 1) rollback(db);
 
   // Going back is a developer's move, not a gym's, but it must not throw
   // anybody away. The old table demands an account, so one is invented on an

@@ -10,6 +10,8 @@ import { z } from 'zod';
 import { audit, getGym, getMember, publicMember, transaction } from './db.js';
 import { cardQrFor, CardRenderError, photoIsDrawable, PhotoUnreadableError, preparePhoto, renderCard } from './cards.js';
 import { detectImageType, SlipError } from './slips.js';
+import { resolveTheme } from './theme.js';
+import { brandShort, settingsRow } from './settings-routes.js';
 import { HttpError, parse } from './validation.js';
 
 /** A face needs far fewer bytes than a bank slip, and phones send far more. */
@@ -28,7 +30,7 @@ export const CARD_LINK_TTL_MS = 7 * 86400000;
 const dateTh = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' })
   .format(new Date(value));
 
-export function registerCardRoutes({ app, db, now, admin, counter, photoStore, secret }) {
+export function registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret }) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_PHOTO_BYTES, files: 1 } });
 
   const load = id => {
@@ -63,13 +65,29 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
     try { return photoStore?.read(member.photo_stored_name) ?? null; } catch { return null; }
   };
 
+  /** The gym's logo, when it has one and the file is still where it said. */
+  const readLogo = settings => {
+    if (!settings?.logo_stored_name) return null;
+    try { return logoStore?.read(settings.logo_stored_name) ?? null; } catch { return null; }
+  };
+
   async function draw(member, { voided = false } = {}) {
+    const gym = db.prepare('SELECT * FROM gym_profile WHERE id=1').get() ?? getGym(db).profile;
+    // Read on every draw rather than cached at boot: the owner changes a colour
+    // and the next card out of the door is the new one, including the one a
+    // seven-day link hands over. The token in the QR does not depend on any of
+    // this, so nothing that is already in somebody's phone stops working.
+    const settings = settingsRow(db);
     return renderCard({
       member,
-      gym: db.prepare('SELECT * FROM gym_profile WHERE id=1').get() ?? getGym(db).profile,
+      gym,
       qr: cardQrFor(secret, member),
       photo: readPhoto(member),
       membership: membershipFor(member.id),
+      theme: resolveTheme(settings),
+      logo: readLogo(settings),
+      brandShort: brandShort(settings, gym),
+      lineId: settings?.line_id ?? '',
       voided,
     });
   }
@@ -207,6 +225,9 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, s
       card_version: member.card_version,
       card_issued_at: member.card_issued_at,
       photo_readable: readable,
+      // Moves when the gym's colours or logo change, so the picture on this
+      // screen is the picture that would be sent, not the browser's memory.
+      theme_version: settingsRow(db)?.version ?? 1,
     });
   });
 

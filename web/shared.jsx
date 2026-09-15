@@ -10,6 +10,56 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 export const PilotContext = createContext(false);
 export const usePilot = () => useContext(PilotContext);
 
+/**
+ * The gym's initials, for the square before its name.
+ *
+ * One placeholder, used in the app bar, on the login screen and on the printed
+ * card, so the three never disagree — which they did, with "SF" in the header
+ * and "G" on the login card of the same page (QA ข้อ ง). It goes when the owner
+ * sends a logo file.
+ */
+export function initials(name) {
+  const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 'ยม';
+  return words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0];
+}
+
+/**
+ * The square before the gym's name: its logo if it has sent one, its initials
+ * if it has not. One component, so the app bar, the login screen and the scan
+ * stage cannot end up showing three different things again.
+ */
+export const Mark = ({ branding, brand, className = 'mark', style }) => (branding?.logo_url
+  ? <span className={`${className} haslogo`} style={style}>
+      <img src={branding.logo_url} alt={`โลโก้ของ ${branding.brand ?? brand ?? ''}`}/></span>
+  : <span className={className} style={style} aria-hidden="true">
+      {branding?.brand_short || initials(brand)}</span>);
+
+/**
+ * The gym's own colours, on the page as soon as they are known.
+ *
+ * Set as CSS variables rather than compiled in, because the owner changes them
+ * at the counter and the screen has to follow without a deploy. Every value
+ * comes from the server, which is also what draws the card, so the two cannot
+ * drift apart.
+ */
+export function useBranding() {
+  const [branding, setBranding] = useState(null);
+  const reload = useCallback(() => api('/public/theme').then(setBranding).catch(() => {}), []);
+  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    const theme = branding?.theme;
+    if (!theme) return;
+    const style = document.documentElement.style;
+    style.setProperty('--accent', theme.primary);
+    style.setProperty('--accent-soft', theme.soft);
+    style.setProperty('--accent-ink', theme.ink);
+    style.setProperty('--accent-hover', theme.hover);
+    style.setProperty('--on-accent', theme.on_primary);
+  }, [branding]);
+  return [branding, reload];
+}
+
 export const labels = { active: 'ใช้งานอยู่', suspended: 'ถูกระงับ', expired: 'หมดอายุ' };
 export const packageStatusLabels = { draft: 'ร่าง ยังไม่เปิดขาย', active: 'เปิดขาย', archived: 'ปิดการขาย' };
 export const orderStatusLabels = {
