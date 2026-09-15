@@ -1,0 +1,58 @@
+# Render: push the branch, point Render at this file, fill in the four secrets.
+#
+# The plan below is `starter`, not `free`, and that is deliberate: a Render free
+# service has no disk, and this app keeps everything -- members, orders, slip
+# images -- in files. On free, every redeploy and every idle restart would wipe
+# the gym's data. If cost matters more than the data during the pilot, see the
+# comparison in docs/deploy.md rather than editing `plan` here.
+services:
+  - type: web
+    name: gym-management
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/health
+    # One instance: two would be two copies of SQLite fighting over one file.
+    numInstances: 1
+
+    disk:
+      name: gym-data
+      mountPath: /data
+      sizeGB: 1
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_PATH
+        value: /data/gym.sqlite
+      - key: SLIP_STORAGE_PATH
+        value: /data/slips
+      # Member photographs and the gym logo, on the same disk. Anything the app
+      # writes outside /data is lost on the next deploy, silently (Infra).
+      - key: PHOTO_STORAGE_PATH
+        value: /data/photos
+      - key: LOGO_STORAGE_PATH
+        value: /data/logo
+      # Render's router is the one hop in front of the app.
+      - key: TRUST_PROXY
+        value: "1"
+      # Generated once and then kept. Changing it signs everybody out and
+      # invalidates every OTP in flight, so do not "refresh" it.
+      - key: CARD_SIGNING_SECRET
+        generateValue: true
+
+      # Filled in from the Render dashboard; never committed.
+      - key: APP_ORIGIN          # https://<the hostname Render gives you>
+        sync: false
+      - key: PROMPTPAY_ID
+        sync: false
+      # Set for the first deploy only: one address becomes an admin with this
+      # password, which is hashed into the database on the first boot. Clear
+      # both afterwards.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

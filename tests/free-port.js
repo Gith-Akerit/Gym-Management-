@@ -1,15 +1,21 @@
-// Playwright refuses to start when port 4310 is still held by a test server it
-// failed to reap on a previous run. Clear it before handing over.
+// Playwright refuses to start when a port is still held by a test server it
+// failed to reap on a previous run. Clear ONLY the ports this run will use --
+// never a fixed pair, or two runs on one machine take turns killing each
+// other's servers.
 import { execFileSync } from 'node:child_process';
-const PORT = 4310;
+import { UI_PILOT_PORT, UI_PORT } from './ports.js';
+
+const PORTS = [UI_PORT, UI_PILOT_PORT];
 try {
-  const lines = execFileSync('netstat', ['-ano']).toString().split('\n')
-    .filter(line => line.includes(`127.0.0.1:${PORT} `) && line.includes('LISTENING'));
-  for (const line of lines) {
-    const pid = line.trim().split(/\s+/).pop();
-    if (pid && pid !== '0') {
-      execFileSync('taskkill', ['/PID', pid, '/F'], { stdio: 'ignore' });
-      console.log(`Freed port ${PORT} (pid ${pid})`);
+  const netstat = execFileSync('netstat', ['-ano']).toString().split('\n');
+  for (const port of PORTS) {
+    const lines = netstat.filter(line => line.includes(`127.0.0.1:${port} `) && line.includes('LISTENING'));
+    for (const line of lines) {
+      const pid = line.trim().split(/\s+/).pop();
+      if (pid && pid !== '0') {
+        execFileSync('taskkill', ['/PID', pid, '/F'], { stdio: 'ignore' });
+        console.log(`Freed port ${port} (pid ${pid})`);
+      }
     }
   }
 } catch {

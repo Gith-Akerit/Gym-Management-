@@ -1,0 +1,143 @@
+/* ==========================================================================
+   ส่วนของแบรนด์และหน้า "ตั้งค่ายิม" — ยกจาก brand.css + settings.css ของ
+   Designer มาต่อท้าย app.css โดยตัดเฉพาะบรรทัดที่ซ้ำกับ token ด้านบน
+   ========================================================================== */
+
+/* --------------------------------------------------------------- โลโก้ --- */
+.mark.haslogo{background:#FFFFFF;border:2px solid var(--line);padding:6px}
+.mark.haslogo img{width:100%;height:100%;object-fit:contain;display:block}
+/* โลโก้แนวนอนในหัวแอป แทนกล่องชื่อย่อ */
+.brandlogo{height:40px;max-width:150px;object-fit:contain;object-position:left center;display:block;flex:none}
+
+/* --------------------------------------------- หัวแอปเป็นสีแบรนด์ (ปิดไว้) */
+[data-appbar="brand"] .appbar{background:var(--brand-surface);border-bottom-color:var(--brand-2)}
+[data-appbar="brand"] .appbar .brand{color:var(--on-brand)}
+[data-appbar="brand"] .appbar .brand small{color:var(--on-brand);opacity:.82}
+[data-appbar="brand"] .appbar .btn{background:transparent;border-color:var(--on-brand);color:var(--on-brand)}
+[data-appbar="brand"] .appbar .mark{background:rgba(255,255,255,.18);color:var(--on-brand)}
+[data-appbar="brand"] .appbar .mark.haslogo{background:#fff;border-color:transparent}
+/* ค่าเริ่มต้น: หัวขาว + เส้นแบรนด์ 6 px ใต้ */
+[data-appbar="light"] .appbar{border-bottom:2px solid var(--line-strong);
+  box-shadow:inset 0 -6px 0 -2px var(--brand-surface)}
+
+/* ------------------------------------------------- หน้าเข้าสู่ระบบ -------
+   เวทีเป็น var(--brand-2) หมึกทุกตัวบนมันจึงต้อง derive จาก --brand-2 ด้วย
+   ไม่ใช่ขาวตายตัว ยิมสีเหลืองหรือสีขาวจะได้หมึกเข้มอัตโนมัติ เพราะ
+   --on-brand-2 เลือกขาวหรือดำตามความสว่างของพื้นและรับประกัน >= 4.5:1
+   ลำดับชั้นระหว่างชื่อยิมกับบรรทัดใต้ชื่อมาจากขนาดและน้ำหนัก ไม่ใช่ opacity
+   เพราะ opacity กินคอนทราสต์ที่ token อุตส่าห์คำนวณมาให้                    */
+.scanstage.loginstage{background:var(--brand-2)}
+.loginstage .mark{background:#fff;color:var(--brand-ink)}
+.loginstage .mark.haslogo{background:#fff}
+.stagehead{text-align:center;margin-bottom:var(--sp-6)}
+.loginstage h1{color:var(--on-brand-2)}
+.loginstage .stagesub{margin:4px 0 0;color:var(--on-brand-2);font-size:var(--fs-16);font-weight:500}
+
+/* ============================================ หน้า "ตั้งค่ายิม" ========== */
+/* ฟอร์มซ้าย · พรีวิวขวาที่ติดหนึบไว้ตลอด เพราะทุกการเปลี่ยนสีต้องเห็นผลทันที */
+.wrap.wide{max-width:1280px}
+.setgrid{display:grid;grid-template-columns:1fr 360px;gap:var(--sp-6);align-items:start}
+.setgrid>*{min-width:0}
+.previewcol{position:sticky;top:92px;display:grid;gap:var(--sp-4)}
+/* การ์ดข้างในกว้าง 1080 px จริง ๆ แล้วย่อด้วย transform ถ้าไม่ตรึง min-width
+   ช่องกริดจะโตตามเนื้อหา แล้วทั้งหน้าจะเลื่อนข้างที่ 390 px */
+.previewcol>*{min-width:0}
+
+.sect{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);
+  padding:var(--sp-5);margin-bottom:var(--sp-4)}
+.sect>h2{margin:0 0 var(--sp-2);font-size:var(--fs-20)}
+.sect>.note{margin:0 0 var(--sp-4)}
+
+/* ---- ช่องอัปโหลดโลโก้ ---- */
+.drop{border:3px dashed var(--line-ctl);border-radius:var(--r-2);background:var(--canvas);
+  padding:var(--sp-6);text-align:center;display:grid;gap:var(--sp-3);justify-items:center}
+.drop .ic{width:64px;height:64px;border-radius:var(--r-1);background:var(--panel);
+  display:grid;place-items:center;font-size:28px}
+.drop b{font-size:var(--fs-18)}
+.drop.has{border-style:solid;border-color:var(--brand-line);background:var(--surface);
+  grid-template-columns:auto 1fr;justify-items:start;align-items:center;text-align:left;gap:var(--sp-4)}
+.logobox{width:132px;height:88px;border:2px solid var(--line);border-radius:var(--r-1);
+  background:#fff;display:grid;place-items:center;padding:8px;flex:none}
+.logobox img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+/* ตารางหมากรุกบอกว่าพื้นใส ไม่ใช่พื้นขาว */
+.logobox.alpha{background-image:
+  linear-gradient(45deg,#E4E9ED 25%,transparent 25%),linear-gradient(-45deg,#E4E9ED 25%,transparent 25%),
+  linear-gradient(45deg,transparent 75%,#E4E9ED 75%),linear-gradient(-45deg,transparent 75%,#E4E9ED 75%);
+  background-size:14px 14px;background-position:0 0,0 7px,7px -7px,-7px 0}
+
+/* ---- แถบสีที่ดึงจากโลโก้ ---- */
+.swatches{display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-2)}
+.sw{width:76px;border:3px solid var(--line);border-radius:var(--r-1);background:var(--surface);
+  cursor:pointer;padding:0;overflow:hidden;text-align:center;min-height:0}
+.sw i{display:block;height:52px}
+.sw span{display:block;font-family:var(--font-num);font-size:12px;font-weight:600;
+  padding:5px 2px;color:var(--ink-2);letter-spacing:.02em}
+.sw[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 3px var(--brand-soft)}
+.sw.skel-sw i{background:var(--panel)}
+
+/* ---- ช่องเลือกสีเอง ---- */
+.colorrow{display:flex;gap:var(--sp-3);align-items:flex-end;flex-wrap:wrap}
+.colorrow .field{margin:0;flex:1 1 180px}
+.swatch-in{width:var(--tap);height:var(--tap);padding:0;border:2px solid var(--line-strong);
+  border-radius:var(--r-1);background:none;cursor:pointer;flex:none}
+.swatch-in::-webkit-color-swatch-wrapper{padding:4px}
+.swatch-in::-webkit-color-swatch{border:none;border-radius:8px}
+
+/* ---- ผลตรวจ contrast แบบสด ---- */
+.ratios{display:grid;gap:var(--sp-2);margin-top:var(--sp-4)}
+.ratio{display:flex;align-items:center;gap:var(--sp-3);padding:10px var(--sp-4);
+  border-radius:var(--r-1);border:2px solid var(--line);background:var(--canvas);font-size:var(--fs-16)}
+.ratio .dot{width:34px;height:34px;border-radius:8px;flex:none;display:grid;place-items:center;
+  font-size:var(--fs-14);font-weight:800}
+.ratio .lbl{flex:1;min-width:0}
+.ratio b{font-family:var(--font-num);font-weight:700;white-space:nowrap}
+.ratio.pass{border-color:var(--ok)}
+.ratio.fixed{border-color:var(--warn);background:var(--warn-soft)}
+
+.alert{display:flex;gap:var(--sp-3);align-items:flex-start;border-radius:var(--r-1);
+  padding:var(--sp-4);margin-top:var(--sp-4);font-size:var(--fs-16);border:2px solid}
+.alert .ic{font-weight:800;flex:none;font-size:var(--fs-20);line-height:1.2}
+.alert.warn{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+.alert.err{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.alert.info{background:var(--brand-soft);border-color:var(--brand-line);color:var(--brand-ink)}
+.alert b{display:block}
+.alert span{color:var(--ink-2);font-weight:400;display:block;margin-top:2px}
+.alert.warn span,.alert.err span{color:inherit;opacity:.9}
+
+/* ---- พรีวิว ---- */
+.pvcard{border:2px solid var(--line-strong);border-radius:var(--r-2);overflow:hidden;
+  position:relative;width:100%;background:#fff}
+/* บัตรจริงกว้าง 1080 px วางทับกล่องแล้วย่อด้วย transform ทั้งใบ จึงต้องหลุด
+   จาก flow ไม่งั้นกล่องจะสูงตามบัตรจริง */
+.pvcard .mcard{position:absolute;top:0;left:0;transform-origin:0 0}
+.pvcard img{display:block;width:100%}
+.pvbar{border:2px solid var(--line);border-radius:var(--r-1);overflow:hidden;background:var(--surface)}
+.pvbar .appbar{position:static;border-bottom-width:2px}
+.pvbar .appbar-in{min-height:58px;padding:8px var(--sp-4)}
+.pvbar .mark{width:38px;height:38px;font-size:var(--fs-14)}
+.pvbar .brandlogo{height:30px;max-width:120px}
+.pvbar .brand{font-size:var(--fs-16)}
+.pvbar .brand small{font-size:13px}
+.pvbar .btn.auto{min-height:38px;font-size:var(--fs-14)}
+.pvlabel{font-size:var(--fs-14);font-weight:700;color:var(--ink-2);margin-bottom:6px}
+.pvbtns{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+.pvbtns .btn{width:auto;flex:1 1 130px;min-height:48px;font-size:var(--fs-16)}
+
+/* แถบบันทึกที่ลอยอยู่ล่างสุดเสมอ ไม่ต้องเลื่อนขึ้นไปหาปุ่ม */
+.savebar{position:sticky;bottom:0;background:var(--surface);border-top:2px solid var(--line-strong);
+  padding:var(--sp-4) var(--sp-5);margin:var(--sp-6) calc(var(--sp-5) * -1) 0;
+  display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;z-index:10}
+.savebar .grow{flex:1;min-width:180px;font-size:var(--fs-16);color:var(--ink-2)}
+.savebar .btn{width:auto;min-width:150px}
+
+/* โหมดพนักงาน = อ่านอย่างเดียว */
+.readonly .savebar{display:none}
+
+@media (max-width:899px){
+  .setgrid{grid-template-columns:1fr}
+  .previewcol{position:static;order:-1}
+  .drop.has{grid-template-columns:1fr;justify-items:center;text-align:center}
+  .sw{width:calc(50% - var(--sp-3))}
+  .savebar{margin:var(--sp-5) calc(var(--sp-4) * -1) 0;position:sticky;bottom:64px}
+  .savebar .btn{width:100%}
+}

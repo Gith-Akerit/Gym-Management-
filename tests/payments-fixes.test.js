@@ -1,4 +1,10 @@
-// The Phase 2 defects QA reported, each pinned by the case it broke.
+// The Phase 2 defects QA reported, kept honest after the move to the counter.
+//
+// The member-side purchase they were found in is gone. What each of them was
+// really about is not: prices that mean what their field name says, a queue
+// ordered by how long somebody has actually waited, reads that do not write,
+// and a reversal that can be undone without minting a second membership.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -10,29 +16,21 @@ import { openDatabase, migrate } from '../server/db.js';
 import { createApp } from '../server/app.js';
 import { seedConfiguration } from '../server/seed.js';
 import { SlipStore } from '../server/slips.js';
+import { hashPassword } from '../server/passwords.js';
+import { jpegBuffer } from './counter.js';
 
-function jpeg(tag = 'x') {
-  const exif = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), Buffer.from(`GPS ${tag}`, 'latin1')]);
-  const length = Buffer.alloc(2);
-  length.writeUInt16BE(exif.length + 2);
-  return Buffer.concat([
-    Buffer.from([0xff, 0xd8]),
-    Buffer.from([0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]),
-    Buffer.from([0xff, 0xe1]), length, exif,
-    Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]),
-    Buffer.from([0x12, 0x34, 0x56, 0xff, 0xd9]),
-  ]);
-}
+const PASSWORD = 'counter-test-password';
+const HASH = hashPassword(PASSWORD);
 
 function fixture(t) {
   const db = openDatabase(); migrate(db); seedConfiguration(db, Date.now());
-  const root = mkdtempSync(join(tmpdir(), 'gym-p2-'));
-  const inbox = new Map();
-  let time = Date.parse('2026-09-14T21:00:00+07:00');
+  const root = mkdtempSync(join(tmpdir(), 'gym-fix2-'));
+  let time = Date.parse('2026-09-14T09:00:00+07:00');
   const app = createApp({
     db, secret: randomBytes(32).toString('hex'), now: () => time,
-    sendOtp: async ({ email, code }) => inbox.set(email, code),
-    slipStore: new SlipStore(root), promptPayId: '0899999999',
+    slipStore: new SlipStore(join(root, 'slips')),
+    photoStore: new SlipStore(join(root, 'photos')),
+    promptPayId: '0899999999',
   });
   t.after(() => { app.locals.stopSweeper?.(); db.close(); rmSync(root, { recursive: true, force: true }); });
   const http = httpClient(app, t);
@@ -42,170 +40,92 @@ function fixture(t) {
     if (token) req.set('Authorization', `Bearer ${token}`);
     return body === undefined ? req : req.send(body);
   };
-  const sendSlip = (token, orderId, fields = {}) => {
-    const req = http.post(`/api/orders/${orderId}/slip`).set('X-Gym-Client', 'mobile')
-      .set('Authorization', `Bearer ${token}`)
-      .field('reference_no', fields.reference_no ?? `REF${randomUUID().slice(0, 8).toUpperCase()}`)
-      .field('transferred_at', fields.transferred_at ?? '2026-09-14T20:45');
-    if (fields.amount_thb !== undefined) req.field('amount_thb', String(fields.amount_thb));
-    return req.attach('slip', jpeg(fields.tag ?? 'a'), { filename: 'slip.jpg', contentType: 'image/jpeg' });
-  };
-  async function login(email, role = 'member') {
-    if (role !== 'member') db.prepare('INSERT INTO users(id,email,role,created_at) VALUES(?,?,?,?)').run(randomUUID(), email, role, time);
-    const start = await call('post', '/auth/request-otp', null, { email }).expect(202);
-    const verified = await call('post', '/auth/verify-otp', null, { challenge_id: start.body.challenge_id, code: inbox.get(email) }).expect(200);
-    return verified.body.token;
+  async function login(email, role = 'admin') {
+    if (!db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) {
+      db.prepare('INSERT INTO users(id,email,role,password_hash,password_set_at,created_at) VALUES(?,?,?,?,?,?)')
+        .run(randomUUID(), email, role, HASH, time, time);
+    }
+    return (await call('post', '/auth/login', null, { email, password: PASSWORD }).expect(200)).body.token;
   }
-  let phone = 1000000;
-  async function member(email, name = 'สุดา ใจดี') {
-    const token = await login(email);
-    await call('put', '/me/profile', token, { name, phone: `089${phone++}` }).expect(201);
-    return token;
-  }
-  /** An admin, plus the monthly package on sale at 1,200 baht. */
-  async function shop() {
-    const adminToken = await login(`admin-${randomUUID().slice(0, 8)}@example.test`, 'admin');
+  const member = async (token, name = 'สุดา ใจดี') => (await call('post', '/members', token, {
+    name, phone: `089${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`,
+  }).expect(201)).body;
+  async function shop(price = 120000) {
+    const adminToken = await login(`admin-${randomUUID().slice(0, 8)}@example.test`);
     const draft = db.prepare("SELECT * FROM packages WHERE code='UNLIMITED_30D'").get();
     await call('put', `/packages/${draft.id}`, adminToken, {
       version: draft.version, code: draft.code, name_th: draft.name_th, type: draft.type,
-      duration_days: draft.duration_days, price_thb: 1200, status: 'active',
+      duration_days: draft.duration_days, price_satang: price, status: 'active',
     }).expect(200);
-    return { adminToken, packageId: draft.id };
+    return { adminToken, packageId: draft.id, package: db.prepare('SELECT * FROM packages WHERE id=?').get(draft.id) };
   }
-  return { db, call, login, member, shop, sendSlip, tick: ms => { time += ms; } };
+  const sell = (token, memberId, packageId, method = 'cash', fields = {}) => {
+    const req = call('post', `/members/${memberId}/grant`, token)
+      .field('package_id', packageId).field('payment_method', method);
+    for (const [key, value] of Object.entries(fields)) req.field(key, value);
+    return req;
+  };
+  /** An order the old member app left waiting for somebody to look at it. */
+  function legacyOrder(memberId, pkg, { uploadedAt = time } = {}) {
+    const id = randomUUID();
+    db.prepare(`INSERT INTO orders(id,member_id,package_id,package_code_snapshot,package_name_snapshot,
+      package_type_snapshot,duration_days_snapshot,session_limit_snapshot,price_satang_snapshot,
+      status,payment_method,created_at,expires_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,'awaiting_review','promptpay',?,?,?)`)
+      .run(id, memberId, pkg.id, pkg.code, pkg.name_th, pkg.type, pkg.duration_days, pkg.session_limit,
+        pkg.price_satang, time, time + 3600000, time);
+    const stored = new SlipStore(join(root, 'slips')).save(jpegBuffer());
+    db.prepare(`INSERT INTO payment_slips(id,order_id,stored_name,content_type,byte_size,file_hash,
+      reference_no,transferred_at,amount_satang_claimed,uploaded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`)
+      .run(randomUUID(), id, stored.storedName, stored.contentType, stored.byteSize, stored.fileHash,
+        `REF-${randomUUID().slice(0, 8)}`, uploadedAt - 60000, pkg.price_satang, uploadedAt);
+    return db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+  }
+
+  return { db, call, login, member, shop, sell, legacyOrder, tick: ms => { time += ms; }, at: () => time };
 }
 
-test('a rejected order stays workable: the deadline only binds an unpaid one', async t => {
-  // The member transferred at closing time and nobody looked until morning.
-  // Expiring the order at that point stranded money that had really arrived.
-  const { call, member, shop, sendSlip, tick } = fixture(t);
-  const { adminToken, packageId } = await shop();
-  const token = await member('overnight@example.test');
-  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
-  await sendSlip(token, order.id).expect(201);
-
-  tick(10 * 3600000);
-  const queue = await call('get', '/admin/orders', adminToken).expect(200);
-  assert.ok(queue.body.items.some(item => item.id === order.id), 'the slip must still be in the queue');
-
-  const current = (await call('get', `/admin/orders/${order.id}`, adminToken).expect(200)).body.order;
-  assert.equal(current.status, 'awaiting_review');
-  await call('post', `/admin/orders/${order.id}/reject`, adminToken,
-    { version: current.version, reason: 'สลิปเบลอ อ่านยอดไม่ออก กรุณาส่งใหม่' }).expect(200);
-
-  const retried = await sendSlip(token, order.id, { tag: 'clear' }).expect(201);
-  assert.equal(retried.body.order.status, 'awaiting_review', 'the member could not act on an order they had paid for');
-});
-
-test('a member told to pay again can still reach the QR for that order', async t => {
-  const { call, member, shop, sendSlip } = fixture(t);
-  const { adminToken, packageId } = await shop();
-  const token = await member('payagain@example.test');
-  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
-  await sendSlip(token, order.id).expect(201);
-  await call('post', `/admin/orders/${order.id}/reject`, adminToken,
-    { version: order.version + 1, reason: 'ไม่พบเงินเข้าบัญชี กรุณาโอนแล้วส่งสลิปใหม่' }).expect(200);
-
-  const view = await call('get', `/orders/${order.id}`, token).expect(200);
-  assert.ok(view.body.promptpay_payload, 'the commonest rejection means the member still owes money');
-  await call('get', `/orders/${order.id}/qr.png`, token).expect(200);
-});
-
-test('an admin can bring back an order that expired before anyone looked', async t => {
-  const { call, member, shop, tick, db } = fixture(t);
-  const { adminToken, packageId } = await shop();
-  const token = await member('stranded@example.test');
-  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
-  tick(61 * 60000);
-  assert.equal((await call('get', `/orders/${order.id}`, token).expect(200)).body.order.status, 'expired');
-
-  const seen = (await call('get', `/admin/orders/${order.id}`, adminToken).expect(200)).body.order;
-  const reopened = await call('post', `/admin/orders/${order.id}/reopen`, adminToken,
-    { version: seen.version, minutes: 1440 }).expect(200);
-  assert.equal(reopened.body.order.status, 'pending_payment');
-  assert.equal(db.prepare("SELECT count(*) n FROM audit_logs WHERE action='order.reopen'").get().n, 1);
-  await call('post', `/admin/orders/${order.id}/reopen`, adminToken,
-    { version: reopened.body.order.version }).expect(409);
-});
-
 test('an order approved after a reversal reinstates its membership', async t => {
-  // order_id is UNIQUE, which is what stops a double-click minting a second
-  // membership. The second approval used to collide with the revoked row and
-  // surface to the admin as a duplicate email address.
-  const { call, member, shop, sendSlip, db } = fixture(t);
-  const { adminToken, packageId } = await shop();
-  const token = await member('secondchance@example.test');
-  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
-  await sendSlip(token, order.id).expect(201);
-  const approved = await call('post', `/admin/orders/${order.id}/approve`, adminToken,
-    { version: order.version + 1, checked_against_bank: true }).expect(200);
-  await call('post', `/admin/orders/${order.id}/reverse`, adminToken,
-    { version: approved.body.order.version, reason: 'อนุมัติผิดคน' }).expect(200);
+  // The revoked row is still there, so the second approval has to update it in
+  // place rather than collide with the UNIQUE constraint (P2-BUG-02).
+  const { db, call, member, shop, legacyOrder } = fixture(t);
+  const { adminToken, package: pkg } = await shop();
+  const who = await member(adminToken);
+  const order = legacyOrder(who.id, pkg);
 
-  const retried = await sendSlip(token, order.id, { tag: 'right' }).expect(201);
+  await call('post', `/admin/orders/${order.id}/approve`, adminToken,
+    { version: order.version, checked_against_bank: true }).expect(200);
+  await call('post', `/admin/orders/${order.id}/reverse`, adminToken,
+    { version: order.version + 1, reason: 'อนุมัติผิดคน' }).expect(200);
+  // Put it back in the queue the way the member app used to, by sending the
+  // slip again. Nothing does that now, so the row is set directly -- the bug
+  // being guarded against is in the approval, not in how it got there.
+  db.prepare("UPDATE orders SET status='awaiting_review',version=version+1 WHERE id=?").run(order.id);
   const again = await call('post', `/admin/orders/${order.id}/approve`, adminToken,
-    { version: retried.body.order.version, checked_against_bank: true }).expect(200);
-  assert.equal(again.body.order.status, 'paid');
+    { version: order.version + 3, checked_against_bank: true }).expect(200);
+
   assert.equal(again.body.entitlement.status, 'active');
-  assert.equal(db.prepare('SELECT count(*) n FROM entitlements WHERE order_id=?').get(order.id).n, 1);
-  assert.equal((await call('get', '/entitlements', token).expect(200)).body.items.length, 1);
+  assert.equal(db.prepare('SELECT count(*) n FROM entitlements WHERE order_id=?').get(order.id).n, 1,
+    'reinstated, never duplicated');
 });
 
 test('a short payment cannot be approved without a written reason', async t => {
-  const { call, member, shop, sendSlip } = fixture(t);
-  const { adminToken, packageId } = await shop();
-  const token = await member('shortpay@example.test');
-  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
-  await sendSlip(token, order.id, { amount_thb: 500 }).expect(201);
+  const { db, call, member, shop, legacyOrder } = fixture(t);
+  const { adminToken, package: pkg } = await shop();
+  const who = await member(adminToken);
+  const order = legacyOrder(who.id, pkg);
+  db.prepare('UPDATE payment_slips SET amount_satang_claimed=? WHERE order_id=?').run(60000, order.id);
 
-  const detail = await call('get', `/admin/orders/${order.id}`, adminToken).expect(200);
-  assert.equal(detail.body.amount_mismatch, true);
-
-  const version = detail.body.order.version;
+  const refused = await call('post', `/admin/orders/${order.id}/approve`, adminToken,
+    { version: order.version, checked_against_bank: true, note: 'ok' }).expect(400);
+  assert.match(refused.body.fields.note, /อย่างน้อย 10 ตัวอักษร/);
   await call('post', `/admin/orders/${order.id}/approve`, adminToken,
-    { version, checked_against_bank: true }).expect(400);
-  await call('post', `/admin/orders/${order.id}/approve`, adminToken,
-    { version, checked_against_bank: true, note: 'สั้นไป' }).expect(400);
-
-  const ok = await call('post', `/admin/orders/${order.id}/approve`, adminToken,
-    { version, checked_against_bank: true, note: 'ลูกค้าจ่ายส่วนที่เหลือเป็นเงินสดที่เคาน์เตอร์' }).expect(200);
-  assert.equal(ok.body.order.review_note, 'ลูกค้าจ่ายส่วนที่เหลือเป็นเงินสดที่เคาน์เตอร์');
-
-  // A slip that matches still needs no explanation.
-  const second = await member('exactpay@example.test');
-  const other = (await call('post', '/orders', second, { package_id: packageId }).expect(201)).body.order;
-  await sendSlip(second, other.id, { amount_thb: 1200, tag: 'exact' }).expect(201);
-  await call('post', `/admin/orders/${other.id}/approve`, adminToken,
-    { version: other.version + 1, checked_against_bank: true }).expect(200);
-});
-
-test('a free package skips the QR and the slip entirely', async t => {
-  // The seeded trial package is priced at zero. Building a PromptPay QR for
-  // nothing is impossible, and buying one used to return a 500.
-  const { call, member, login, db } = fixture(t);
-  const adminToken = await login('admin-free@example.test', 'admin');
-  const trial = db.prepare("SELECT * FROM packages WHERE code='TRIAL_1_VISIT'").get();
-  await call('put', `/packages/${trial.id}`, adminToken, {
-    version: trial.version, code: trial.code, name_th: trial.name_th, type: trial.type,
-    duration_days: trial.duration_days, session_limit: trial.session_limit,
-    price_satang: 0, status: 'active',
-  }).expect(200);
-
-  const token = await member('freetrial@example.test');
-  const bought = await call('post', '/orders', token, { package_id: trial.id }).expect(201);
-  assert.equal(bought.body.order.status, 'awaiting_review', 'nothing to pay, so it waits to be granted');
-  assert.equal(bought.body.free, true);
-  assert.equal(bought.body.promptpay_payload, null);
-  await call('get', `/orders/${bought.body.order.id}/qr.png`, token).expect(409);
-
-  const granted = await call('post', `/admin/orders/${bought.body.order.id}/approve`, adminToken,
-    { version: bought.body.order.version, checked_against_bank: true }).expect(200);
-  assert.equal(granted.body.entitlement.sessions_remaining, 1);
+    { version: order.version, checked_against_bank: true, note: 'จ่ายส่วนต่างเป็นเงินสดที่เคาน์เตอร์' }).expect(200);
 });
 
 test('prices mean what their field name says, in both directions', async t => {
   const { call, login } = fixture(t);
-  const adminToken = await login('units@example.test', 'admin');
+  const adminToken = await login('units@example.test');
   const base = { code: 'UNITS_1', name_th: 'ทดสอบหน่วย', type: 'unlimited', duration_days: 30 };
 
   const inBaht = await call('post', '/packages', adminToken, { ...base, price_thb: '1299.50' }).expect(201);
@@ -228,36 +148,31 @@ test('prices mean what their field name says, in both directions', async t => {
 });
 
 test('the slip handed back carries no storage detail', async t => {
-  const { call, member, shop, sendSlip, db } = fixture(t);
+  const { call, member, shop, sell, db } = fixture(t);
   const { adminToken, packageId } = await shop();
-  const token = await member('nodetail@example.test');
-  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
-  const view = await sendSlip(token, order.id).expect(201);
+  const who = await member(adminToken);
+  const sold = await sell(adminToken, who.id, packageId, 'transfer', { reference_no: 'REF-DETAIL' })
+    .attach('slip', jpegBuffer(), { filename: 'slip.jpg', contentType: 'image/jpeg' }).expect(201);
 
   for (const field of ['stored_name', 'file_hash']) {
-    assert.equal(field in view.body.slip, false, `${field} is internal detail`);
+    assert.equal(field in sold.body.slip, false, `${field} is internal detail`);
   }
-  const detail = await call('get', `/admin/orders/${order.id}`, adminToken).expect(200);
+  const detail = await call('get', `/admin/orders/${sold.body.order.id}`, adminToken).expect(200);
   assert.equal('file_hash' in detail.body.slip, false);
-  // The image is still reachable by slip id, which is how the screens load it.
-  const slipId = db.prepare('SELECT id FROM payment_slips WHERE order_id=?').get(order.id).id;
-  await call('get', `/slips/${slipId}/image`, token).expect(200);
+  // The image is still reachable by slip id, which is how the screen loads it.
+  const slipId = db.prepare('SELECT id FROM payment_slips WHERE order_id=?').get(sold.body.order.id).id;
+  await call('get', `/slips/${slipId}/image`, adminToken).expect(200);
 });
 
 test('the review queue is ordered by when each slip arrived', async t => {
-  const { call, member, shop, sendSlip, tick } = fixture(t);
-  const { adminToken, packageId } = await shop();
-  const orders = [];
-  for (let i = 0; i < 3; i++) {
-    const token = await member(`queue${i}@example.test`, `สมาชิก ${i}`);
-    orders.push({ token, order: (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order });
-    tick(120000);
-  }
-  // Slips arrive in the opposite order to the purchases.
-  for (const entry of [...orders].reverse()) {
-    await sendSlip(entry.token, entry.order.id).expect(201);
-    tick(30000);
-  }
+  const { call, member, shop, legacyOrder, tick } = fixture(t);
+  const { adminToken, package: pkg } = await shop();
+  const people = [];
+  for (let i = 0; i < 3; i++) people.push(await member(adminToken, `สมาชิก ${i}`));
+  // Slips arrive in the opposite order to the sign-ups, and the queue has to
+  // follow the wait the screen shows rather than the order's own age.
+  for (const who of [...people].reverse()) { legacyOrder(who.id, pkg); tick(30000); }
+
   const queue = await call('get', '/admin/orders', adminToken).expect(200);
   const waiting = queue.body.items.map(item => item.waiting_since);
   assert.deepEqual(waiting, [...waiting].sort((a, b) => a - b), 'longest wait first, measured from the slip');
@@ -265,19 +180,31 @@ test('the review queue is ordered by when each slip arrived', async t => {
 });
 
 test('reading an order does not write to the database', async t => {
-  // expireStaleOrders used to run on every GET, turning a member polling their
-  // order status into a stream of writes. The sweeper owns that job now.
-  const { call, member, shop, tick, db } = fixture(t);
-  const { packageId } = await shop();
-  const token = await member('readonly@example.test');
-  const order = (await call('post', '/orders', token, { package_id: packageId }).expect(201)).body.order;
+  // expireStaleOrders used to run on every GET, turning somebody watching a
+  // screen into a stream of writes. The sweeper owns that job now.
+  const { call, member, shop, legacyOrder, tick, db } = fixture(t);
+  const { adminToken, package: pkg } = await shop();
+  const who = await member(adminToken);
+  const order = legacyOrder(who.id, pkg);
+  db.prepare("UPDATE orders SET status='pending_payment' WHERE id=?").run(order.id);
   tick(61 * 60000);
 
   const before = db.prepare('SELECT version, status FROM orders WHERE id=?').get(order.id);
   for (let i = 0; i < 5; i++) {
-    assert.equal((await call('get', `/orders/${order.id}`, token).expect(200)).body.order.status, 'expired');
+    assert.equal((await call('get', `/admin/orders/${order.id}`, adminToken).expect(200)).body.order.status, 'expired');
   }
   const after = db.prepare('SELECT version, status FROM orders WHERE id=?').get(order.id);
   assert.deepEqual(after, before, 'a read changed the row');
   assert.equal(after.status, 'pending_payment', 'the stored status is only changed by the sweeper');
+});
+
+test('a free package is handed over without anybody swearing money arrived', async t => {
+  const { call, member, shop, sell, db } = fixture(t);
+  const { adminToken, packageId } = await shop(0);
+  const who = await member(adminToken);
+  const sold = await sell(adminToken, who.id, packageId, 'none', { note: 'แพ็กเกจแนะนำเพื่อน' }).expect(201);
+  assert.equal(sold.body.order.price_thb, 0);
+  assert.equal(sold.body.free, true);
+  assert.equal(sold.body.order.status, 'paid');
+  assert.equal(db.prepare('SELECT manual_grant FROM orders WHERE id=?').get(sold.body.order.id).manual_grant, 1);
 });
