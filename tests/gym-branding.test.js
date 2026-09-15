@@ -17,9 +17,19 @@ import { join } from 'node:path';
 import { counterFixture, jpegBuffer, PHOTO_JPEG } from './counter.js';
 import { seedConfiguration } from '../server/seed.js';
 import {
-  Brand, contrastRatio, logoNeedsPlate, luminance, MIN_CONTRAST,
+  Brand, contrastRatio, logoNeedsPlate, luminance, MAX_LOGO_BYTES, MIN_CONTRAST,
   normalizeHex, paletteFrom, prepareLogo, readableInk, resolveTheme,
 } from '../server/theme.js';
+
+/**
+ * A save made the way the screen makes one: carrying the version it opened
+ * with. The server refuses a save that carries none, so a test that wants to
+ * change a setting has to read the row first, exactly like the browser does.
+ */
+async function save(call, who, fields, status = 200) {
+  const version = (await call('get', '/gym/settings', who).expect(200)).body.version;
+  return call('put', '/gym/settings', who, { ...fields, version }).expect(status);
+}
 
 const asBytes = request => request.buffer(true).parse((res, cb) => {
   const chunks = [];
@@ -216,8 +226,8 @@ test('the owner sets the colours, and staff can only look', async t => {
   assert.ok(withPhone.body.address);
   await call('put', '/gym/settings', staff, { color_primary: '#C2185B' }).expect(403);
 
-  const saved = await call('put', '/gym/settings', owner,
-    { color_primary: '#c2185b', brand_short: 'สฟ', line_id: '@suklutai', appbar_style: 'brand' }).expect(200);
+  const saved = await save(call, owner,
+    { color_primary: '#c2185b', brand_short: 'สฟ', line_id: '@suklutai', appbar_style: 'brand' });
   assert.equal(saved.body.theme.brand, '#C2185B', 'stored the same whichever case it was typed in');
   assert.equal(saved.body.theme.on_brand, '#FFFFFF');
   assert.equal(saved.body.theme.appbar, 'brand');
@@ -237,11 +247,11 @@ test('a colour that is not a colour is refused before it reaches a card', async 
   const { call, signIn } = counterFixture(t);
   const owner = await signIn('owner@example.test');
   for (const bad of ['blue', '#12345', 'drop table']) {
-    const refused = await call('put', '/gym/settings', owner, { color_primary: bad }).expect(400);
+    const refused = await save(call, owner, { color_primary: bad }, 400);
     assert.match(refused.body.error, /สีหลักไม่ถูกต้อง/);
   }
-  await call('put', '/gym/settings', owner, { color_primary: '#FFD400', color_secondary: '#123456' }).expect(200);
-  const cleared = await call('put', '/gym/settings', owner, { color_secondary: '' }).expect(200);
+  await save(call, owner, { color_primary: '#FFD400', color_secondary: '#123456' });
+  const cleared = await save(call, owner, { color_secondary: '' });
   assert.equal(cleared.body.color_secondary_source, 'auto');
   assert.equal(cleared.body.theme.brand_2, Brand.deriveAll('#FFD400', null).brand2);
 });
@@ -253,6 +263,59 @@ test('two people on two tablets cannot quietly undo each other', async t => {
   await call('put', '/gym/settings', owner, { color_primary: '#C2185B', version: opened }).expect(200);
   const stale = await call('put', '/gym/settings', owner, { color_primary: '#12306B', version: opened }).expect(409);
   assert.match(stale.body.error, /โหลดหน้าใหม่/);
+});
+
+test('a save that carries no version at all is refused too', async t => {
+  const { call, signIn } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  await save(call, owner, { color_primary: '#C2185B' });
+
+  // The guard used to be armed only when the caller chose to arm it, which is
+  // no guard: a request with no version went straight through and put back
+  // whatever it liked. Not being able to show a save did NOT lose the race is
+  // the same position as knowing it did, so it gets the same answer.
+  const blind = await call('put', '/gym/settings', owner, { color_primary: '#12306B' }).expect(409);
+  assert.match(blind.body.error, /โหลดหน้าใหม่/);
+  assert.equal((await call('get', '/gym/settings', owner)).body.theme.brand, '#C2185B',
+    'the colour that was there was overwritten by a save nobody could check');
+});
+
+test('the logo is settings too: a stale version does not replace or remove one', async t => {
+  const { call, signIn } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const opened = (await call('get', '/gym/settings', owner).expect(200)).body.version;
+  await call('put', '/gym/settings/logo', owner).field('version', String(opened))
+    .attach('logo', await logoFile(), { filename: 'logo.png', contentType: 'image/png' }).expect(200);
+  const saved = (await call('get', '/gym/settings', owner).expect(200)).body;
+
+  // The second tablet still holds the version from before the upload.
+  await call('put', '/gym/settings/logo', owner).field('version', String(opened))
+    .attach('logo', await logoFile({ colour: '#12306B' }), { filename: 'other.png', contentType: 'image/png' })
+    .expect(409);
+  const removal = await call('delete', '/gym/settings/logo', owner, { version: opened }).expect(409);
+  assert.match(removal.body.error, /โหลดหน้าใหม่/);
+  assert.equal((await call('get', '/gym/settings', owner)).body.logo_url, saved.logo_url,
+    'the logo that was there was replaced by a tablet holding an old version');
+
+  // Sent correctly, both still work. A caller that sends no version at all --
+  // the setup script, before anybody has a page open -- is not blocked.
+  await call('delete', '/gym/settings/logo', owner, { version: saved.version }).expect(200);
+  await call('put', '/gym/settings/logo', owner)
+    .attach('logo', await logoFile(), { filename: 'logo.png', contentType: 'image/png' }).expect(200);
+});
+
+test('a logo over the limit is refused as a logo, and told the real limit', async t => {
+  const { call, signIn } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const refused = await call('put', '/gym/settings/logo', owner)
+    .attach('logo', Buffer.alloc(MAX_LOGO_BYTES + 4096, 7), { filename: 'huge.png', contentType: 'image/png' })
+    .expect(400);
+  // multer's refusal used to fall through to the handler written for payment
+  // slips, so the owner was told their *slip* was over *5 MB* -- the wrong
+  // word and a number that would still fail when they shrank the file to it.
+  assert.doesNotMatch(refused.body.error, /สลิป/, refused.body.error);
+  assert.match(refused.body.error, /โลโก้/);
+  assert.match(refused.body.error, /2 MB/, refused.body.error);
 });
 
 test('the logo is stored like everything else and served to anybody', async t => {
@@ -326,7 +389,7 @@ test('the card is drawn in the gym colours, and the token does not move', async 
   const green = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
   const first = await call('get', `/members/${member.id}/card`, owner).expect(200);
 
-  await call('put', '/gym/settings', owner, { color_primary: '#C2185B' }).expect(200);
+  await save(call, owner, { color_primary: '#C2185B' });
   const pink = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
   assert.ok(!pink.body.equals(green.body), 'the card follows the gym colour');
   assert.equal(pink.body.readUInt32BE(16), 1080);
@@ -374,11 +437,11 @@ test('the way to reach the gym is on the card: phone, and LINE when there is one
   const member = await addMember(owner);
   const without = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
 
-  await call('put', '/gym/settings', owner, { line_id: '@suklutai' }).expect(200);
+  await save(call, owner, { line_id: '@suklutai' });
   const withLine = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
   assert.ok(!withLine.body.equals(without.body), 'the LINE id is printed on the card');
 
-  const cleared = await call('put', '/gym/settings', owner, { line_id: '' }).expect(200);
+  const cleared = await save(call, owner, { line_id: '' });
   assert.equal(cleared.body.line_id, '');
   await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
 });

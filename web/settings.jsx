@@ -144,6 +144,9 @@ export function GymBranding({ role, onAuthError, onSaved }) {
     setUploading(true); setUploadError(null);
     const body = new FormData();
     body.append('logo', file);
+    // The logo is settings too: two owners on two tablets must not be able to
+    // put back a logo the other one just replaced.
+    body.append('version', String(data.version));
     try {
       await upload('/gym/settings/logo', body, 'PUT');
       await reload();
@@ -153,7 +156,10 @@ export function GymBranding({ role, onAuthError, onSaved }) {
 
   async function removeLogo() {
     setUploading(true); setUploadError(null);
-    try { await api('/gym/settings/logo', { method: 'DELETE' }); await reload(); onSaved?.('เอาโลโก้ออกแล้ว'); }
+    try {
+      await api('/gym/settings/logo', { method: 'DELETE', body: { version: data.version } });
+      await reload(); onSaved?.('เอาโลโก้ออกแล้ว');
+    }
     catch (e) { setUploadError(e); onAuthError(e); } finally { setUploading(false); }
   }
 

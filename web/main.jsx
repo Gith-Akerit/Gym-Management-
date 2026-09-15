@@ -49,11 +49,15 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
 /** The dark stage the login and set-password screens share. */
 const Stage = ({ brand, branding, title, children }) => <div className="scanstage loginstage" style={{ justifyContent: 'center' }}>
   <div style={{ maxWidth: 430, width: '100%', margin: '0 auto', padding: 'var(--sp-6)' }}>
-    <div style={{ textAlign: 'center', marginBottom: 'var(--sp-6)' }}>
+    {/* Sizes here, colours in brand-extra.css. Ink on this stage has to follow
+        the gym's own colour, and an inline style cannot: it wins over every
+        rule in the sheet, so the one white that was written here left the
+        initials white on a white plate in every gym, green included. */}
+    <div className="stagehead">
       <Mark branding={branding} brand={brand}
-        style={{ width: 66, height: 66, margin: '0 auto var(--sp-4)', fontSize: 22, background: '#fff', color: 'var(--accent-ink)' }}/>
-      <h1 style={{ color: '#fff' }}>{brand}</h1>
-      <p style={{ margin: '4px 0 0', color: 'var(--on-dark-2)', fontSize: 'var(--fs-16)' }}>{title}</p>
+        style={{ width: 66, height: 66, margin: '0 auto var(--sp-4)', fontSize: 22 }}/>
+      <h1>{brand}</h1>
+      <p className="stagesub">{title}</p>
     </div>
     {children}
   </div>

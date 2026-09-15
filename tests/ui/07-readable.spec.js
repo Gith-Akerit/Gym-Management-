@@ -56,10 +56,14 @@ function tapTargets(page) {
 
 /** Sets the gym colour the way the settings screen will: from the app itself. */
 const paint = (page, colour) => page.evaluate(async hex => {
+  const headers = { 'Content-Type': 'application/json', 'X-Gym-Client': 'web' };
+  // A save carries the version it opened with, or the server refuses it: it
+  // has no way to tell a first save from one that would put back a colour
+  // somebody at another tablet just changed.
+  const { version } = await (await fetch('/api/gym/settings', { credentials: 'include', headers })).json();
   const response = await fetch('/api/gym/settings', {
-    method: 'PUT', credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-Gym-Client': 'web' },
-    body: JSON.stringify({ color_primary: hex }),
+    method: 'PUT', credentials: 'include', headers,
+    body: JSON.stringify({ color_primary: hex, version }),
   });
   return response.status;
 }, colour);

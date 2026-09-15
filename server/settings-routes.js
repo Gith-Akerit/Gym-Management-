@@ -70,8 +70,15 @@ const settingsSchema = z.object({
   color_secondary: z.string().trim().nullish(),
   line_id: z.string().trim().max(60, 'LINE ID ยาวได้ไม่เกิน 60 ตัวอักษร').optional(),
   appbar_style: z.enum(['light', 'brand']).optional(),
-  version: z.coerce.number().int().min(1).optional(),
+  // Not optional. A save that carries no version cannot be checked against
+  // anybody else's, and a guard that is only armed when the caller feels like
+  // arming it is not a guard -- the day a screen stops sending this field,
+  // two tablets go back to overwriting each other with nothing said.
+  version: z.coerce.number().int().min(1),
 }).strict();
+
+/** What the second tablet is told, wherever it is the second tablet. */
+const STALE_SETTINGS = 'มีคนแก้ตั้งค่ายิมไปแล้วระหว่างที่คุณเปิดหน้านี้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง';
 
 export function registerPublicThemeRoutes({ app, db, logoStore }) {
   app.get('/api/public/theme', (req, res) => res.json(publicTheme(db)));
@@ -98,6 +105,37 @@ export function registerPublicThemeRoutes({ app, db, logoStore }) {
 
 export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore }) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_LOGO_BYTES, files: 1 } });
+
+  /**
+   * multer's own refusals, answered here instead of at the end of the app.
+   *
+   * The shared handler was written when the only upload in the system was a
+   * payment slip, so an owner whose logo was too big was told their *slip* was
+   * over *5 MB* -- both words wrong, and the number wrong by more than a
+   * factor of two, so shrinking the file to what it said still failed.
+   */
+  const receiveLogo = (req, res, next) => upload.single('logo')(req, res, error => {
+    if (error?.code === 'LIMIT_FILE_SIZE') {
+      return next(new HttpError(400,
+        `ไฟล์โลโก้ใหญ่เกิน ${Math.round(MAX_LOGO_BYTES / 1024 / 1024)} MB กรุณาย่อรูปก่อนอัปโหลด`));
+    }
+    if (typeof error?.code === 'string' && error.code.startsWith('LIMIT_')) {
+      return next(new HttpError(400, 'อัปโหลดโลโก้ไม่สำเร็จ กรุณาแนบไฟล์โลโก้เพียงไฟล์เดียว'));
+    }
+    next(error);
+  });
+
+  /**
+   * The same optimistic-concurrency check the settings form gets.
+   *
+   * Sent by the screen on every logo call, and checked when it is sent. Not
+   * demanded, because the logo endpoints are also how a gym is set up from a
+   * script before anybody has a page open to hold a version.
+   */
+  const notStale = (row, version) => {
+    if (version !== undefined && version !== null && version !== ''
+      && Number(version) !== row?.version) throw new HttpError(409, STALE_SETTINGS);
+  };
 
   const readLogo = settings => {
     if (!settings?.logo_stored_name) return null;
@@ -129,6 +167,11 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
   app.get('/api/gym/settings', counter, async (req, res) => res.json(await view()));
 
   app.put('/api/gym/settings', admin, async (req, res) => {
+    // A request with no version at all is the same thing as a request that
+    // lost the race -- we cannot show it was not one -- so it gets the answer
+    // that tells the owner what to do, rather than a 400 that reads like a
+    // typo in a field they never filled in.
+    if (req.body?.version === undefined) throw new HttpError(409, STALE_SETTINGS);
     const input = parse(settingsSchema, req.body);
     const fields = {};
     if (input.color_primary !== undefined) {
@@ -156,9 +199,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
       const before = settingsRow(db);
       // Two people on two tablets, and the second one would otherwise put back
       // a colour the first had just changed without either of them knowing.
-      if (input.version !== undefined && input.version !== before.version) {
-        throw new HttpError(409, 'มีคนแก้ตั้งค่ายิมไปแล้วระหว่างที่คุณเปิดหน้านี้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง');
-      }
+      if (input.version !== before.version) throw new HttpError(409, STALE_SETTINGS);
       const columns = Object.keys(fields).map(name => `${name}=?`).join(',');
       db.prepare(`UPDATE gym_settings SET ${columns},version=version+1,updated_at=? WHERE id=1`)
         .run(...Object.values(fields), now());
@@ -167,8 +208,9 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
     res.json(await view());
   });
 
-  app.put('/api/gym/settings/logo', admin, upload.single('logo'), async (req, res) => {
+  app.put('/api/gym/settings/logo', admin, receiveLogo, async (req, res) => {
     if (!logoStore) throw new HttpError(503, 'ระบบยังไม่ได้ตั้งค่าที่เก็บโลโก้ กรุณาติดต่อผู้ดูแลระบบ');
+    notStale(settingsRow(db), req.body?.version);
     let bytes = req.file?.buffer;
     if (!bytes?.length) throw new HttpError(400, 'กรุณาเลือกไฟล์โลโก้');
     // Type by leading bytes first, so a PDF named logo.png keeps its own
@@ -206,6 +248,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
   });
 
   app.delete('/api/gym/settings/logo', admin, async (req, res) => {
+    notStale(settingsRow(db), req.body?.version);
     const previous = settingsRow(db)?.logo_stored_name ?? null;
     if (!previous) throw new HttpError(404, 'ยังไม่ได้อัปโหลดโลโก้');
     transaction(db, () => {
