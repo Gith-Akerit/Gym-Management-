@@ -18,6 +18,10 @@ primary_region = "sin"
   PORT = "3000"
   DATABASE_PATH = "/data/gym.sqlite"
   SLIP_STORAGE_PATH = "/data/slips"
+  # Member photographs and the gym logo, on the same volume. Anything the app
+  # writes outside /data is lost on the next deploy, silently (Infra).
+  PHOTO_STORAGE_PATH = "/data/photos"
+  LOGO_STORAGE_PATH = "/data/logo"
   # Fly's edge proxy is the single hop in front of the app.
   TRUST_PROXY = "1"
 

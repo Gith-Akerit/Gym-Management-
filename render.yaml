@@ -30,6 +30,12 @@ services:
         value: /data/gym.sqlite
       - key: SLIP_STORAGE_PATH
         value: /data/slips
+      # Member photographs and the gym logo, on the same disk. Anything the app
+      # writes outside /data is lost on the next deploy, silently (Infra).
+      - key: PHOTO_STORAGE_PATH
+        value: /data/photos
+      - key: LOGO_STORAGE_PATH
+        value: /data/logo
       # Render's router is the one hop in front of the app.
       - key: TRUST_PROXY
         value: "1"

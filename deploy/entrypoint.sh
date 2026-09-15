@@ -7,7 +7,14 @@
 # price or an opening hour the owner has edited.
 set -e
 
-mkdir -p "$(dirname "${DATABASE_PATH:-./data/gym.sqlite}")" "${SLIP_STORAGE_PATH:-./data/slips}" \n  "${PHOTO_STORAGE_PATH:-./data/photos}"
+# Every directory the app writes to, made before it starts. SlipStore would
+# create them itself, but on the wrong path that is exactly the failure that
+# stays quiet: the upload succeeds into the container and is gone on the next
+# rebuild, with no error anywhere and no copy in the backup (Infra).
+mkdir -p "$(dirname "${DATABASE_PATH:-./data/gym.sqlite}")" \
+  "${SLIP_STORAGE_PATH:-./data/slips}" \
+  "${PHOTO_STORAGE_PATH:-./data/photos}" \
+  "${LOGO_STORAGE_PATH:-./data/logo}"
 
 node server/manage.js migrate
 node server/manage.js seed
