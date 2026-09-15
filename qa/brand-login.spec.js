@@ -50,7 +50,11 @@ const hero = page => page.evaluate(() => {
     for (let node = el; node && /, 0\)$/.test(background); node = node.parentElement) {
       background = getComputedStyle(node).backgroundColor;
     }
-    return { text: el.textContent.trim().slice(0, 30), color: style.color, background };
+    return { text: el.textContent.trim().slice(0, 30), color: style.color, background,
+      // Fading text to make it look secondary is the trick that broke the
+      // bottom band of the card: the measured colour then says one thing and
+      // the eye sees another. Hierarchy comes from size and weight instead.
+      opacity: Number(style.opacity), fontSize: style.fontSize, fontWeight: style.fontWeight };
   };
   return {
     stage: getComputedStyle(document.querySelector('.loginstage')).backgroundColor,
@@ -94,6 +98,9 @@ test('BRAND-UI-02 the gym name and the line under it survive a pale brand colour
       stage: seen.stage,
       name: ratio(seen.name.color, seen.name.background),
       subtitle: ratio(seen.subtitle.color, seen.subtitle.background),
+      faded: [seen.name.opacity, seen.subtitle.opacity].filter(o => o < 1),
+      sizes: [seen.name.fontSize, seen.subtitle.fontSize],
+      weights: [seen.name.fontWeight, seen.subtitle.fontWeight],
     };
   }
   console.log('BRAND-UI-02 the login hero in four gyms:\n' + JSON.stringify(report, null, 1));
@@ -103,6 +110,11 @@ test('BRAND-UI-02 the gym name and the line under it survive a pale brand colour
     expect(row.name, `${colour}: the gym name is ${row.name}:1 on ${row.stage}`).toBeGreaterThanOrEqual(3);
     expect(row.subtitle, `${colour}: the line under it is ${row.subtitle}:1 on ${row.stage}`)
       .toBeGreaterThanOrEqual(4.5);
+    // Both lines carry the same ink; what separates them is size and weight,
+    // not a faded copy of the first (the decision on this thread).
+    expect(row.faded, `${colour}: something on the hero is faded with opacity`).toEqual([]);
+    expect(row.sizes[0], `${colour}: the gym name is not larger than the line under it`)
+      .not.toBe(row.sizes[1]);
   }
 });
 
