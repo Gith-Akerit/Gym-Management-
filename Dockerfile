@@ -5,6 +5,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY vite.config.js index.html ./
+# web/settings.jsx imports ../shared/brand.cjs. A build context that leaves a
+# top-level directory out fails here and nowhere else: vite in a checkout has
+# the whole repository, so this is invisible until the image is built.
+COPY shared ./shared
 COPY web ./web
 RUN npm run build
 
@@ -21,6 +25,10 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
+# server/theme.js requires it too, so it has to be in the runtime image and not
+# only in the build one. Copying it into the build stage alone produces an image
+# that builds green and then crash-loops on the first boot.
+COPY shared ./shared
 COPY server ./server
 COPY --from=build /app/dist ./dist
 COPY deploy/entrypoint.sh ./deploy/entrypoint.sh
