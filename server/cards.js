@@ -14,7 +14,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import QRCode from 'qrcode';
-import { normalizeHex, readableInk } from './theme.js';
+import { logoNeedsPlate, normalizeHex, readableInk } from './theme.js';
 
 const require = createRequire(import.meta.url);
 
@@ -85,6 +85,11 @@ export const CARD = {
   qrDark: '#0A0F0C',
   header: { height: 150 },
   logo: { x: 56, y: 38, size: 74, radius: 20, font: 27 },
+  /* A real logo is laid in whole rather than squeezed into the square: up to
+     220 wide and 74 tall, 22 from the gym's name. The plate is only drawn when
+     the logo would sink into the band, and then the logo shrinks to 56 so the
+     plate still fits the header (Designer, ข้อ 4). */
+  logoWide: { max: 220, height: 74, gap: 22, plate: [10, 14], plateHeight: 56, plateRadius: 16 },
   gymTh: { x: 152, y: 38, size: 42, max: 872 },
   gymEn: { x: 152, y: 89, size: 19, tracking: 0.2, max: 872 },
   photo: { x: 56, y: 188, size: 232, ring: 7 },
@@ -188,13 +193,14 @@ function trackedText(ctx, text, x, y, tracking) {
  * @param {object} [theme] the gym colours from theme.js — the header band and
  *   the ink on it. The QR is never tinted: it has to read off a dim phone.
  * @param {Buffer|null} [logo] the gym logo, for the square in the header
+ * @param {string|null} [logoAvg] its average colour, which decides the plate
  * @param {string} [brandShort] what goes in that square when there is no logo
  * @param {string} [lineId] the gym's LINE id, printed beside its phone number
  * @param {() => void} [onPhotoFailure] called when the photograph would not draw
  * @returns {Promise<Buffer>} PNG bytes
  */
 export async function renderCard({ member, gym, qr, photo, membership = {}, voided = false,
-  theme, logo = null, brandShort = '', lineId = '', onPhotoFailure }) {
+  theme, logo = null, logoAvg = null, brandShort = '', lineId = '', onPhotoFailure }) {
   // Loaded here rather than at the top of the file: a machine without a build
   // of the drawing library should still be able to run the counter, scan
   // members in and take money. Only the card is unavailable, and it says so.
@@ -211,35 +217,50 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
   ctx.fillRect(0, 0, CARD.width, CARD.height);
 
   // --- header --------------------------------------------------------------
-  // The gym's own colour, or the one the app shipped with. The ink on top is
-  // whichever of black and white a person can actually read on it -- worked
-  // out in theme.js, so the card and the screen never disagree about it.
-  const band = normalizeHex(theme?.primary) ?? CARD.green;
-  const ink = normalizeHex(theme?.on_primary) ?? readableInk(band);
+  // The gym's own colour, or the one the app shipped with. Every value comes
+  // from shared/brand.cjs, which is the same file the settings screen uses to
+  // preview it -- the card and the screen cannot disagree about a colour.
+  const band = normalizeHex(theme?.brand_surface) ?? CARD.green;
+  const ink = normalizeHex(theme?.on_brand) ?? readableInk(band);
   ctx.fillStyle = band;
   ctx.fillRect(0, 0, CARD.width, CARD.header.height);
   const { x: lx, y: ly, size: ls, radius: lr } = CARD.logo;
-  // A real logo gets a plate of its own. A gym's logo is usually its own
-  // colour, and its own colour on its own colour is a shape nobody can see --
-  // which is exactly the square the owner will look at first.
-  ctx.fillStyle = logo ? CARD.white : (ink === CARD.white ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)');
-  roundedRect(ctx, lx, ly, ls, ls, lr);
-  ctx.fill();
-  ctx.fillStyle = ink;
-  // The gym's own logo goes in the square when there is one. Contained, never
-  // cropped: a logo with its edges cut off looks like a mistake, and it is the
-  // one thing on the card the owner will look at first.
+
   let mark = null;
   if (logo) {
     try { mark = await loadImage(logo); } catch { mark = null; }
     if (!mark?.width || !mark?.height) mark = null;
   }
+
+  // Where the gym's name starts: after the square when there is no logo, and
+  // after however wide the logo turned out to be when there is one.
+  let textLeft = CARD.gymTh.x;
   if (mark) {
-    const pad = 8;
-    const scale = Math.min((ls - pad * 2) / mark.width, (ls - pad * 2) / mark.height);
+    // A logo is laid in whole -- contained, never stretched or cropped -- and
+    // gets a white plate only when it would otherwise sink into the band. A
+    // pale logo on a dark band does not need one, and a plate it does not need
+    // is a box inside a box (Designer, logoNeedsPlate).
+    const plate = logoAvg ? logoNeedsPlate(logoAvg, band) : false;
+    const box = plate ? CARD.logoWide.plateHeight : CARD.logoWide.height;
+    const scale = Math.min(CARD.logoWide.max / mark.width, box / mark.height);
     const [w, h] = [mark.width * scale, mark.height * scale];
-    ctx.drawImage(mark, lx + (ls - w) / 2, ly + (ls - h) / 2, w, h);
+    const top = (CARD.header.height - h) / 2;
+    if (plate) {
+      const [padY, padX] = CARD.logoWide.plate;
+      ctx.fillStyle = CARD.white;
+      roundedRect(ctx, lx, top - padY, w + padX * 2, h + padY * 2, CARD.logoWide.plateRadius);
+      ctx.fill();
+      ctx.drawImage(mark, lx + padX, top, w, h);
+      textLeft = lx + w + padX * 2 + CARD.logoWide.gap;
+    } else {
+      ctx.drawImage(mark, lx, top, w, h);
+      textLeft = lx + w + CARD.logoWide.gap;
+    }
   } else {
+    ctx.fillStyle = ink === CARD.white ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
+    roundedRect(ctx, lx, ly, ls, ls, lr);
+    ctx.fill();
+    ctx.fillStyle = ink;
     ctx.font = font.th(CARD.logo.font, 800);
     const initials = brandShort || logoInitials(gym?.brand_name_th || gym?.name);
     ctx.fillText(initials, lx + (ls - ctx.measureText(initials).width) / 2, ly + (ls - CARD.logo.font * 1.35) / 2 + 4);
@@ -247,11 +268,12 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
 
   ctx.fillStyle = ink;
   ctx.font = font.th(CARD.gymTh.size, 800);
-  ctx.fillText(fitted(ctx, gym?.brand_name_th || gym?.name || 'ยิม', CARD.gymTh.max), CARD.gymTh.x, CARD.gymTh.y);
+  const nameWidth = CARD.width - textLeft - CARD.margin;
+  ctx.fillText(fitted(ctx, gym?.brand_name_th || gym?.name || 'ยิม', nameWidth), textLeft, CARD.gymTh.y);
   if (gym?.name) {
     ctx.font = font.num(CARD.gymEn.size, 500);
     ctx.globalAlpha = 0.8;
-    trackedText(ctx, fitted(ctx, gym.name.toUpperCase(), CARD.gymEn.max), CARD.gymEn.x, CARD.gymEn.y, CARD.gymEn.tracking);
+    trackedText(ctx, fitted(ctx, gym.name.toUpperCase(), nameWidth), textLeft, CARD.gymEn.y, CARD.gymEn.tracking);
     ctx.globalAlpha = 1;
   }
 
@@ -349,24 +371,28 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
 
   // --- the footer ----------------------------------------------------------
   const f = CARD.footer;
-  ctx.fillStyle = CARD.ink;
+  // The bar takes the gym's second colour, and with it the ink that colour
+  // can carry. No opacity anywhere on it: a warm mid secondary drops below
+  // 4.5:1 the moment it is faded, so the hierarchy is size and weight instead
+  // (Designer, ข้อ 9).
+  const bar = normalizeHex(theme?.brand_2) ?? CARD.ink;
+  const barInk = normalizeHex(theme?.on_brand_2) ?? CARD.white;
+  ctx.fillStyle = bar;
   ctx.fillRect(0, f.y, CARD.width, f.height);
   const right = CARD.width - CARD.margin;
   const half = (CARD.width - CARD.margin * 2) / 2 - 20;
-  ctx.fillStyle = CARD.white;
-  ctx.globalAlpha = 0.78;
+  ctx.fillStyle = barInk;
   ctx.font = font.th(f.labelSize, 400);
   ctx.fillText('แพ็กเกจ', CARD.margin, f.top);
   const validLabel = 'ใช้ได้ถึง';
   ctx.fillText(validLabel, right - ctx.measureText(validLabel).width, f.top);
-  ctx.globalAlpha = 1;
   ctx.font = font.th(f.size, 700);
   ctx.fillText(fitted(ctx, membership.package ?? 'ยังไม่มีแพ็กเกจ', half), CARD.margin, f.top + 30);
   const expires = membership.expires ?? '—';
   ctx.font = font.num(f.size, 600);
   ctx.fillText(expires, right - ctx.measureText(expires).width, f.top + 30);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.strokeStyle = barInk === CARD.white ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.22)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(CARD.margin, f.telY - 10);
@@ -374,7 +400,6 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
   ctx.stroke();
 
   ctx.font = font.th(f.telSize, 400);
-  ctx.globalAlpha = 0.78;
   const place = [gym?.brand_name_th || gym?.name, gym?.location_note].filter(Boolean).join(' · ');
   ctx.fillText(fitted(ctx, place, half + 60), CARD.margin, f.telY);
   const phone = gym?.phone_display === 'hidden' ? ''
@@ -387,7 +412,6 @@ export async function renderCard({ member, gym, qr, photo, membership = {}, void
     const label = fitted(ctx, reach, half);
     ctx.fillText(label, right - ctx.measureText(label).width, f.telY);
   }
-  ctx.globalAlpha = 1;
 
   // --- cancelled -----------------------------------------------------------
   if (voided) {

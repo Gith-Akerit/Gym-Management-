@@ -51,11 +51,19 @@ export function useBranding() {
     const theme = branding?.theme;
     if (!theme) return;
     const style = document.documentElement.style;
-    style.setProperty('--accent', theme.primary);
-    style.setProperty('--accent-soft', theme.soft);
-    style.setProperty('--accent-ink', theme.ink);
-    style.setProperty('--accent-hover', theme.hover);
-    style.setProperty('--on-accent', theme.on_primary);
+    // The eight the Designer named, and only those: a ninth token invented
+    // here is a colour the card would not know about.
+    style.setProperty('--brand', theme.brand);
+    style.setProperty('--brand-surface', theme.brand_surface);
+    style.setProperty('--on-brand', theme.on_brand);
+    style.setProperty('--brand-ink', theme.brand_ink);
+    style.setProperty('--brand-soft', theme.brand_soft);
+    style.setProperty('--brand-line', theme.brand_line);
+    style.setProperty('--brand-2', theme.brand_2);
+    style.setProperty('--on-brand-2', theme.on_brand_2);
+    // White bar with a brand line under it unless the gym asked for the full
+    // colour, which is a choice they make once (Designer, ข้อ 5).
+    document.body.dataset.appbar = theme.appbar === 'brand' ? 'brand' : 'light';
   }, [branding]);
   return [branding, reload];
 }

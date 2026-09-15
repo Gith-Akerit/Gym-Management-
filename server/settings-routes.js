@@ -10,7 +10,10 @@
 import { z } from 'zod';
 import multer from 'multer';
 import { audit, getGym, transaction } from './db.js';
-import { LogoUnreadableError, MAX_LOGO_BYTES, normalizeHex, paletteFrom, prepareLogo, resolveTheme } from './theme.js';
+import {
+  DEFAULT_PRIMARY, LogoUnreadableError, MAX_LOGO_BYTES, normalizeHex,
+  paletteFrom, prepareLogo, resolveTheme,
+} from './theme.js';
 import { detectImageType, SlipError } from './slips.js';
 import { HttpError, parse } from './validation.js';
 
@@ -39,9 +42,17 @@ export function brandShort(settings, gym) {
 export function publicTheme(db) {
   const settings = settingsRow(db);
   const gym = getGym(db).profile;
+  const phone = gym?.phone_display === 'hidden' ? null
+    : (gym?.phone_display === 'secondary' ? gym?.phone_secondary : gym?.phone_primary) || null;
   return {
     brand: gym?.brand_name_th || gym?.name || 'ยิมของเรา',
+    brand_en: gym?.name ? gym.name.toUpperCase() : '',
     brand_short: brandShort(settings, gym),
+    // Shown, not edited here: the phone and the address belong to the gym's
+    // facts and are changed on "ข้อมูลยิม". Staff see them because the reason
+    // they can open this page at all is to answer "what is your LINE?".
+    phone,
+    address: gym?.location_note || '',
     has_logo: !!settings?.logo_stored_name,
     logo_url: settings?.logo_stored_name ? `/api/gym/logo?v=${settings.logo_updated_at ?? 0}` : null,
     line_id: settings?.line_id || '',
@@ -58,6 +69,7 @@ const settingsSchema = z.object({
   // Empty string means "go back to working it out from the primary colour".
   color_secondary: z.string().trim().nullish(),
   line_id: z.string().trim().max(60, 'LINE ID ยาวได้ไม่เกิน 60 ตัวอักษร').optional(),
+  appbar_style: z.enum(['light', 'brand']).optional(),
   version: z.coerce.number().int().min(1).optional(),
 }).strict();
 
@@ -96,14 +108,19 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
   async function view() {
     const settings = settingsRow(db);
     const bytes = readLogo(settings);
+    const found = bytes ? await paletteFrom(bytes) : { colors: [], avg: null };
     return {
       ...publicTheme(db),
       brand_short_source: (settings?.brand_short ?? '').trim() ? 'gym' : 'auto',
       color_secondary_source: normalizeHex(settings?.color_secondary) ? 'gym' : 'auto',
       logo_updated_at: settings?.logo_updated_at ?? null,
       // Offered, not applied: the owner picks one of these or a colour of
-      // their own. An empty list means the logo had no colour worth naming.
-      palette: bytes ? await paletteFrom(bytes) : [],
+      // their own, and the system green is always last as the way back
+      // (Designer, ข้อ 7). Fewer than three is fine -- no invented colours.
+      palette: [...found.colors, DEFAULT_PRIMARY],
+      // Not for showing: it is what decides whether the logo needs a white
+      // plate behind it on the card.
+      logo_avg: settings?.logo_avg ?? found.avg,
     };
   }
 
@@ -131,6 +148,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
       }
     }
     if (input.brand_short !== undefined) fields.brand_short = input.brand_short;
+    if (input.appbar_style !== undefined) fields.appbar_style = input.appbar_style;
     if (input.line_id !== undefined) fields.line_id = input.line_id;
     if (!Object.keys(fields).length) throw new HttpError(400, 'ไม่มีอะไรให้บันทึก');
 
@@ -171,11 +189,15 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
       throw error;
     }
     const previous = settingsRow(db)?.logo_stored_name ?? null;
+    // Measured once, here, because the answer only changes when the file does
+    // and every card render would otherwise decode the logo a second time to
+    // ask the same question.
+    const { avg } = await paletteFrom(bytes);
     transaction(db, () => {
       const before = settingsRow(db);
-      db.prepare(`UPDATE gym_settings SET logo_stored_name=?,logo_content_type=?,logo_updated_at=?,
+      db.prepare(`UPDATE gym_settings SET logo_stored_name=?,logo_content_type=?,logo_updated_at=?,logo_avg=?,
         version=version+1,updated_at=? WHERE id=1`)
-        .run(saved.storedName, saved.contentType, now(), now());
+        .run(saved.storedName, saved.contentType, now(), avg, now());
       audit(db, req.user.id, 'gym.logo', '1', before, settingsRow(db), now(), 'gym');
     });
     // Only once the row points at the new file.
@@ -189,7 +211,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
     transaction(db, () => {
       const before = settingsRow(db);
       db.prepare(`UPDATE gym_settings SET logo_stored_name=NULL,logo_content_type=NULL,logo_updated_at=NULL,
-        version=version+1,updated_at=? WHERE id=1`).run(now());
+        logo_avg=NULL,version=version+1,updated_at=? WHERE id=1`).run(now());
       audit(db, req.user.id, 'gym.logo_remove', '1', before, settingsRow(db), now(), 'gym');
     });
     logoStore?.remove(previous);

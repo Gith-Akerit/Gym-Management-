@@ -86,6 +86,7 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
       membership: membershipFor(member.id),
       theme: resolveTheme(settings),
       logo: readLogo(settings),
+      logoAvg: settings?.logo_avg ?? null,
       brandShort: brandShort(settings, gym),
       lineId: settings?.line_id ?? '',
       voided,

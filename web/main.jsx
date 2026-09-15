@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import './brand-extra.css';
 import {
   api, Empty, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Loading,
   initials, Mark, Notice, orderStatusLabels, packageStatusLabels, PilotContext, StateBox, upload,
   useBranding, useResource, usePilot,
 } from './shared.jsx';
 import { SalesReport } from './payments.jsx';
+import { GymBranding } from './settings.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { PhotoCapture } from './camera.jsx';
 
@@ -45,7 +47,7 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
 // ------------------------------------------------------------------ sign in
 
 /** The dark stage the login and set-password screens share. */
-const Stage = ({ brand, branding, title, children }) => <div className="scanstage" style={{ justifyContent: 'center' }}>
+const Stage = ({ brand, branding, title, children }) => <div className="scanstage loginstage" style={{ justifyContent: 'center' }}>
   <div style={{ maxWidth: 430, width: '100%', margin: '0 auto', padding: 'var(--sp-6)' }}>
     <div style={{ textAlign: 'center', marginBottom: 'var(--sp-6)' }}>
       <Mark branding={branding} brand={brand}
@@ -1017,10 +1019,11 @@ const NAV = [
   ['packages', 'แพ็กเกจ', null],
   ['users', 'ผู้ใช้และสิทธิ์', null],
   ['gym', 'ข้อมูลยิม', null],
+  ['branding', 'ตั้งค่ายิม', null],
   ['checkin', 'ประวัติเช็คอิน', null],
 ];
 
-function Shell({ brand, branding, role, tabs, tab, setTab, onLogout, pilot, children }) {
+function Shell({ brand, branding, role, tabs, tab, setTab, onLogout, pilot, wide = false, children }) {
   const [more, setMore] = useState(false);
   const primary = tabs.filter(([, , short]) => short);
   const secondary = tabs.filter(([, , short]) => !short);
@@ -1028,12 +1031,14 @@ function Shell({ brand, branding, role, tabs, tab, setTab, onLogout, pilot, chil
     {pilot && <div className="pilot-banner" role="status">
       <b>โหมดทดลอง</b><span>ยังไม่ได้ผูกบัญชีพร้อมเพย์ — รับเงินและมอบแพ็กเกจที่หน้าสมาชิกได้ตามปกติ</span></div>}
     <header className="appbar"><div className="appbar-in">
-      <Mark branding={branding} brand={brand}/>
+      {branding?.logo_url
+        ? <img className="brandlogo" src={branding.logo_url} alt={`โลโก้ของ ${brand}`}/>
+        : <Mark branding={branding} brand={brand}/>}
       <div className="brand">{brand}<small>{role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}</small></div>
       <div className="spacer"/>
       <button className="btn auto" onClick={onLogout}>ออกจากระบบ</button>
     </div></header>
-    <main className="wrap"><div className="page">
+    <main className={wide ? 'wrap wide' : 'wrap'}><div className="page">
       <nav aria-label="เมนูหลัก">
         <ul className="railnav">{tabs.map(([key, label]) =>
           <li key={key}><a href={`#${key}`} aria-current={tab === key ? 'page' : undefined}
@@ -1069,6 +1074,8 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
   const sellable = (packages?.items ?? []).filter(item => item.price_thb !== null && item.status === 'active');
   const admin = user.role === 'admin';
   // Only the owner sets prices, hands out roles or edits the gym's own facts.
+  // Everyone reaches ตั้งค่ายิม: staff open it to answer "what is your LINE?",
+  // and the screen itself refuses to let them change anything.
   const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages'].includes(key) ? admin : true));
 
   // The scan screen is a stage of its own: dark, full bleed, no rail. It is
@@ -1083,7 +1090,7 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
     <div className="ic" aria-hidden="true">✓</div><div><b>{notice}</b></div></div>;
 
   return <Shell brand={brand} branding={branding} role={user.role} tabs={tabs} tab={tab} setTab={key => { setTab(key); setNotice(''); setOpen(null); }}
-    onLogout={onLogout} pilot={pilot}>
+    onLogout={onLogout} pilot={pilot} wide={tab === 'branding'}>
     {banner}
     {tab === 'signup' && <SignUp packages={sellable} onAuthError={onAuthError}
       onCancel={() => setTab('members')}
@@ -1108,6 +1115,8 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
     {tab === 'packages' && <Packages onAuthError={onAuthError}/>}
     {tab === 'users' && <Users onAuthError={onAuthError} signedInAs={user.email} onSignedOut={onSignedOut}/>}
     {tab === 'gym' && <GymSettings onAuthError={onAuthError}/>}
+    {tab === 'branding' && <GymBranding role={user.role} onAuthError={onAuthError}
+      onSaved={message => { setNotice(message); onBrandingChange?.(); }}/>}
     {tab === 'checkin' && <><h1>ประวัติเช็คอิน</h1>
       <p className="sub">ดูว่าใครเข้ายิมเมื่อไร และใครถูกปฏิเสธเพราะอะไร</p>
       <CheckInLog/>

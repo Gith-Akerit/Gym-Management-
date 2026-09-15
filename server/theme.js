@@ -1,26 +1,26 @@
-// The gym's colours, worked out once and used everywhere.
+// The gym's colours and logo, on the server side.
 //
-// The owner picks one colour off their own sign. Everything else -- the second
-// colour, the colour of the text on top, whether the whole thing is legible at
-// all -- is arithmetic, and it is done here rather than in the browser so the
-// card drawn on the server and the screen drawn in the browser cannot drift
-// apart. A card is a picture somebody keeps for a year; it has to match the app
-// it came from.
-//
-// Contrast is WCAG 2.x: the same rule the browser suite measures against, so a
-// colour that fails here is a colour the tests would have caught anyway.
+// The colour arithmetic itself is NOT here. It lives in `shared/brand.cjs` --
+// the Designer's file, lifted whole -- because the settings screen previews a
+// colour live in the browser while the card is drawn here, and two copies of a
+// formula is two answers to "what colour is our green". That file runs in both
+// places unchanged; this one is the part that needs a database row, a file on
+// disk and an image decoder.
 
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
+/** One formula, both sides. See shared/brand.cjs for the rules themselves. */
+export const Brand = require('../shared/brand.cjs');
 
 /** The green the app shipped with, and what an empty gym gets. */
 export const DEFAULT_PRIMARY = '#05603A';
-/** Ink used when white would be the worse of the two on a pale colour. */
-export const DARK_INK = '#0E1418';
-export const LIGHT_INK = '#FFFFFF';
-/** Below this a colour is not usable as a background for either ink. */
+/** Below this a colour cannot carry text, whichever ink is used. */
 export const MIN_CONTRAST = 4.5;
+
+export const { contrast: contrastRatio, mix, logoNeedsPlate } = Brand;
+export const luminance = hex => Brand.relLum(Brand.hexToRgb(hex));
+export const readableInk = Brand.onBrand;
 
 export function normalizeHex(value) {
   if (typeof value !== 'string') return null;
@@ -31,105 +31,44 @@ export function normalizeHex(value) {
   return full ? `#${full[1].toUpperCase()}` : null;
 }
 
-export const toRgb = hex => {
-  const clean = normalizeHex(hex) ?? DEFAULT_PRIMARY;
-  return [1, 3, 5].map(at => parseInt(clean.slice(at, at + 2), 16));
-};
-
-const toHex = ([r, g, b]) => `#${[r, g, b]
-  .map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0'))
-  .join('').toUpperCase()}`;
-
-/** WCAG relative luminance. */
-export function luminance(hex) {
-  const [r, g, b] = toRgb(hex).map(value => {
-    const channel = value / 255;
-    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-export function contrastRatio(a, b) {
-  const [first, second] = [luminance(a), luminance(b)];
-  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
-}
-
 /**
- * Black or white on this colour, whichever a person can actually read.
+ * The eight tokens a screen or a card needs, from one stored row.
  *
- * Not a lightness threshold: two colours with the same lightness can need
- * different ink, and the only question that matters is which of the two wins
- * the contrast ratio.
- */
-export const readableInk = background =>
-  (contrastRatio(background, LIGHT_INK) >= contrastRatio(background, DARK_INK) ? LIGHT_INK : DARK_INK);
-
-/** Moves a colour towards black (negative) or white (positive). */
-export function shade(hex, amount) {
-  const target = amount < 0 ? 0 : 255;
-  const mix = Math.min(1, Math.abs(amount));
-  return toHex(toRgb(hex).map(value => value + (target - value) * mix));
-}
-
-/**
- * A companion colour, when the owner did not name one.
+ * Names are the Designer's, and so is every number: this function chooses
+ * nothing, it only reads the row and hands it to `Brand.deriveAll`.
  *
- * Darker for a light primary and lighter for a dark one, so the pair always
- * reads as the same colour twice rather than two unrelated colours, and the
- * darker of the two is always the one that can carry white text.
- */
-export const deriveSecondary = primary =>
-  (luminance(primary) > 0.3 ? shade(primary, -0.45) : shade(primary, 0.28));
-
-/**
- * The same colour, darkened a step at a time until it can be read on `over`.
- *
- * Stops at near-black rather than giving up: something has to be legible, and
- * a very dark version of the gym's own colour is closer to what they meant
- * than falling back to the app's default green would be.
- */
-export function darkenUntilReadable(hex, over, target = MIN_CONTRAST) {
-  let colour = normalizeHex(hex) ?? DEFAULT_PRIMARY;
-  for (let step = 0; step < 12 && contrastRatio(colour, over) < target; step += 1) {
-    colour = shade(colour, -0.12);
-  }
-  return contrastRatio(colour, over) >= target ? colour : DARK_INK;
-}
-
-/**
- * Everything the app and the card need, from one stored row.
- *
- * `warning` is filled in when the chosen colour is one that neither white nor
- * black sits comfortably on. Nothing is refused for it -- it is the owner's
- * sign and they know what it looks like -- but the screen says so, and the
- * ink is still the better of the two.
+ * `--brand` is the colour the owner actually picked and is never painted on
+ * anything -- it exists so the settings screen can show it back to them. What
+ * gets painted is `brand_surface`, which is the same colour nudged only as far
+ * as it has to be for the text on it to be readable.
  *
  * @param {object|null} settings row from `gym_settings`
- * @returns {{primary: string, secondary: string, on_primary: string,
- *   on_secondary: string, contrast: number, warning: string|null}}
  */
 export function resolveTheme(settings) {
-  const primary = normalizeHex(settings?.color_primary) ?? DEFAULT_PRIMARY;
-  const secondary = normalizeHex(settings?.color_secondary) ?? deriveSecondary(primary);
-  const contrast = Math.round(contrastRatio(primary, readableInk(primary)) * 100) / 100;
-  const soft = shade(primary, 0.88);
+  const picked = normalizeHex(settings?.color_primary) ?? DEFAULT_PRIMARY;
+  const secondary = normalizeHex(settings?.color_secondary);
+  const derived = Brand.deriveAll(picked, secondary);
+  const adjusted = derived.brandSurface !== derived.brand;
   return {
-    primary,
-    secondary,
-    on_primary: readableInk(primary),
-    on_secondary: readableInk(secondary),
-    // The pale version, for the background of a chip or a chosen row, and a
-    // version of the colour dark enough to be read on top of it. A gym whose
-    // colour is a light yellow gets a dark yellow to write with rather than
-    // yellow-on-cream, which is how brand colours usually go wrong.
-    soft,
-    ink: darkenUntilReadable(primary, soft),
-    hover: shade(primary, luminance(primary) > 0.5 ? 0.18 : -0.22),
-    contrast,
-    warning: contrast < MIN_CONTRAST
-      ? `สีนี้อ่านยาก ตัวอักษรบนสีนี้ได้ค่าความต่างเพียง ${contrast}:1 (ควรอย่างน้อย ${MIN_CONTRAST}:1) `
-        + 'ลองเลือกสีที่เข้มขึ้นหรืออ่อนลงจากโลโก้'
-      : null,
+    brand: derived.brand,
+    brand_surface: derived.brandSurface,
+    on_brand: derived.onBrand,
+    brand_ink: derived.brandInk,
+    brand_soft: derived.brandSoft,
+    brand_line: derived.brandLine,
+    brand_2: derived.brand2,
+    on_brand_2: derived.onBrand2,
+    // The five numbers the settings screen shows as a table. Sent rather than
+    // recomputed so the owner is looking at what the server actually used.
+    ratios: derived.ratios,
+    notes: derived.notes,
+    // Kept for the screens that only want one sentence. Nothing is refused for
+    // it: it is the gym's own sign, and being told is the point.
+    warning: adjusted
+      ? `สีนี้อ่านยากเมื่อใช้เป็นพื้น ระบบจึงใช้ ${derived.brandSurface} เฉพาะตอนเป็นพื้นปุ่มและหัวบัตร `
+        + `สีที่คุณเลือก (${derived.brand}) ยังอยู่ครบในที่อื่น`
+      : (derived.notes[0] ? `${derived.notes[0].title} — ${derived.notes[0].body}` : null),
+    appbar: settings?.appbar_style === 'brand' ? 'brand' : 'light',
   };
 }
 
@@ -175,51 +114,61 @@ export async function prepareLogo(buffer) {
 }
 
 /**
- * The colours actually used in a logo, most-used first.
+ * The colours in a logo, and its average colour.
+
+ * Same steps and the same constants as `Brand.extractPalette`, which cannot be
+ * used here because it reaches for `document`: shrink to 120px, drop anything
+ * transparent, near-white or near-black, bin four bits per channel, then merge
+ * anything closer than 60 in Manhattan distance so orange and yellow survive as
+ * two colours (Designer, ข้อ 7).
  *
- * Picking a colour by eye off a screen is the step where owners give up, so
- * the upload answers the question for them. Pixels are bucketed coarsely --
- * a logo is flat colour, and exact shades are noise from anti-aliased edges --
- * and three kinds of pixel are thrown away first: transparent ones, the
- * near-white and near-black that every logo is mostly made of, and greys,
- * which are never what somebody means by "our colour".
+ * The average is not for showing: it is what decides whether the logo needs a
+ * white plate behind it on the card.
  *
- * @param {Buffer} buffer the logo as stored
- * @param {number} count how many to hand back
- * @returns {Promise<string[]>} hex colours, most used first
+ * @returns {Promise<{colors: string[], avg: string|null}>}
  */
-export async function paletteFrom(buffer, count = 4) {
+export async function paletteFrom(buffer, want = 4) {
   const canvasLib = drawing();
-  if (!canvasLib || !buffer?.length) return [];
+  if (!canvasLib || !buffer?.length) return { colors: [], avg: null };
   try {
     const image = await canvasLib.loadImage(buffer);
-    if (!image.width || !image.height) return [];
-    const side = 72;
-    const canvas = canvasLib.createCanvas(side, side);
+    if (!image.width || !image.height) return { colors: [], avg: null };
+    const side = 120;
+    const scale = Math.min(side / image.width, side / image.height, 1);
+    const canvas = canvasLib.createCanvas(
+      Math.max(1, Math.round(image.width * scale)), Math.max(1, Math.round(image.height * scale)));
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(image, 0, 0, side, side);
-    const { data } = ctx.getImageData(0, 0, side, side);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    const buckets = new Map();
+    const bins = new Map();
+    const total = [0, 0, 0];
+    let seen = 0;
     for (let at = 0; at < data.length; at += 4) {
-      const [r, g, b, alpha] = [data[at], data[at + 1], data[at + 2], data[at + 3]];
-      if (alpha < 200) continue;
-      const [max, min] = [Math.max(r, g, b), Math.min(r, g, b)];
-      if (max > 240 && min > 240) continue;                  // the paper it sits on
-      if (max < 24) continue;                                // the outline
-      if (max - min < 18 && max > 60 && max < 200) continue; // grey is not a brand colour
-      // 32-level buckets: two shades of the same green count as one colour.
-      const key = [r, g, b].map(value => Math.round(value / 32) * 32).join(',');
-      const found = buckets.get(key) ?? { total: [0, 0, 0], n: 0 };
-      found.total = [found.total[0] + r, found.total[1] + g, found.total[2] + b];
-      found.n += 1;
-      buckets.set(key, found);
+      if (data[at + 3] < 200) continue;
+      const [r, g, b] = [data[at], data[at + 1], data[at + 2]];
+      total[0] += r; total[1] += g; total[2] += b; seen += 1;
+      const lum = Brand.relLum([r, g, b]);
+      if (lum > 0.90 || lum < 0.02) continue;
+      const key = `${r >> 4},${g >> 4},${b >> 4}`;
+      const found = bins.get(key) ?? { n: 0, r: 0, g: 0, b: 0 };
+      found.n += 1; found.r += r; found.g += g; found.b += b;
+      bins.set(key, found);
     }
-    return [...buckets.values()]
+    const ranked = [...bins.values()]
       .sort((a, b) => b.n - a.n)
-      .slice(0, count)
-      // The average of the bucket, not its centre: closer to the colour the
-      // owner would name if they had the file open in front of them.
-      .map(({ total, n }) => toHex(total.map(sum => sum / n)));
-  } catch { return []; }
+      .map(({ n, r, g, b }) => Brand.rgbToHex([r / n, g / n, b / n]));
+
+    const colors = [];
+    for (const hex of ranked) {
+      if (colors.length >= want) break;
+      const [r, g, b] = Brand.hexToRgb(hex);
+      const tooClose = colors.some(other => {
+        const [x, y, z] = Brand.hexToRgb(other);
+        return Math.abs(r - x) + Math.abs(g - y) + Math.abs(b - z) < 60;
+      });
+      if (!tooClose) colors.push(hex);
+    }
+    return { colors, avg: seen ? Brand.rgbToHex(total.map(sum => sum / seen)) : null };
+  } catch { return { colors: [], avg: null }; }
 }

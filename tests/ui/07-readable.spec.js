@@ -134,8 +134,9 @@ test('the gym own colour reaches the screen, and stays readable there', async ({
   // 07 runs last, so this is the one spec that may repaint the whole app.
   await signIn(page, 'contrast2-ui@example.test');
   await expect(page.getByText('พร้อมสแกน')).toBeVisible();
-  const accent = () => page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().toUpperCase());
+  const token = name => page.evaluate(key =>
+    getComputedStyle(document.documentElement).getPropertyValue(key).trim().toUpperCase(), name);
+  const accent = () => token('--brand-surface');
   expect(await accent()).toBe('#05603A');
 
   // A bright yellow: the case where white text would disappear and the server
@@ -147,8 +148,10 @@ test('the gym own colour reaches the screen, and stays readable there', async ({
   await page.reload();
   await expect(page.getByText('พร้อมสแกน')).toBeVisible();
   expect(await accent()).toBe('#FFD400');
-  expect(await page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--on-accent').trim().toUpperCase())).toBe('#0E1418');
+  expect(await token('--on-brand')).toBe('#0E1418');
+  // The colour that means "passed" is the system's, not the gym's: a red gym
+  // must not turn the "ใช้งานอยู่" chip red (Designer, ข้อ 3).
+  expect(await token('--ok')).toBe('#05603A');
 
   // The colours are the gym's, the contrast rule is still the app's.
   await go(page, 'สมาชิก');

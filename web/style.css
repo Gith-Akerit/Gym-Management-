@@ -25,12 +25,19 @@
   --on-dark:#FFFFFF;     /* 18.5:1 บน --dark */
   --on-dark-2:#B8BFBB;   /* 9.9:1 บน --dark */
 
-  /* สีของยิม เจ้าของตั้งเองได้ที่หน้าตั้งค่ายิม ค่าข้างล่างคือค่าตั้งต้น
-     ก่อนธีมจะโหลดมา · --on-accent คือสีตัวอักษรบนสีหลัก และ --accent-ink คือ
-     สีหลักที่เข้มพอจะอ่านบนพื้น --accent-soft ได้ ทั้งหมดเซิร์ฟเวอร์คำนวณให้
-     ที่ server/theme.js เพื่อให้บัตรกับหน้าจอใช้ตัวเลขชุดเดียวกัน */
-  --accent:#05603A;      --accent-soft:#DCEFE6;   /* ผ่าน / ปุ่มหลัก */
-  --on-accent:#FFFFFF;   --accent-ink:#05603A;    --accent-hover:#044B2D;
+  /* สีของยิม — เจ้าของตั้งเองได้ที่หน้า "ตั้งค่ายิม" ทั้ง 8 ค่าคำนวณจาก
+     สีเดียวที่ shared/brand.cjs ซึ่งเป็นไฟล์เดียวกับที่หน้าเว็บใช้พรีวิว
+     ค่าข้างล่างคือค่าตั้งต้นก่อนธีมจะโหลดมา
+     --brand คือสีดิบตามที่เจ้าของเลือก **ห้ามเอาไปทาพื้นหรือทำตัวอักษรตรง ๆ**
+     ใช้ --brand-surface ซึ่งคือสีเดียวกันที่ปรับให้ตัวอักษรอ่านออกแล้ว */
+  --brand:#05603A;          --brand-surface:#05603A;  --on-brand:#FFFFFF;
+  --brand-ink:#05603A;      --brand-soft:#EBF2EF;     --brand-line:#05603A;
+  --brand-2:#074C31;        --on-brand-2:#FFFFFF;
+
+  /* สีที่แปลว่า "ผ่าน" ตรึงไว้ ไม่ผูกกับแบรนด์เด็ดขาด — ถ้ายิมเลือกสีแดงแล้ว
+     ป้าย "ใช้งานอยู่" กลายเป็นแดงตาม พนักงานจะอ่านผิดในวินาทีที่ผิดพลาดแล้ว
+     แพงที่สุด (Designer, ข้อ 3) */
+  --ok:#05603A;          --ok-soft:#DCEFE6;
 
   /* สีสถานะ — ใช้คู่กับรูปทรงและคำเสมอ ห้ามสื่อด้วยสีอย่างเดียว */
   --pass:#07784C;        /* พื้นแถบผลผ่าน ขาวบนพื้นนี้ = 5.53:1 */
@@ -67,7 +74,7 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 button,input,select,textarea{font:inherit;color:inherit}
-:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+:focus-visible{outline:3px solid var(--brand-line);outline-offset:3px}
 .num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
 .muted{color:var(--ink-2)}
 .note{font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
@@ -79,7 +86,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 /* -------------------------------------------------- 3. App shell -------- */
 .appbar{background:var(--surface);border-bottom:2px solid var(--line-strong);position:sticky;top:0;z-index:20}
 .appbar-in{max-width:1080px;margin:0 auto;padding:10px var(--sp-5);display:flex;align-items:center;gap:var(--sp-4);min-height:68px}
-.mark{width:46px;height:46px;border-radius:var(--r-1);background:var(--accent);color:var(--on-accent);
+.mark{width:46px;height:46px;border-radius:var(--r-1);background:var(--brand-surface);color:var(--on-brand);
   display:grid;place-items:center;font-size:var(--fs-16);font-weight:800;flex:none}
 /* A real logo sits on white and keeps its own shape: brand colours on top of a
    brand colour is how a logo stops being recognisable. */
@@ -101,7 +108,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
   border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface);
   text-decoration:none;color:var(--ink);font-size:var(--fs-16);font-weight:600}
 .railnav a:hover{background:var(--panel)}
-.railnav a[aria-current]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.railnav a[aria-current]{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
 
 /* เมนูล่าง (มือถือ) */
 .bottomnav{position:fixed;left:0;right:0;bottom:0;display:none;background:var(--surface);
@@ -111,7 +118,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .bottomnav a{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;
   min-height:64px;text-decoration:none;font-size:var(--fs-14);font-weight:600;
   color:var(--ink-2);border-top:4px solid transparent;text-align:center}
-.bottomnav a[aria-current]{color:var(--accent-ink);border-top-color:var(--accent);background:var(--accent-soft)}
+.bottomnav a[aria-current]{color:var(--brand-ink);border-top-color:var(--brand-surface);background:var(--brand-soft)}
 
 /* -------------------------------------------------- 4. Primitives ------- */
 /* The colour is not decoration: .block carries a white background, and it is
@@ -129,8 +136,8 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
   border:2px solid var(--line-strong);background:var(--surface);
   font-size:var(--fs-18);font-weight:700;cursor:pointer;transition:background var(--dur)}
 .btn:hover{background:var(--panel)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.btn.primary:hover{background:var(--accent-hover)}
+.btn.primary{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
+.btn.primary:hover{background:var(--brand-2);border-color:var(--brand-2);color:var(--on-brand-2)}
 .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
 .btn.ghost{border-color:var(--line-ctl)}
 .btn.xl{min-height:var(--tap-lg);font-size:var(--fs-20)}
@@ -152,7 +159,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 
 .chip{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-16);font-weight:700;
   padding:5px 12px;border-radius:var(--r-1);border:2px solid;white-space:nowrap}
-.chip.ok{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--accent)}
+.chip.ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok)}
 .chip.bad{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
 .chip.warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
 .chip.neutral{background:var(--panel);color:var(--ink-2);border-color:var(--ink-2)}
@@ -163,14 +170,14 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .steps{display:flex;gap:var(--sp-2);margin-bottom:var(--sp-5)}
 .step{flex:1;padding:10px var(--sp-3);border-radius:var(--r-1);border:2px solid var(--line);
   background:var(--surface);font-size:var(--fs-16);font-weight:700;color:var(--ink-2);text-align:center}
-.step.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.step.done{border-color:var(--accent);color:var(--accent-ink)}
+.step.on{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
+.step.done{border-color:var(--brand-line);color:var(--brand-ink)}
 
 .banner{display:flex;align-items:center;gap:var(--sp-4);border-radius:var(--r-2);padding:var(--sp-5);margin-bottom:var(--sp-5)}
 .banner .ic{width:52px;height:52px;border-radius:var(--r-1);display:grid;place-items:center;font-size:26px;flex:none}
 .banner b{display:block;font-size:var(--fs-24);font-weight:800;line-height:1.3}
 .banner span{font-size:var(--fs-16)}
-.banner.ok{background:var(--accent);color:var(--on-accent)}
+.banner.ok{background:var(--ok);color:#fff}
 .banner.ok .ic{background:rgba(255,255,255,.2)}
 .banner.bad{background:var(--bad);color:#fff}
 .banner.bad .ic{background:rgba(255,255,255,.2)}
@@ -278,14 +285,14 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
    artwork 1080x1350 — เซิร์ฟเวอร์ render ตามสเปคตัวเลขในไฟล์แนบ            */
 .mcard{width:1080px;height:1350px;position:relative;flex:none;background:#fff;
   display:flex;flex-direction:column;font-family:var(--font);color:var(--ink);overflow:hidden}
-.mcard .top{background:var(--accent);color:var(--on-accent);padding:38px 56px;display:flex;align-items:center;gap:22px}
+.mcard .top{background:var(--brand-surface);color:var(--on-brand);padding:38px 56px;display:flex;align-items:center;gap:22px}
 .mcard .top .gm{width:74px;height:74px;border-radius:20px;background:rgba(255,255,255,.18);
   display:grid;place-items:center;font-size:27px;font-weight:800;flex:none}
 .mcard .top .gn{font-size:42px;font-weight:800;line-height:1.2}
 .mcard .top .gn span{display:block;font-size:19px;letter-spacing:.2em;opacity:.8;font-weight:500;font-family:var(--font-num)}
 .mcard .idrow{display:flex;align-items:center;gap:36px;padding:38px 56px 16px}
 .mcard .face{width:232px;height:232px;border-radius:50%;overflow:hidden;flex:none;
-  border:7px solid var(--accent);background:var(--panel)}
+  border:7px solid var(--brand-surface);background:var(--panel)}
 .mcard .idtext{min-width:0}
 .mcard .eyebrow{font-size:24px;font-weight:600;color:var(--ink-2)}
 .mcard .who{font-size:64px;font-weight:800;line-height:1.15;letter-spacing:-.015em;margin-top:2px}
@@ -293,14 +300,16 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .mcard .qrzone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 56px}
 .mcard .qrbox{width:640px;height:640px;padding:22px;border:6px solid var(--line-strong);border-radius:26px;background:#fff}
 .mcard .qrcap{margin-top:16px;font-size:32px;font-weight:700;line-height:1.3}
-.mcard .bar{background:var(--line-strong);color:#fff;padding:18px 56px 18px}
+.mcard .bar{background:var(--brand-2);color:var(--on-brand-2);padding:18px 56px 18px}
 .mcard .bar .brow{display:flex;justify-content:space-between;align-items:flex-end;font-size:26px;line-height:1.35}
 .mcard .bar b{font-weight:700}
-.mcard .bar .brow span{opacity:.78;font-size:22px;display:block;line-height:1.35}
+/* ไม่ใช้ opacity บนบัตร: เมื่อสีรองเป็นโทนอุ่นกลาง ๆ contrast จะตกต่ำกว่า 4.5
+   ลำดับชั้นใช้ขนาดกับน้ำหนักแทน ซึ่งชัดกว่าบนรูปที่เปิดในแชต */
+.mcard .bar .brow span{font-size:22px;display:block;line-height:1.35;font-weight:400}
 /* เบอร์โทรยิม: บรรทัดเล็กใต้แถบ ไม่ลดขนาด QR */
 .mcard .bar .tel{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.28);
-  font-size:21px;line-height:1.4;opacity:.9;display:flex;justify-content:space-between;gap:20px}
-.mcard .bar .tel .num{font-family:var(--font-num);font-weight:600;opacity:1;display:inline}
+  font-size:21px;line-height:1.4;display:flex;justify-content:space-between;gap:20px}
+.mcard .bar .tel .num{font-family:var(--font-num);font-weight:600;display:inline}
 /* บัตรที่ถูกยกเลิก */
 .mcard.void::before{content:"ยกเลิกแล้ว";position:absolute;inset:0;z-index:5;
   display:grid;place-items:center;font-size:150px;font-weight:800;color:rgba(155,28,19,.26);
@@ -330,11 +339,11 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 /* ตัวเลือกแพ็กเกจ / วิธีรับเงิน */
 .pick{display:flex;align-items:center;gap:var(--sp-3);border:2px solid var(--line-ctl);
   border-radius:var(--r-1);padding:var(--sp-3) var(--sp-4);cursor:pointer;background:var(--surface);min-height:var(--tap)}
-.pick input{width:22px;height:22px;accent-color:var(--accent);flex:none}
+.pick input{width:22px;height:22px;accent-color:var(--brand-surface);flex:none}
 .pick .n{flex:1}
 .pick b{display:block;font-weight:700}
 .pick .sm{font-size:var(--fs-14);color:var(--ink-2)}
-.pick.sel{border-color:var(--accent);background:var(--accent-soft);border-width:3px;padding:calc(var(--sp-3) - 1px) calc(var(--sp-4) - 1px)}
+.pick.sel{border-color:var(--brand-surface);background:var(--brand-soft);border-width:3px;padding:calc(var(--sp-3) - 1px) calc(var(--sp-4) - 1px)}
 
 /* สรุปยอดก่อนกดบันทึก */
 .total{display:flex;justify-content:space-between;align-items:baseline;
@@ -414,7 +423,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .tabs{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
 .tabs button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:999px;
   background:var(--surface);font-weight:700;cursor:pointer}
-.tabs button[aria-current=page]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.tabs button[aria-current=page]{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
 .table-wrap{overflow-x:auto;border-radius:var(--r-2)}
 .pagination{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;margin-top:var(--sp-4)}
 .pagination button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:var(--r-1);
@@ -429,7 +438,7 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
    the whole row is the target -- tapping the words toggles it -- so the row is
    what has to clear 44px on a phone. */
 .check-row{display:flex;gap:var(--sp-3);align-items:center;margin:var(--sp-3) 0;min-height:44px;cursor:pointer}
-.check-row input{width:24px;height:24px;accent-color:var(--accent);flex:none}
+.check-row input{width:24px;height:24px;accent-color:var(--brand-surface);flex:none}
 .pilot-banner{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;flex-wrap:wrap;
   background:var(--warn-soft);border-bottom:2px solid var(--warn);color:var(--warn);
   padding:10px var(--sp-4);font-size:var(--fs-16)}

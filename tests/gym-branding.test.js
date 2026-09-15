@@ -2,8 +2,10 @@
 //
 // A gym that has paid for a sign wants the card its members carry to look like
 // the sign. Everything here follows from two things: the owner picks one
-// colour and the rest is arithmetic, and the card is drawn on the server so
-// the picture and the screen cannot disagree about what that colour is.
+// colour and the rest is arithmetic, and that arithmetic lives in ONE file --
+// `shared/brand.cjs`, the Designer's -- which the browser previews with and the
+// server draws with. Two copies of the formula would be two answers to "what
+// colour is our green".
 //
 // The one thing that must not move is the token in the QR. A colour change is
 // a change of clothes; a card already in somebody's phone still opens the door.
@@ -13,8 +15,9 @@ import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { counterFixture, jpegBuffer, PHOTO_JPEG } from './counter.js';
+import { seedConfiguration } from '../server/seed.js';
 import {
-  contrastRatio, darkenUntilReadable, deriveSecondary, luminance, MIN_CONTRAST,
+  Brand, contrastRatio, logoNeedsPlate, luminance, MIN_CONTRAST,
   normalizeHex, paletteFrom, prepareLogo, readableInk, resolveTheme,
 } from '../server/theme.js';
 
@@ -40,9 +43,51 @@ async function logoFile({ width = 600, height = 600, colour = '#C2185B' } = {}) 
 
 // ------------------------------------------------------------ the arithmetic
 
+/**
+ * The Designer's own table, and then some.
+ *
+ * Fourteen colours including the four they called out as the hard ones: pure
+ * white and pure black (nothing to darken or lighten), a mid red (#E53935 --
+ * the case that forced `--brand-soft` to be worked out before `--brand-ink`),
+ * and a bright yellow (where white text disappears).
+ */
+const FOURTEEN = [
+  '#05603A', '#FFFFFF', '#000000', '#E53935', '#FFD400', '#C2185B', '#12306B',
+  '#3E8E8E', '#AB5831', '#7A7A7A', '#8ED1FC', '#1B5E20', '#6A1B9A', '#00897B',
+];
+
+test('every one of the fourteen colours produces a readable set of tokens', () => {
+  for (const picked of FOURTEEN) {
+    const t = resolveTheme({ color_primary: picked });
+    assert.equal(t.brand, picked, picked);
+    // The four guarantees from the Designer's table, one colour at a time.
+    assert.ok(contrastRatio(t.brand_surface, t.on_brand) >= MIN_CONTRAST,
+      `${picked}: text on the button is ${contrastRatio(t.brand_surface, t.on_brand).toFixed(2)}:1`);
+    assert.ok(contrastRatio(t.brand_ink, t.brand_soft) >= MIN_CONTRAST,
+      `${picked}: brand text on the pale chip is ${contrastRatio(t.brand_ink, t.brand_soft).toFixed(2)}:1`);
+    assert.ok(contrastRatio(t.brand_ink, '#FFFFFF') >= MIN_CONTRAST, `${picked}: brand text on white`);
+    assert.ok(contrastRatio(t.brand_line, '#EFF2F4') >= 3,
+      `${picked}: a control border must clear 3:1 (WCAG 1.4.11)`);
+    assert.ok(contrastRatio(t.brand_2, t.on_brand_2) >= MIN_CONTRAST,
+      `${picked}: text on the card's bottom bar is ${contrastRatio(t.brand_2, t.on_brand_2).toFixed(2)}:1`);
+    // Eight tokens, all of them real colours.
+    for (const key of ['brand', 'brand_surface', 'on_brand', 'brand_ink', 'brand_soft',
+      'brand_line', 'brand_2', 'on_brand_2']) {
+      assert.equal(normalizeHex(t[key]), t[key], `${picked}: ${key} is ${t[key]}`);
+    }
+  }
+});
+
+test('the numbers the screen shows are the numbers the server used', () => {
+  // The settings screen prints these five as a table rather than a pass mark,
+  // so they have to be the real measurements and not a rounded promise.
+  const t = resolveTheme({ color_primary: '#FFD400' });
+  assert.equal(t.ratios.onSurface, Number(contrastRatio(t.brand_surface, t.on_brand).toFixed(2)));
+  assert.equal(t.ratios.inkOnSoft, Number(contrastRatio(t.brand_ink, t.brand_soft).toFixed(2)));
+  assert.equal(t.ratios.lineOnCanvas, Number(contrastRatio(t.brand_line, '#EFF2F4').toFixed(2)));
+});
+
 test('the ink on a colour is whichever of black and white can be read on it', () => {
-  // Not a lightness cut-off: a mid green takes white, a bright yellow takes
-  // black, and both answers have to beat 4.5:1 or the card is unreadable.
   for (const [colour, ink] of [['#05603A', '#FFFFFF'], ['#FFD400', '#0E1418'],
     ['#111111', '#FFFFFF'], ['#8ED1FC', '#0E1418']]) {
     assert.equal(readableInk(colour), ink, colour);
@@ -50,64 +95,70 @@ test('the ink on a colour is whichever of black and white can be read on it', ()
   }
 });
 
-test('a gym that names one colour gets a whole readable set from it', () => {
-  for (const primary of ['#05603A', '#C2185B', '#FFD400', '#111111', '#8ED1FC']) {
-    const theme = resolveTheme({ color_primary: primary });
-    assert.equal(theme.primary, primary);
-    // Text on the colour, and text on the pale version of the colour: the two
-    // places a brand colour normally becomes unreadable.
-    assert.ok(contrastRatio(theme.primary, theme.on_primary) >= MIN_CONTRAST, `on_primary for ${primary}`);
-    assert.ok(contrastRatio(theme.ink, theme.soft) >= MIN_CONTRAST, `ink on soft for ${primary}`);
-    assert.ok(contrastRatio(theme.secondary, theme.on_secondary) >= MIN_CONTRAST, `on_secondary for ${primary}`);
-    assert.notEqual(theme.hover, theme.primary, 'a button that does not move when hovered looks broken');
-  }
+test('the raw colour is kept, and the painted one is only nudged as far as it must be', () => {
+  // A mid grey cannot carry either ink, so the surface moves -- but the colour
+  // the owner chose is still handed back untouched under `brand`, because the
+  // settings screen has to show them what they picked.
+  const grey = resolveTheme({ color_primary: '#7A7A7A' });
+  assert.equal(grey.brand, '#7A7A7A');
+  assert.notEqual(grey.brand_surface, grey.brand);
+  assert.ok(grey.warning, 'the screen is told the surface moved');
+  assert.match(grey.warning, /อ่านยาก/);
+  assert.match(grey.warning, /#7A7A7A/, 'and which colour it was that moved');
+
+  // A colour that is already readable is not touched at all.
+  const green = resolveTheme({ color_primary: '#05603A' });
+  assert.equal(green.brand_surface, green.brand);
+  assert.equal(green.warning, null);
 });
 
-test('the second colour is the same colour again, not a different one', () => {
-  // Darker for a light primary, lighter for a dark one: a pair, not a clash.
-  assert.ok(luminance(deriveSecondary('#FFD400')) < luminance('#FFD400'));
-  assert.ok(luminance(deriveSecondary('#05603A')) > luminance('#05603A'));
-  // And the owner's own choice always wins over the arithmetic.
-  assert.equal(resolveTheme({ color_primary: '#05603A', color_secondary: '#8B0000' }).secondary, '#8B0000');
-});
-
-test('a colour nothing can be read on is used anyway, and said out loud', () => {
-  // The narrow band of mid grey where white fails on it and black fails on it
-  // too. It is the gym's sign and they know what it looks like, so it is not
-  // refused -- but the screen has to say so, or the owner finds out from a
-  // member squinting at a card.
-  const theme = resolveTheme({ color_primary: '#7A7A7A' });
-  assert.ok(theme.warning, 'a colour below 4.5:1 must warn');
-  assert.match(theme.warning, /อ่านยาก/);
-  assert.equal(resolveTheme({ color_primary: '#05603A' }).warning, null);
+test('the second colour is the owner own when they name one, and a relative when they do not', () => {
+  const auto = resolveTheme({ color_primary: '#05603A' });
+  assert.ok(luminance(auto.brand_2) < luminance(auto.brand_surface), 'darker, so it reads as the same colour twice');
+  const picked = resolveTheme({ color_primary: '#05603A', color_secondary: '#8B0000' });
+  assert.equal(picked.brand_2, '#8B0000');
+  assert.ok(contrastRatio(picked.brand_2, picked.on_brand_2) >= MIN_CONTRAST);
 });
 
 test('a colour that is not a colour never reaches the card', () => {
-  for (const nonsense of ['red', '#12345', 'rgb(1,2,3)', '', null, undefined, '#' + 'f'.repeat(7)]) {
+  for (const nonsense of ['red', '#12345', 'rgb(1,2,3)', '', null, undefined, `#${'f'.repeat(7)}`]) {
     assert.equal(normalizeHex(nonsense), null, String(nonsense));
   }
   assert.equal(normalizeHex('#abc'), '#AABBCC', 'three digits are a colour people type');
   assert.equal(normalizeHex('05603a'), '#05603A', 'and so is one without a hash');
-  // Whatever is in the row, something drawable comes out.
-  assert.equal(resolveTheme(null).primary, '#05603A');
-  assert.equal(resolveTheme({ color_primary: 'nonsense' }).primary, '#05603A');
+  assert.equal(resolveTheme(null).brand, '#05603A');
+  assert.equal(resolveTheme({ color_primary: 'nonsense' }).brand, '#05603A');
 });
 
-test('darkening stops at something legible rather than looping forever', () => {
-  assert.ok(contrastRatio(darkenUntilReadable('#FFFFFF', '#FFFFFF'), '#FFFFFF') >= MIN_CONTRAST);
-  assert.equal(darkenUntilReadable('#05603A', '#FFFFFF'), '#05603A', 'already readable is left alone');
+test('the browser and the server work the colour out with the same file', () => {
+  // The screen previews with Brand.deriveAll directly; the server calls it
+  // through resolveTheme. If these two ever disagree, the card a member gets
+  // is not the card the owner approved.
+  const direct = Brand.deriveAll('#C2185B', null);
+  const throughTheServer = resolveTheme({ color_primary: '#C2185B' });
+  assert.equal(direct.brandSurface, throughTheServer.brand_surface);
+  assert.equal(direct.brandInk, throughTheServer.brand_ink);
+  assert.equal(direct.brandSoft, throughTheServer.brand_soft);
+  assert.equal(direct.brandLine, throughTheServer.brand_line);
+  assert.equal(direct.brand2, throughTheServer.brand_2);
+  assert.deepEqual(direct.ratios, throughTheServer.ratios);
 });
 
 // ----------------------------------------------------------------- the logo
 
-test('the colours in a logo are offered back, most used first', async () => {
-  const palette = await paletteFrom(await logoFile({ colour: '#C2185B' }));
-  assert.ok(palette.length >= 1, 'a two-colour logo yields at least one colour');
+test('the colours in a logo are offered back, most used first, with the way home last', async t => {
+  const { call, signIn } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  await call('put', '/gym/settings/logo', owner)
+    .attach('logo', await logoFile({ colour: '#C2185B' }), { filename: 'logo.png' }).expect(200);
+  const { palette } = (await call('get', '/gym/settings', owner).expect(200)).body;
+
   for (const colour of palette) assert.equal(normalizeHex(colour), colour);
-  // The circle covers more of the picture than the bar across it, so the pink
-  // is the first thing offered -- which is the colour somebody would point at.
+  // The circle covers more of the picture than the bar across it.
   assert.ok(contrastRatio(palette[0], '#C2185B') < 1.6, `expected the pink first, got ${palette.join(' ')}`);
-  // White paper and black outlines are not what anybody means by "our colour".
+  // The system green is always the last one offered: the way back when the
+  // colours off the logo turn out not to be what the owner wanted.
+  assert.equal(palette[palette.length - 1], '#05603A');
   for (const colour of palette) {
     assert.notEqual(colour, '#FFFFFF');
     assert.notEqual(colour, '#000000');
@@ -120,8 +171,6 @@ test('a logo is checked by opening it, and trimmed to something sendable', async
   const trimmed = await prepareLogo(big);
   const image = await loadImage(trimmed);
   assert.equal(Math.max(image.width, image.height), 512);
-  // PNG, not JPEG: a logo is usually flat colour on nothing, and JPEG would
-  // give it a white box and soft edges.
   assert.ok(trimmed.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
 
   const small = await logoFile({ width: 200, height: 200 });
@@ -129,45 +178,59 @@ test('a logo is checked by opening it, and trimmed to something sendable', async
   await assert.rejects(() => prepareLogo(jpegBuffer()), /เปิดไม่ได้/);
 });
 
+test('the white plate under the logo is earned, not automatic', () => {
+  // The rule is one line and it decides how the card looks: a dark logo on a
+  // dark band disappears, a pale one on the same band does not need help, and
+  // a plate nobody needs is a box inside a box (Designer, logoNeedsPlate).
+  assert.equal(logoNeedsPlate('#0A3D2A', '#05603A'), true, 'dark green logo on the green band');
+  assert.equal(logoNeedsPlate('#FFFFFF', '#05603A'), false, 'a white logo reads on green');
+  assert.equal(logoNeedsPlate('#3E8E8E', '#12306B'), false, 'teal on navy is the Designer\'s own example');
+});
+
 // ------------------------------------------------------------- the endpoints
 
 test('the login screen can read the gym colours without signing in', async t => {
   const { call } = counterFixture(t);
   const theme = await call('get', '/public/theme', null).expect(200);
-  assert.equal(theme.body.theme.primary, '#05603A');
+  assert.equal(theme.body.theme.brand, '#05603A');
+  assert.equal(theme.body.theme.appbar, 'light', 'a white bar with a brand line is the default');
   assert.equal(theme.body.has_logo, false);
   assert.equal(theme.body.logo_url, null);
-  // Nothing private in it: it is what is painted on the door.
-  assert.equal(JSON.stringify(theme.body).includes('@'), false);
-  assert.equal(theme.body.brand_short.length <= 12, true);
+  assert.equal(JSON.stringify(theme.body).includes('@'), false, 'nothing private is in it');
 });
 
 test('the owner sets the colours, and staff can only look', async t => {
-  const { call, signIn, db } = counterFixture(t);
+  const { call, signIn, db, at } = counterFixture(t);
   const owner = await signIn('owner@example.test');
   const staff = await signIn('desk@example.test', 'staff');
 
   const before = await call('get', '/gym/settings', staff).expect(200);
-  assert.equal(before.body.theme.primary, '#05603A');
+  assert.equal(before.body.theme.brand, '#05603A');
   assert.equal(before.body.color_secondary_source, 'auto');
+  // Staff open this page to answer the phone, so the contact details are on
+  // it -- read from gym_profile, where they are edited, not copied here.
+  assert.ok('phone' in before.body && 'address' in before.body);
+  seedConfiguration(db, at());
+  const withPhone = await call('get', '/gym/settings', staff).expect(200);
+  assert.equal(withPhone.body.phone, '038541029', 'read from gym_profile, not copied into gym_settings');
+  assert.ok(withPhone.body.address);
   await call('put', '/gym/settings', staff, { color_primary: '#C2185B' }).expect(403);
 
   const saved = await call('put', '/gym/settings', owner,
-    { color_primary: '#c2185b', brand_short: 'สฟ', line_id: '@suklutai' }).expect(200);
-  assert.equal(saved.body.theme.primary, '#C2185B', 'stored the same whichever case it was typed in');
-  assert.equal(saved.body.theme.on_primary, '#FFFFFF');
+    { color_primary: '#c2185b', brand_short: 'สฟ', line_id: '@suklutai', appbar_style: 'brand' }).expect(200);
+  assert.equal(saved.body.theme.brand, '#C2185B', 'stored the same whichever case it was typed in');
+  assert.equal(saved.body.theme.on_brand, '#FFFFFF');
+  assert.equal(saved.body.theme.appbar, 'brand');
   assert.equal(saved.body.brand_short, 'สฟ');
   assert.equal(saved.body.line_id, '@suklutai');
   assert.equal(saved.body.version, 2);
 
-  // Written down: the look of every member's card just changed.
   const entry = db.prepare("SELECT * FROM audit_logs WHERE action='gym.settings'").get();
   assert.ok(entry);
   assert.equal(JSON.parse(entry.after_json).color_primary, '#C2185B');
   assert.equal(entry.actor_id, db.prepare('SELECT id FROM users WHERE email=?').get('owner@example.test').id);
 
-  // And the public screen sees it immediately, without a restart.
-  assert.equal((await call('get', '/public/theme', null).expect(200)).body.theme.primary, '#C2185B');
+  assert.equal((await call('get', '/public/theme', null).expect(200)).body.theme.brand, '#C2185B');
 });
 
 test('a colour that is not a colour is refused before it reaches a card', async t => {
@@ -177,12 +240,10 @@ test('a colour that is not a colour is refused before it reaches a card', async 
     const refused = await call('put', '/gym/settings', owner, { color_primary: bad }).expect(400);
     assert.match(refused.body.error, /สีหลักไม่ถูกต้อง/);
   }
-  // Clearing the second colour is a choice, not a mistake: it hands it back to
-  // the arithmetic, which is where most gyms leave it.
   await call('put', '/gym/settings', owner, { color_primary: '#FFD400', color_secondary: '#123456' }).expect(200);
   const cleared = await call('put', '/gym/settings', owner, { color_secondary: '' }).expect(200);
   assert.equal(cleared.body.color_secondary_source, 'auto');
-  assert.equal(cleared.body.theme.secondary, deriveSecondary('#FFD400'));
+  assert.equal(cleared.body.theme.brand_2, Brand.deriveAll('#FFD400', null).brand2);
 });
 
 test('two people on two tablets cannot quietly undo each other', async t => {
@@ -205,16 +266,14 @@ test('the logo is stored like everything else and served to anybody', async t =>
     .attach('logo', logo, { filename: '../../evil.png', contentType: 'image/png' }).expect(200);
   assert.equal(saved.body.has_logo, true);
   assert.match(saved.body.logo_url, /^\/api\/gym\/logo\?v=\d+$/);
-  // The colours of the file just uploaded, ready to pick from.
-  assert.ok(saved.body.palette.length >= 1);
+  assert.ok(saved.body.palette.length >= 2);
+  assert.equal(normalizeHex(saved.body.logo_avg), saved.body.logo_avg, 'the average colour is kept for the plate rule');
   assert.equal(saved.body.logo_stored_name, undefined, 'the path on disk never leaves the server');
 
   const files = readdirSync(join(root, 'logo'));
   assert.equal(files.length, 1);
   assert.match(files[0], /^[0-9a-f-]{36}\.png$/, 'the server chose the name, not the browser');
 
-  // Served without a session, because the login screen needs it before there
-  // is one. It is a shop sign, not personal data.
   const image = await asBytes(call('get', '/gym/logo', null)).expect(200);
   assert.equal(image.headers['content-type'], 'image/png');
   assert.ok(image.body.length > 0);
@@ -234,9 +293,9 @@ test('a second logo replaces the first, and removing it leaves nothing behind', 
 
   const removed = await call('delete', '/gym/settings/logo', owner, {}).expect(200);
   assert.equal(removed.body.has_logo, false);
+  assert.equal(removed.body.logo_avg, null);
   assert.equal(readdirSync(join(root, 'logo')).length, 0);
   await call('get', '/gym/logo', null).expect(404);
-  // And the app falls back to the letters, which is what it did before.
   assert.ok((await call('get', '/public/theme', null).expect(200)).body.brand_short.length > 0);
 });
 
@@ -293,8 +352,7 @@ test('the logo goes on the card, and the QR stays black on white', async t => {
   const branded = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
   assert.ok(!branded.body.equals(plain.body), 'the gym logo is on it');
 
-  // A seven-day link hands over the card as it is now, not as it was: the
-  // member sees the gym's new look without anybody reissuing anything.
+  // A seven-day link hands over the card as it is now, not as it was.
   const link = (await call('post', `/members/${member.id}/card/link`, owner, {}).expect(200)).body;
   const sent = await asBytes(http.get(link.url)).expect(200);
   assert.ok(sent.body.equals(branded.body));
@@ -310,29 +368,6 @@ test('the logo goes on the card, and the QR stays black on white', async t => {
   assert.ok(Math.max(r, g, b) - Math.min(r, g, b) < 12, `the QR is not tinted: got ${r},${g},${b}`);
 });
 
-test('a broken logo file does not take the card down with it', async t => {
-  const { call, signIn, addMember, root, db } = counterFixture(t);
-  const owner = await signIn('owner@example.test');
-  const member = await addMember(owner);
-  await call('put', '/gym/settings/logo', owner)
-    .attach('logo', await logoFile(), { filename: 'logo.png', contentType: 'image/png' }).expect(200);
-
-  // The bytes go bad after the fact, the way a half-written file does. Every
-  // member's card depends on this one file, so it must fall back rather than
-  // fail (the same rule as a member's photograph, QA PHOTO-03).
-  const [stored] = readdirSync(join(root, 'logo'));
-  const { writeFileSync } = await import('node:fs');
-  writeFileSync(join(root, 'logo', stored), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(300, 9)]));
-
-  const card = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
-  assert.equal(card.body.readUInt32BE(16), 1080);
-
-  // And if the row points at a file that is gone entirely, same answer.
-  db.prepare('UPDATE gym_settings SET logo_stored_name=? WHERE id=1').run('00000000-0000-4000-a000-000000000000.png');
-  await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
-  await call('get', '/gym/logo', null).expect(404);
-});
-
 test('the way to reach the gym is on the card: phone, and LINE when there is one', async t => {
   const { call, signIn, addMember } = counterFixture(t);
   const owner = await signIn('owner@example.test');
@@ -343,8 +378,26 @@ test('the way to reach the gym is on the card: phone, and LINE when there is one
   const withLine = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
   assert.ok(!withLine.body.equals(without.body), 'the LINE id is printed on the card');
 
-  // It is optional, like the phone number: a gym with neither still gets a card.
   const cleared = await call('put', '/gym/settings', owner, { line_id: '' }).expect(200);
   assert.equal(cleared.body.line_id, '');
   await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
+});
+
+test('a broken logo file does not take the card down with it', async t => {
+  const { call, signIn, addMember, root, db } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const member = await addMember(owner);
+  await call('put', '/gym/settings/logo', owner)
+    .attach('logo', await logoFile(), { filename: 'logo.png', contentType: 'image/png' }).expect(200);
+
+  const [stored] = readdirSync(join(root, 'logo'));
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(join(root, 'logo', stored), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(300, 9)]));
+
+  const card = await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
+  assert.equal(card.body.readUInt32BE(16), 1080);
+
+  db.prepare('UPDATE gym_settings SET logo_stored_name=? WHERE id=1').run('00000000-0000-4000-a000-000000000000.png');
+  await asBytes(call('get', `/members/${member.id}/card.png`, owner)).expect(200);
+  await call('get', '/gym/logo', null).expect(404);
 });
