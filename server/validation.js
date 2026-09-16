@@ -297,3 +297,28 @@ export const reverseSchema = z.object({
   version: z.coerce.number().int().positive(),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ยกเลิกการอนุมัติ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
 }).strict();
+
+/**
+ * Somebody asking for an account rather than being given one.
+ *
+ * The name and telephone number are here because the owner has to recognise
+ * who is asking before agreeing: an email address on its own is not enough to
+ * decide with, and until now staff accounts carried nothing else.
+ */
+export const signupSchema = z.object({
+  email,
+  name: z.string().trim().min(1, 'กรุณากรอกชื่อ–นามสกุล').max(120, 'ชื่อยาวได้ไม่เกิน 120 ตัวอักษร'),
+  phone,
+  password,
+}).strict();
+
+/** Approving a request, which is also where the role is decided. */
+export const approveRequestSchema = z.object({
+  role: z.enum(['staff', 'admin'], { error: 'เลือกได้เฉพาะพนักงานหรือผู้ดูแลระบบ' }),
+}).strict();
+
+/** Refusing one. The reason goes to the person, so it cannot be blank. */
+export const rejectRequestSchema = z.object({
+  reason: z.string().trim().min(1, 'กรุณาบอกเหตุผล เพราะข้อความนี้ถูกส่งให้ผู้สมัคร')
+    .max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
+}).strict();

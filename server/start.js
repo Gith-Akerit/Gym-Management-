@@ -9,6 +9,7 @@ import { MAX_LOGO_BYTES } from './theme.js';
 import { MAX_REPORT_BYTES } from './reports.js';
 import { loadPromptPayId } from './promptpay.js';
 import { cardSecret } from './secret.js';
+import { createMailer } from './mail.js';
 
 /**
  * Pilot mode now means one thing: the gym has no PromptPay account yet. Staff
@@ -57,6 +58,14 @@ const app = createApp({
   // owner may read them back, so nobody should be able to hand out this folder
   // by handing out another.
   reportStore: new SlipStore(process.env.REPORT_STORAGE_PATH || './data/reports', { maxBytes: MAX_REPORT_BYTES }),
+  // Without a key this logs what it would have sent and carries on, so every
+  // flow that sends mail is finished and testable before the gym has an
+  // account with a provider.
+  mailer: createMailer({
+    apiKey: process.env.BREVO_API_KEY,
+    from: process.env.MAIL_FROM,
+    fromName: process.env.MAIL_FROM_NAME,
+  }),
   promptPayId: pilotMode ? null : loadPromptPayId(),
   pilotMode,
 });

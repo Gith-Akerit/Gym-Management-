@@ -11,14 +11,16 @@ import { readSetupToken, setupTokenHash } from './password-setup.js';
 import { registerPaymentRoutes } from './payments.js';
 import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
 import { registerReportRoutes } from './reports-routes.js';
+import { createMailer, letters } from './mail.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
-import { gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, roleSchema, setPasswordSchema, updateSchema, userSchema } from './validation.js';
+import { approveRequestSchema, gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, rejectRequestSchema, roleSchema, setPasswordSchema, signupSchema, updateSchema, userSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
 export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, secret, origin = 'http://localhost:5173', production = false,
-  now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, reportStore, promptPayId, pilotMode = false }) {
+  now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, reportStore, promptPayId, pilotMode = false,
+  mailer = createMailer() }) {
   if (!secret || secret.length < 32) throw new Error('CARD_SIGNING_SECRET must have at least 32 characters');
   if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
   const app = express();
@@ -183,6 +185,15 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     }
     // Only now, with the right password in hand, does the real reason come out.
     if (user.status === 'suspended') throw new HttpError(403, 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ');
+    // Same rule for the two answers a self-signup can be waiting on: they are
+    // told after the password checks out, so somebody guessing addresses at the
+    // login screen still learns nothing about which ones exist.
+    if (user.approval === 'pending') {
+      throw new HttpError(403, 'บัญชีนี้รอเจ้าของยิมอนุมัติอยู่ เมื่ออนุมัติแล้วจะมีอีเมลแจ้ง แล้วเข้าสู่ระบบได้ทันที');
+    }
+    if (user.approval === 'rejected') {
+      throw new HttpError(403, `คำขอเข้าใช้งานนี้ไม่ได้รับอนุมัติ${user.reject_reason ? ` (${user.reject_reason})` : ''} กรุณาติดต่อเจ้าของยิม`);
+    }
 
     const token = randomBytes(32).toString('base64url');
     const result = transaction(db, () => {
@@ -193,6 +204,54 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     if (req.get('X-Gym-Client') === 'mobile') return res.json({ ...result, token, expires_in: 43200 });
     res.cookie('gym_session', token, { httpOnly: true, secure: production, sameSite: 'strict', maxAge: 43200000, path: '/api' });
     res.json(result);
+  });
+
+  /**
+   * Asking for an account.
+   *
+   * The reply is the same sentence whether or not that address already has an
+   * account here, and the work done before replying is the same too -- the
+   * password is hashed either way, which is the expensive part. Otherwise this
+   * form becomes the tool that tells somebody which addresses belong to the
+   * gym: the thing the login screen was carefully built not to say.
+   *
+   * Nothing is decided here. The account exists, opens nothing, and waits.
+   */
+  app.post('/api/auth/signup', async (req, res) => {
+    // Ten an hour from one address. A person filling in a form for themselves
+    // does it once; anything doing it sixty times is not that person.
+    limit(`signup-ip:${req.ip}`, 10, 3600000);
+    const input = parse(signupSchema, req.body);
+    // Before the lookup, so the timing of the reply says nothing either.
+    const hash = hashPassword(input.password);
+    const taken = db.prepare('SELECT 1 FROM users WHERE email=?').get(input.email);
+
+    if (!taken) {
+      const id = randomUUID();
+      transaction(db, () => {
+        // The role is written now but means nothing until approval: the owner
+        // chooses the real one when they let the person in.
+        db.prepare(`INSERT INTO users(id,email,role,password_hash,password_set_at,created_at,
+          approval,name,phone,requested_at) VALUES(?,?, 'staff',?,?,?, 'pending',?,?,?)`)
+          .run(id, input.email, hash, now(), now(), input.name, input.phone, now());
+        audit(db, id, 'user.signup_requested', id, null, { email: input.email }, now(), 'user');
+      });
+      const gym = publicGym(db).brand_name_th || publicGym(db).name || 'ยิม';
+      // Not awaited before replying: the person is looking at a spinner, and
+      // whether a mail provider is slow is not their problem. The request is
+      // already written down and visible to the owner on the screen.
+      const applicant = letters.signupReceived({ gym });
+      mailer.send({ to: input.email, subject: applicant.subject, text: applicant.text });
+      for (const owner of db.prepare("SELECT email FROM users WHERE role='admin' AND status='active' AND approval='approved'").all()) {
+        const note = letters.signupWaiting({ gym, name: input.name, email: input.email, phone: input.phone });
+        mailer.send({ to: owner.email, subject: note.subject, text: note.text });
+      }
+    }
+
+    res.status(202).json({
+      pending: true,
+      message: 'ส่งคำขอแล้ว เจ้าของยิมจะอนุมัติและกำหนดสิทธิ์ให้ เมื่ออนุมัติแล้วจะมีอีเมลแจ้งและเข้าสู่ระบบได้ทันที',
+    });
   });
 
   /**
@@ -400,6 +459,8 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   // person will stand at the login wondering what they typed wrong.
   const publicUser = row => ({
     id: row.id, email: row.email, role: row.role, status: row.status,
+    approval: row.approval, name: row.name ?? '', phone: row.phone ?? '',
+    requested_at: row.requested_at ?? null, reject_reason: row.reject_reason ?? '',
     created_at: row.created_at, email_verified_at: row.email_verified_at,
     has_password: !!row.password_hash, password_set_at: row.password_set_at ?? null,
     member_id: row.member_id ?? null, member_name: row.member_name ?? null,
@@ -434,6 +495,60 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
       ORDER BY CASE u.role WHEN 'admin' THEN 0 WHEN 'staff' THEN 1 ELSE 2 END, u.email
       LIMIT 20 OFFSET ?`).all(...args, (page - 1) * 20);
     res.json({ items: rows.map(publicUser), total, page, admins: activeAdmins() });
+  });
+
+  /**
+   * The requests waiting for a decision.
+   *
+   * Separate from the list of accounts rather than mixed into it: these are
+   * not people who work here yet, and the owner opens this screen to work
+   * through them, not to browse. Oldest first -- somebody who asked on Monday
+   * should not be behind somebody who asked this morning.
+   */
+  app.get('/api/users/requests', admin, (req, res) => {
+    const rows = db.prepare(`${userWithMember()} WHERE u.approval='pending'
+      ORDER BY u.requested_at ASC, u.created_at ASC LIMIT 100`).all();
+    res.json({ items: rows.map(publicUser), total: rows.length });
+  });
+
+  /** The gym's own name, for the letters. Falls back rather than failing. */
+  const gymName = () => publicGym(db).brand_name_th || publicGym(db).name || 'ยิม';
+
+  app.post('/api/users/:id/approve', admin, (req, res) => {
+    const input = parse(approveRequestSchema, req.body);
+    const result = transaction(db, () => {
+      const before = db.prepare(`${userWithMember()} WHERE u.id=?`).get(req.params.id);
+      if (!before) throw new HttpError(404, 'ไม่พบบัญชีนี้');
+      if (before.approval !== 'pending') throw new HttpError(409, 'คำขอนี้ถูกตัดสินไปแล้ว กรุณาโหลดหน้าใหม่');
+      db.prepare("UPDATE users SET approval='approved',role=?,decided_at=?,decided_by=?,reject_reason='' WHERE id=?")
+        .run(input.role, now(), req.user.id, before.id);
+      const after = db.prepare(`${userWithMember()} WHERE u.id=?`).get(before.id);
+      // "Who let this person in" is a question with an answer a year later.
+      audit(db, req.user.id, 'user.approve', before.id, publicUser(before), publicUser(after), now(), 'user');
+      return after;
+    });
+    const letter = letters.approved({ gym: gymName(), role: result.role });
+    mailer.send({ to: result.email, subject: letter.subject, text: letter.text });
+    res.json(publicUser(result));
+  });
+
+  app.post('/api/users/:id/reject', admin, (req, res) => {
+    const input = parse(rejectRequestSchema, req.body);
+    const result = transaction(db, () => {
+      const before = db.prepare(`${userWithMember()} WHERE u.id=?`).get(req.params.id);
+      if (!before) throw new HttpError(404, 'ไม่พบบัญชีนี้');
+      if (before.approval !== 'pending') throw new HttpError(409, 'คำขอนี้ถูกตัดสินไปแล้ว กรุณาโหลดหน้าใหม่');
+      // The row stays. Deleting it would let the same address ask again the
+      // next minute, and would lose the record that somebody said no.
+      db.prepare("UPDATE users SET approval='rejected',decided_at=?,decided_by=?,reject_reason=? WHERE id=?")
+        .run(now(), req.user.id, input.reason, before.id);
+      const after = db.prepare(`${userWithMember()} WHERE u.id=?`).get(before.id);
+      audit(db, req.user.id, 'user.reject', before.id, publicUser(before), publicUser(after), now(), 'user');
+      return after;
+    });
+    const letter = letters.rejected({ gym: gymName(), reason: input.reason });
+    mailer.send({ to: result.email, subject: letter.subject, text: letter.text });
+    res.json(publicUser(result));
   });
 
   app.post('/api/users', admin, (req, res) => {

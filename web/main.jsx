@@ -11,6 +11,8 @@ import { SalesReport } from './payments.jsx';
 import { GymBranding } from './settings.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { UserMenu } from './usermenu.jsx';
+import { SignUpRequest } from './signup-request.jsx';
+import { PendingRequests } from './user-requests.jsx';
 import { PhotoCapture } from './camera.jsx';
 import { ProblemReports } from './reports.jsx';
 import { captureScreen, flushPendingReports, pendingReportCount, ReportDialog } from './report.jsx';
@@ -73,6 +75,7 @@ const Stage = ({ brand, branding, title, children }) => <div className="scanstag
  * nothing to explain about codes and mailboxes.
  */
 function Login({ brand, branding, onLogin }) {
+  const [asking, setAsking] = useState(false);
   const [email, setEmail] = useState(''), [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(null);
   async function submit(e) {
@@ -83,6 +86,12 @@ function Login({ brand, branding, onLogin }) {
     // character should fix that character, not type twelve again.
     catch (e) { setError(e); } finally { setBusy(false); }
   }
+  if (asking) {
+    return <Stage brand={brand} branding={branding} title="ขอเข้าใช้งานระบบ">
+      <SignUpRequest onCancel={() => setAsking(false)}/>
+    </Stage>;
+  }
+
   return <Stage brand={brand} branding={branding} title="สำหรับพนักงานและเจ้าของยิมเท่านั้น">
     <form className="block" onSubmit={submit}>
       <Field label="อีเมล" name="email" type="email" value={email} onChange={setEmail}
@@ -96,6 +105,10 @@ function Login({ brand, branding, onLogin }) {
       </div>
       <button className="btn primary xl" disabled={busy} aria-disabled={busy || undefined}>
         {busy ? <><span className="spin"/>กำลังเข้าสู่ระบบ…</> : 'เข้าสู่ระบบ'}</button>
+      {/* A second way in, not a second primary action: almost everybody who
+          opens this screen already has an account and is here to use it. */}
+      <button className="btn" type="button" onClick={() => setAsking(true)} disabled={busy}
+        style={{ marginTop: 'var(--sp-3)' }}>ยังไม่มีบัญชี · ขอเข้าใช้งาน</button>
       <p className="note" style={{ margin: 'var(--sp-4) 0 0', textAlign: 'center', fontSize: 'var(--fs-14)' }}>
         ลืมรหัสผ่าน ให้เจ้าของยิมตั้งรหัสใหม่ให้ที่หน้า “ผู้ใช้และสิทธิ์”</p>
     </form>
@@ -800,6 +813,7 @@ const roleLabels = { admin: 'ผู้ดูแลระบบ', staff: 'พน�
 function Users({ onAuthError, signedInAs, onSignedOut }) {
   const [q, setQ] = useState(''), [page, setPage] = useState(1);
   const { data, error, busy, reload } = useResource(`/users?q=${encodeURIComponent(q)}&page=${page}`);
+  const requests = useResource('/users/requests');
   const [email, setEmail] = useState(''), [role, setRole] = useState('staff'), [secret, setSecret] = useState('');
   const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null), [notice, setNotice] = useState('');
   const [setting, setSetting] = useState(null), [newPassword, setNewPassword] = useState('');
@@ -855,6 +869,9 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
     <h1>ผู้ใช้และสิทธิ์</h1>
     <p className="sub">ใครเข้าระบบได้และเข้าในฐานะอะไร · คนละเรื่องกับหน้า “สมาชิก” ซึ่งเป็นรายชื่อคนที่มาออกกำลังกาย</p>
     {notice && <div className="banner ok" role="status"><div className="ic" aria-hidden="true">✓</div><div><b>{notice}</b></div></div>}
+
+    <PendingRequests list={requests} working={working} onAuthError={onAuthError}
+      onDone={message => { setNotice(message); requests.reload(); reload(); }}/>
 
     <div className="block" style={{ marginBottom: 'var(--sp-5)' }}>
       <h2>เพิ่มบัญชีพนักงานหรือผู้ดูแลระบบ</h2>
