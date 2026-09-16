@@ -170,13 +170,13 @@ test('the mailer keeps the flow alive when the gym has not filled in its mailbox
   assert.ok(t);
   // Not configured: it says so and does not throw, which is what lets every
   // screen above it be finished before the owner has typed a mailbox password.
-  const quiet = createMailer({ load: () => null });
+  const quiet = createMailer({ load: () => null, gapMs: 0 });
   assert.equal(quiet.ready, false);
   assert.deepEqual(await quiet.send({ to: 'a@b.test', subject: 'x', text: 'y' }),
     { sent: false, reason: 'not_configured' });
   // Half-filled counts as not configured. A host with no password is a form
   // somebody abandoned, not a mailbox.
-  const half = createMailer({ load: () => ({ host: 'smtp.office365.com', port: 587, username: 'info@gym.test' }) });
+  const half = createMailer({ load: () => ({ host: 'smtp.office365.com', port: 587, username: 'info@gym.test' }), gapMs: 0 });
   assert.equal(half.ready, false);
 
   // Configured: one SMTP message carrying both halves of the letter, with the
@@ -186,7 +186,7 @@ test('the mailer keeps the flow alive when the gym has not filled in its mailbox
     username: 'info@suklutai.co.th', password: 'app-password', from_email: 'info@suklutai.co.th', from_name: 'ยิม' };
   let options = null;
   const live = createMailer({
-    load: () => settings,
+    load: () => settings, gapMs: 0,
     transportFor: config => { options = config; return { sendMail: async message => { sent.push(message); return { accepted: [message.to] }; } }; },
   });
   const built = letter('2-approved', {
@@ -215,7 +215,7 @@ test('the mailer keeps the flow alive when the gym has not filled in its mailbox
   // approve somebody: the decision is already written down. And the answer has
   // to be one the owner can act on, not the provider's English.
   const refused = createMailer({
-    load: () => settings,
+    load: () => settings, gapMs: 0,
     transportFor: () => ({ sendMail: async () => { const error = new Error('535 5.7.139 Authentication unsuccessful'); error.responseCode = 535; throw error; } }),
   });
   const failure = await refused.send({ to: 'a@b.test', subject: 'x', text: 'y' });
@@ -229,13 +229,13 @@ test('the mailer keeps the flow alive when the gym has not filled in its mailbox
   assert.match(failure.raw, /5\.7\.139/, 'ข้อความดิบต้องถูกเก็บไว้ให้ส่งต่อฝ่ายไอทีได้');
 
   const wrongPassword = createMailer({
-    load: () => settings,
+    load: () => settings, gapMs: 0,
     transportFor: () => ({ sendMail: async () => { const error = new Error('535 5.7.3 Authentication unsuccessful'); error.responseCode = 535; throw error; } }),
   });
   assert.equal((await wrongPassword.send({ to: 'a@b.test', subject: 'x', text: 'y' })).reason, 'password');
 
   const offline = createMailer({
-    load: () => settings,
+    load: () => settings, gapMs: 0,
     transportFor: () => ({ sendMail: async () => { const error = new Error('connect ECONNREFUSED'); error.code = 'ECONNREFUSED'; throw error; } }),
   });
   assert.equal((await offline.send({ to: 'a@b.test', subject: 'x', text: 'y' })).reason, 'network');

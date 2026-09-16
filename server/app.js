@@ -12,6 +12,8 @@ import { registerPaymentRoutes } from './payments.js';
 import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
 import { registerReportRoutes } from './reports-routes.js';
 import { registerMemberAuthRoutes, registerMemberPortalRoutes } from './member-routes.js';
+import { registerContentRoutes, registerPublicContentRoutes } from './content-routes.js';
+import multer from 'multer';
 import { createMailer, ownerNotice } from './mail.js';
 import { loadMailConfig, registerMailSettingsRoutes } from './mail-settings.js';
 import { letter } from './letters.js';
@@ -24,7 +26,8 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
 export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, secret, origin = 'http://localhost:5173', production = false,
-  now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, reportStore, promptPayId, pilotMode = false,
+  now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, reportStore, machineStore,
+  promptPayId, pilotMode = false,
   // Off unless a gym turns it on. This gym's front door is for the four people
   // who work here, and the owner said so plainly after seeing it: a public form
   // that puts strangers in an approval queue is a thing to decide to have, not
@@ -58,7 +61,12 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     contentSecurityPolicy: {
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-        'img-src': ["'self'", 'data:', 'blob:'],
+        'img-src': ["'self'", 'data:', 'blob:', 'https://i.ytimg.com'],
+        // The machine page turns a still into a YouTube player when somebody
+        // presses it. Named here rather than loosened to `https:` so that the
+        // only third party this app can embed is the one the gym's own content
+        // file points at.
+        'frame-src': ["'self'", 'https://www.youtube-nocookie.com'],
       },
     },
   }));
@@ -204,6 +212,10 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   // The gym's own colours and logo, for the screens drawn before anybody has
   // signed in. Nothing in it is private: it is what is painted on the door.
   registerPublicThemeRoutes({ app, db, logoStore, selfSignup, mailReady: () => mailer.ready });
+  // The pages behind the QR stickers, and the machine and article lists. In
+  // front of the session guard because the person reading them is standing at
+  // a machine and has no session at all.
+  if (machineStore) registerPublicContentRoutes({ app, db, machineStore });
   app.get('/api/public/packages', (req, res) => res.json({
     items: db.prepare("SELECT * FROM packages WHERE status='active' ORDER BY sort_order, created_at")
       .all().map(publicPackage),
@@ -445,7 +457,23 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     res.clearCookie('gym_session', { path: '/api', httpOnly: true, sameSite: 'strict', secure: production });
     res.sendStatus(204);
   });
-  app.get('/api/me', (req, res) => res.json(me(req.user)));
+  /**
+   * Who the counter is signed in as.
+   *
+   * Refuses a member, which is not a formality: this is the call the counter
+   * app boots from, so without it a member's own session drew the whole staff
+   * console -- scan stage, member list and all -- for anybody who typed the
+   * gym's address after signing in on their phone. The API calls behind those
+   * screens were all closed to them, so nothing leaked, but a member being
+   * shown the till at all is a bug that only had to be one guard away from
+   * being a breach (caught by tests/ui/16-member-portal.spec.js).
+   */
+  app.get('/api/me', (req, res) => {
+    if (req.user.role === 'member') {
+      throw new HttpError(403, 'บัญชีนี้เป็นบัญชีสมาชิก ใช้เข้าหน้า “ช่วยเล่น” ที่ /m/login');
+    }
+    res.json(me(req.user));
+  });
 
   /**
    * Changing your own password, from the menu, while signed in.
@@ -498,9 +526,21 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   registerReportRoutes({ app, db, now, admin, counter, reportStore });
   registerMailSettingsRoutes({ app, db, now, admin, counter, limit, mailer,
     gymName: () => gymLetterContext().gym_name });
-  // The member portal. Its guards are handed back so the content routes in the
-  // next commit sit behind the same two rather than inventing their own.
-  registerMemberPortalRoutes({ app, db, now });
+  // The member portal, and the content behind it. The two guards are made in
+  // one place and handed to the content routes, so "who may read a programme"
+  // is answered by one function rather than by each route's own opinion.
+  const { member, paidUp } = registerMemberPortalRoutes({ app, db, now });
+  if (machineStore) {
+    // A photograph of a machine is 4 MB from a phone before anybody resizes it.
+    const machinePhotos = multer({ storage: multer.memoryStorage(),
+      limits: { fileSize: 6e6, files: 1 } });
+    const receiveMachinePhoto = (req, res, next) => machinePhotos.single('photo')(req, res, error => {
+      if (error?.code === 'LIMIT_FILE_SIZE') return next(new HttpError(413, 'ไฟล์รูปเครื่องใหญ่เกิน 6 MB กรุณาย่อรูปก่อน'));
+      if (error) return next(new HttpError(400, 'อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่'));
+      next();
+    });
+    registerContentRoutes({ app, db, now, admin, member, paidUp, origin, machineStore, receiveMachinePhoto });
+  }
 
   // Check-in at the counter.
   registerCheckInRoutes({ app, db, now, admin, counter, secret, limit });

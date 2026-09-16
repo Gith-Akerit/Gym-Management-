@@ -516,3 +516,151 @@
   .qitem .acts .btn{flex:1 1 100%}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+
+/* ============================================ พอร์ทัลสมาชิก "ช่วยเล่น" ====
+   ยกจาก member.css ของ Designer · มือถือเป็นหลัก คนอ่านยืนอยู่ในยิม
+   ถือมือถือมือเดียว อาจมีเหงื่อ · ตั้งใจให้ไม่เหมือนแอปพนักงาน เพราะสมาชิก
+   ไม่ใช่พนักงานที่มีสิทธิ์น้อยกว่า แต่เป็นคนละผลิตภัณฑ์
+   ========================================================================== */
+
+/* ------------------------------------------------ เปลือกของพอร์ทัลสมาชิก -- */
+/* ตั้งใจให้ไม่เหมือนแอปพนักงาน — ไม่มีเมนูข้าง ไม่มีป้ายบอกสิทธิ์
+   สมาชิกไม่ใช่พนักงานที่มีสิทธิ์น้อยกว่า แต่เป็นคนละผลิตภัณฑ์ */
+.mtop{background:var(--brand-surface);color:var(--on-brand);position:sticky;top:0;z-index:30}
+.mtop-in{max-width:720px;margin:0 auto;padding:12px var(--sp-4);
+  display:flex;align-items:center;gap:var(--sp-3);min-height:62px}
+.mtop .mk{width:40px;height:40px;border-radius:12px;background:#FFFFFF;
+  display:grid;place-items:center;padding:5px;flex:none}
+.mtop .mk img{width:100%;height:100%;object-fit:contain;display:block}
+.mtop .nm{font-size:var(--fs-18);font-weight:700;line-height:1.2;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mtop .nm span{display:block;font-size:var(--fs-14);font-weight:500}
+.mtop .spacer{flex:1}
+.mtop .acct{width:44px;height:44px;border-radius:50%;border:2px solid var(--on-brand);
+  background:transparent;color:var(--on-brand);font-weight:800;font-size:var(--fs-16);
+  display:grid;place-items:center;cursor:pointer;flex:none}
+
+.mwrap{max-width:720px;margin:0 auto;padding:var(--sp-5) var(--sp-4) 96px}
+
+/* แถบล่าง 3 แท็บ — นิ้วโป้งถึงทั้งหมด */
+.mnav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);
+  border-top:2px solid var(--line-strong);z-index:40;padding-bottom:env(safe-area-inset-bottom)}
+.mnav ul{list-style:none;margin:0;padding:0;display:flex;max-width:720px;margin:0 auto}
+.mnav li{flex:1;display:flex}
+.mnav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;min-height:66px;text-decoration:none;font-size:var(--fs-14);font-weight:700;
+  color:var(--ink-2);border-top:4px solid transparent}
+.mnav a[aria-current]{color:var(--brand-ink);border-top-color:var(--brand-surface);background:var(--brand-soft)}
+.mnav svg{width:26px;height:26px}
+
+/* ------------------------------------------------ หน้าแรก ช่วยเล่น ------- */
+.hello{margin:0 0 var(--sp-5)}
+.hello h1{margin:0 0 4px;font-size:var(--fs-28);font-weight:800}
+.hello p{margin:0;font-size:var(--fs-16);color:var(--ink-2)}
+
+.sechead{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);
+  margin:var(--sp-6) 0 var(--sp-3)}
+.sechead h2{margin:0;font-size:var(--fs-20)}
+.sechead a{font-size:var(--fs-16);font-weight:700;color:var(--brand-ink);text-decoration:none}
+
+/* การ์ดเป้าหมาย — สิ่งแรกที่สมาชิกต้องเลือก */
+.goals{display:grid;gap:var(--sp-3)}
+.goal{display:flex;align-items:center;gap:var(--sp-4);text-decoration:none;color:inherit;
+  background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-2);
+  padding:var(--sp-4);min-height:92px}
+.goal:hover{background:var(--panel)}
+.goal .gi{width:56px;height:56px;border-radius:16px;background:var(--brand-soft);
+  color:var(--brand-ink);display:grid;place-items:center;flex:none}
+.goal .gi svg{width:30px;height:30px}
+.goal .gt{flex:1;min-width:0}
+.goal .gt b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.3}
+.goal .gt span{display:block;font-size:var(--fs-16);color:var(--ink-2);margin-top:2px}
+.goal .go{flex:none;color:var(--ink-2)}
+.goal .go svg{width:24px;height:24px}
+
+/* ทางลัด 2 ช่อง */
+.quick{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)}
+.qcard{display:block;text-decoration:none;color:inherit;background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-4);min-height:118px}
+.qcard:hover{border-color:var(--brand-line)}
+.qcard .qi{width:44px;height:44px;border-radius:12px;background:var(--panel);
+  display:grid;place-items:center;margin-bottom:10px}
+.qcard .qi svg{width:24px;height:24px;color:var(--ink-2)}
+.qcard b{display:block;font-size:var(--fs-18);font-weight:700;line-height:1.3}
+.qcard span{display:block;font-size:var(--fs-14);color:var(--ink-2);margin-top:2px}
+
+/* เคล็ดลับสั้น */
+.tip{background:var(--brand-soft);border:2px solid var(--brand-line);border-radius:var(--r-2);
+  padding:var(--sp-4);display:flex;gap:var(--sp-3);align-items:flex-start}
+.tip .ti{font-size:var(--fs-24);line-height:1;flex:none;color:var(--brand-ink)}
+.tip b{display:block;font-size:var(--fs-18);margin-bottom:4px}
+.tip p{margin:0;font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+
+/* ------------------------------------------------ หน้าโปรแกรม ----------- */
+.phero{background:var(--brand-surface);color:var(--on-brand);border-radius:var(--r-2);
+  padding:var(--sp-5);margin-bottom:var(--sp-5)}
+.phero h1{margin:0 0 6px;font-size:var(--fs-28);font-weight:800;color:var(--on-brand)}
+.phero p{margin:0 0 var(--sp-4);font-size:var(--fs-16);font-weight:500;color:var(--on-brand);line-height:1.6}
+.pstats{display:flex;gap:var(--sp-5);flex-wrap:wrap;padding-top:var(--sp-4);
+  border-top:2px solid rgba(255,255,255,.35)}
+.pstats div span{display:block;font-size:var(--fs-14);font-weight:500;color:var(--on-brand)}
+.pstats div b{font-size:var(--fs-20);font-weight:800;color:var(--on-brand)}
+
+/* รายการท่า — ตัวเลขใหญ่ อ่านจากระยะแขนตอนยืนอยู่หน้าเครื่อง */
+.steps-x{list-style:none;margin:0;padding:0;display:grid;gap:var(--sp-3);counter-reset:sx}
+.steps-x li{counter-increment:sx;background:var(--surface);border:2px solid var(--line);
+  border-radius:var(--r-2);padding:var(--sp-4);display:flex;gap:var(--sp-4);align-items:flex-start}
+.steps-x li::before{content:counter(sx);flex:none;width:40px;height:40px;border-radius:50%;
+  background:var(--brand-surface);color:var(--on-brand);display:grid;place-items:center;
+  font-family:var(--font-num);font-size:var(--fs-18);font-weight:800}
+.steps-x .xb{flex:1;min-width:0}
+.steps-x .xb b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.3}
+/* ภาพย่อเป็นของประกอบ ที่จอแคบเอาพื้นที่ไปให้ตัวเลขดีกว่า */
+@media (max-width:560px){.steps-x .xpic{display:none}}
+.steps-x .xpic{width:64px;height:48px;border-radius:10px;overflow:hidden;background:var(--panel);
+  border:2px solid var(--line);flex:none;margin-top:8px}
+.steps-x .xpic svg{width:100%;height:100%;display:block}
+/* ค่าเซ็ต/ครั้ง/พัก ต้องอยู่แถวเดียวกันที่ 390px และห้ามตัดคำกลางตัวเลข
+   จึงใช้ flex ที่กล่องยืดตามเนื้อหา + nowrap ที่ค่า ไม่ใช่กริดคอลัมน์เท่ากัน
+   (กริดเท่ากันทำให้ "ปานกลาง" ตกบรรทัดกลางคำ) */
+.dose{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-top:10px}
+.dose div{background:var(--panel);border-radius:10px;padding:6px 10px}
+.dose span,.dose b{white-space:nowrap}
+.dose span{display:block;font-size:13px;color:var(--ink-2);font-weight:600}
+.dose b{font-family:var(--font-num);font-size:var(--fs-20);font-weight:800}
+.steps-x .xlink{display:inline-flex;align-items:center;gap:6px;margin-top:4px;min-height:44px;
+  padding:0 2px;font-size:var(--fs-16);font-weight:700;color:var(--brand-ink);text-decoration:none}
+.steps-x .xlink:hover{text-decoration:underline}
+
+/* ลิงก์ย้อนกลับท้ายหน้า — สูง 44px เท่าปุ่มจริง */
+.backlink{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 4px;
+  margin-top:var(--sp-4);font-size:var(--fs-18);font-weight:700;
+  color:var(--brand-ink);text-decoration:none}
+.backlink:hover{text-decoration:underline}
+
+/* คำเตือนความปลอดภัย — ต้องให้เจ้าของยิมอนุมัติข้อความก่อนขึ้นจริง */
+.safety{background:var(--warn-soft);border:3px solid var(--warn);border-radius:var(--r-2);
+  padding:var(--sp-4);margin-bottom:var(--sp-5)}
+.safety b{display:flex;align-items:center;gap:8px;color:var(--warn);font-size:var(--fs-18);margin-bottom:6px}
+.safety p{margin:0;font-size:var(--fs-16);color:var(--ink);line-height:1.65}
+
+/* ------------------------------------------------ สมาชิกหมดอายุ --------- */
+.wall{text-align:center;padding:var(--sp-6) var(--sp-4)}
+.wall .wi{width:92px;height:92px;border-radius:50%;background:var(--warn-soft);
+  border:3px solid var(--warn);color:var(--warn);display:grid;place-items:center;
+  font-size:44px;margin:0 auto var(--sp-5)}
+.wall h1{margin:0 0 var(--sp-3);font-size:var(--fs-28)}
+.wall p{margin:0 0 var(--sp-4);font-size:var(--fs-18);color:var(--ink-2);line-height:1.7}
+.wall .when{display:inline-block;background:var(--panel);border-radius:var(--r-1);
+  padding:8px 18px;font-family:var(--font-num);font-weight:700;font-size:var(--fs-18);
+  margin-bottom:var(--sp-5)}
+
+@media (min-width:900px){
+  .goals{grid-template-columns:1fr 1fr}
+  .mwrap{padding-bottom:var(--sp-10)}
+  .mnav{position:static;border-top:0;border-bottom:2px solid var(--line-strong)}
+  .mnav a{min-height:58px;flex-direction:row;gap:8px;border-top:0;border-bottom:4px solid transparent}
+  .mnav a[aria-current]{border-bottom-color:var(--brand-surface)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

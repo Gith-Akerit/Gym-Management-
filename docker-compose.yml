@@ -30,6 +30,9 @@ services:
       LOGO_STORAGE_PATH: /data/logo
       # Screenshots attached to problem reports.
       REPORT_STORAGE_PATH: /data/reports
+      # Photographs of the gym's own machines, for the pages behind the QR
+      # stickers. Not personal data — served to anybody who scans one.
+      MACHINE_STORAGE_PATH: /data/machines
       # Caddy is the one hop in front of the app. Get this wrong and every
       # member shares one rate-limit budget, which locks the gym out of login.
       TRUST_PROXY: "1"

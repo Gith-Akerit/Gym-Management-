@@ -21,7 +21,8 @@
     "env:set": "node server/env-set.js",
     "admin:set-password-link": "node server/admin-link.js",
     "reports:prune": "node server/prune-reports.js",
-    "mail:build": "node server/emails/mkmail.cjs"
+    "mail:build": "node server/emails/mkmail.cjs",
+    "content:import": "node server/content-import.js"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.3.0",

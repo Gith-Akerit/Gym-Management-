@@ -92,13 +92,47 @@ export function explainFailure(error) {
 }
 
 /**
+ * Office 365 accepts about 30 messages a minute from one mailbox and starts
+ * refusing above that, so letters leave through a queue with a gap between
+ * them rather than all at once.
+ *
+ * This gym will never come close on an ordinary day -- a few cards, the odd
+ * password link. It matters on the day somebody imports a membership list, or
+ * a script goes wrong: without the gap, the mailbox is throttled and the
+ * letters that get refused are indistinguishable from a wrong password on the
+ * settings screen. Two seconds between sends costs nothing and removes the
+ * whole class of problem.
+ */
+export const SEND_GAP_MS = 2100;
+
+/**
  * @param {object} options
  * @param {() => (object|null)} options.load  the current settings, read fresh
  *   on every send: the owner can fix a typo and the next letter uses it,
  *   without restarting the counter.
  * @param {Function} [options.transportFor]  swapped out in tests
+ * @param {number} [options.gapMs]  0 in tests, so a suite does not wait out
+ *   the real throttle for letters that go nowhere
  */
-export function createMailer({ load = () => null, transportFor = nodemailer.createTransport } = {}) {
+export function createMailer({ load = () => null, transportFor = nodemailer.createTransport,
+  gapMs = SEND_GAP_MS, sleep = ms => new Promise(done => setTimeout(done, ms)),
+  clock = Date.now } = {}) {
+  // One queue for the whole process. Serial on purpose: two letters in flight
+  // at once is two letters arriving inside the same second.
+  let tail = Promise.resolve();
+  let lastSentAt = 0;
+  function queued(work) {
+    const mine = tail.then(async () => {
+      const wait = gapMs - (clock() - lastSentAt);
+      if (wait > 0) await sleep(wait);
+      try { return await work(); } finally { lastSentAt = clock(); }
+    });
+    // The chain must not break when one letter fails, or every letter after it
+    // is stuck behind a rejected promise forever.
+    tail = mine.then(() => undefined, () => undefined);
+    return mine;
+  }
+
   const build = () => {
     const config = load();
     if (!config?.host || !config?.username || !config?.password || !config?.from_email) return null;
@@ -136,7 +170,7 @@ export function createMailer({ load = () => null, transportFor = nodemailer.crea
     }
     const { config, transport } = built;
     try {
-      await transport.sendMail({
+      await queued(() => transport.sendMail({
         // The name is the gym's, never the word no-reply. nodemailer builds
         // the RFC 2047 encoding of a Thai name and the multipart/alternative
         // from these two bodies.
@@ -146,7 +180,7 @@ export function createMailer({ load = () => null, transportFor = nodemailer.crea
         text,
         ...(html ? { html } : {}),
         ...(attachments?.length ? { attachments } : {}),
-      });
+      }));
       console.log(JSON.stringify({ event: 'mail_sent', to, subject }));
       return { sent: true };
     } catch (error) {

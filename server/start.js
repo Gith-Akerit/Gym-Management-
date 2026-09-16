@@ -57,6 +57,12 @@ const app = createApp({
   // owner may read them back, so nobody should be able to hand out this folder
   // by handing out another.
   reportStore: new SlipStore(process.env.REPORT_STORAGE_PATH || './data/reports', { maxBytes: MAX_REPORT_BYTES }),
+  // Photographs of the gym's own machines, for the pages behind the QR
+  // stickers. Its own directory because these are the one set of images here
+  // that are not personal data -- they are served to anybody who scans a
+  // sticker -- and a folder of machines should not be handed out by handing
+  // out a folder of faces.
+  machineStore: new SlipStore(process.env.MACHINE_STORAGE_PATH || './data/machines', { maxBytes: 6e6 }),
   // Sign-up from the front door, off unless a gym asks for it. This one does
   // not: its front door is for the people who work here.
   selfSignup: process.env.SELF_SIGNUP === '1',
@@ -66,6 +72,12 @@ const app = createApp({
   promptPayId: pilotMode ? null : loadPromptPayId(),
   pilotMode,
 });
+/**
+ * The member portal's two screens are the single-page app, so a deep link and
+ * a refresh both have to reach index.html. `/m/<machine code>` is handled
+ * above this by the server itself and never gets here.
+ */
+app.get(['/m/login', '/m/portal'], (req, res) => res.sendFile(resolve('dist/index.html')));
 app.use(express.static(resolve('dist')));
 const server = app.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => {
   console.log(JSON.stringify({ event: 'ready', port: Number(process.env.PORT || 3000), pilot_mode: pilotMode }));

@@ -13,6 +13,7 @@ import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { UserMenu } from './usermenu.jsx';
 import { AuthResult, AuthScreens, AuthStage, VerifyEmail } from './auth.jsx';
 import { ChangePassword } from './account.jsx';
+import { MemberPortal } from './member.jsx';
 import { PendingRequests } from './user-requests.jsx';
 import { PhotoCapture } from './camera.jsx';
 import { ProblemReports } from './reports.jsx';
@@ -1299,7 +1300,12 @@ function App() {
   const [branding, reloadBranding] = useBranding();
   const onAuthError = e => { if (e.status === 401) setUser(null); };
   useEffect(() => {
-    api('/me').then(setUser).catch(e => { if (e.status !== 401) setError(e); }).finally(() => setLoading(false));
+    // 403 here means a member's session on the counter's address. Treated the
+    // same as no session at all -- they get the staff login, which is the
+    // honest answer: this is not their app.
+    api('/me').then(setUser)
+      .catch(e => { if (e.status !== 401 && e.status !== 403) setError(e); })
+      .finally(() => setLoading(false));
   }, []);
   useEffect(() => { api('/public/config').then(config => setPilot(!!config.pilot_mode)).catch(() => setPilot(false)); }, []);
   useEffect(() => { api('/public/gym').then(setGym).catch(() => setGym(null)); }, []);
@@ -1332,4 +1338,19 @@ function App() {
   </PilotContext.Provider>;
 }
 
-createRoot(document.getElementById('root')).render(<App/>);
+/**
+ * Two apps, one bundle, chosen by the address.
+ *
+ * `/m/login` and `/m/portal` belong to the member; everything else is the
+ * counter. Split here rather than by building twice because they share the
+ * gym's colours, its logo and half the form components -- and because a member
+ * who has just pressed a link in an email must not wait for a second download
+ * while standing in the gym.
+ *
+ * Note what is NOT here: `/m/<machine code>` never reaches this file. That
+ * page is rendered by the server, so the sticker on the side of a machine
+ * costs one request and no JavaScript at all.
+ */
+const path = window.location.pathname.replace(/\/+$/, '');
+createRoot(document.getElementById('root'))
+  .render(path === '/m/login' || path === '/m/portal' ? <MemberPortal/> : <App/>);

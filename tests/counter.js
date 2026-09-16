@@ -47,6 +47,7 @@ export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00
     photoStore: new SlipStore(join(root, 'photos')),
     logoStore: new SlipStore(join(root, 'logo')),
     reportStore: new SlipStore(join(root, 'reports'), { maxBytes: 6e6 }),
+    machineStore: new SlipStore(join(root, 'machines'), { maxBytes: 6e6 }),
     promptPayId, pilotMode, selfSignup,
     // A mailbox that always accepts, until a test says otherwise. `refuseMail`
     // is how the failures a real Office 365 hands back -- a wrong password, a

@@ -23,6 +23,7 @@ primary_region = "sin"
   PHOTO_STORAGE_PATH = "/data/photos"
   LOGO_STORAGE_PATH = "/data/logo"
   REPORT_STORAGE_PATH = "/data/reports"
+  MACHINE_STORAGE_PATH = "/data/machines"
   # Fly's edge proxy is the single hop in front of the app.
   TRUST_PROXY = "1"
 

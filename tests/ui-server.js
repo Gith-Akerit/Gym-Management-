@@ -3,7 +3,7 @@
 import express from 'express';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { openDatabase, migrate } from '../server/db.js';
 import { seedConfiguration } from '../server/seed.js';
 import { SlipStore } from '../server/slips.js';
@@ -11,6 +11,7 @@ import { MAX_PHOTO_BYTES } from '../server/cards-routes.js';
 import { hashPassword } from '../server/passwords.js';
 import { issueSetupToken } from '../server/password-setup.js';
 import { createApp } from '../server/app.js';
+import { importContent } from '../server/content-import.js';
 // Two of these run side by side, on whichever pair of ports this run owns.
 import { UI_PORT } from './ports.js';
 const PORT = Number(process.env.UI_PORT || UI_PORT);
@@ -25,6 +26,10 @@ process.env.SETTINGS_ENC_KEY = process.env.SETTINGS_ENC_KEY || randomBytes(32).t
 export const UI_PASSWORD = 'counter-test-password';
 
 const db = openDatabase(); migrate(db); seedConfiguration(db);
+// The member portal has nothing to show without content, and the browser suite
+// walks the same journey a member does. Loaded from the file the gym's own
+// import reads, so the specs meet the real shapes rather than invented ones.
+importContent(db, JSON.parse(readFileSync(resolve('docs/content/member-content.json'), 'utf8')), Date.now());
 const secret = hashPassword(UI_PASSWORD);
 // Numbered so it is obvious how many are spare when a new spec needs one.
 const seedUsers = (role, addresses) => {
@@ -33,10 +38,10 @@ const seedUsers = (role, addresses) => {
       .run(randomUUID(), address, role, secret, Date.now(), Date.now());
   }
 };
-seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test', 'forgot-twice@example.test', 'mail-staff@example.test', 'changepw-staff@example.test', 'hotfix-staff@example.test',
+seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test', 'forgot-twice@example.test', 'mail-staff@example.test', 'changepw-staff@example.test', 'hotfix-staff@example.test', 'portal-staff@example.test',
   ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
 seedUsers('admin', ['layout-admin@example.test', 'admin@example.test', 'contrast2-ui@example.test',
-  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test', 'forgot-admin@example.test', 'invite-admin@example.test', 'mail-admin@example.test', 'diag-admin@example.test', 'hotfix-admin@example.test',
+  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test', 'forgot-admin@example.test', 'invite-admin@example.test', 'mail-admin@example.test', 'diag-admin@example.test', 'hotfix-admin@example.test', 'portal-admin@example.test',
   ...Array.from({ length: 11 }, (_, i) => `admin${i + 2}@example.test`)]);
 // One account with no password at all: the state an owner leaves somebody in
 // when they add them before their first shift.
@@ -69,6 +74,7 @@ const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `ht
   photoStore: new SlipStore(photoRoot, { maxBytes: MAX_PHOTO_BYTES }),
   logoStore: new SlipStore(resolve(PILOT ? 'data/test-logo-pilot' : 'data/test-logo')),
   reportStore: new SlipStore(resolve(PILOT ? 'data/test-reports-pilot' : 'data/test-reports'), { maxBytes: 6e6 }),
+  machineStore: new SlipStore(resolve(PILOT ? 'data/test-machines-pilot' : 'data/test-machines'), { maxBytes: 6e6 }),
   mailer: {
     ready: true,
     send: async message => {
@@ -115,6 +121,16 @@ app.get('/__test/outbox', (req, res) => {
 });
 // Test-only: the next letter is refused the way a misconfigured mailbox
 // refuses one. There is no equivalent in the real server.
+// Test-only: ends a membership the way the counter does when somebody does not
+// renew. There is no button for this in the app -- memberships end by the
+// clock -- and a browser cannot wait a month.
+app.post('/__test/expire-membership', express.json(), (req, res) => {
+  const member = db.prepare('SELECT id FROM members WHERE phone=?').get(req.body?.phone ?? '');
+  if (!member) return res.status(404).json({ error: 'no such member' });
+  const changed = db.prepare("UPDATE entitlements SET status='revoked',revoked_at=? WHERE member_id=?")
+    .run(Date.now(), member.id).changes;
+  res.json({ revoked: changed });
+});
 app.post('/__test/refuse-mail', express.json(), (req, res) => {
   refusal = { reason: req.body?.reason ?? 'unknown', message: req.body?.message ?? 'ส่งไม่สำเร็จ',
     raw: req.body?.raw ?? '535 5.7.139 SmtpClientAuthentication is disabled for the Mailbox' };
@@ -125,6 +141,12 @@ app.post('/__test/setup-link', express.json(), (req, res) => {
   if (!user) return res.status(404).json({ error: 'no such account' });
   res.json(issueSetupToken(db, { userId: user.id, now: Date.now() }));
 });
+/**
+ * The member portal's two screens are the single-page app, so a deep link and
+ * a refresh both have to reach index.html. `/m/<machine code>` is handled
+ * above this by the server itself and never gets here.
+ */
+app.get(['/m/login', '/m/portal'], (req, res) => res.sendFile(resolve('dist/index.html')));
 app.use(express.static(resolve('dist')));
 const server = app.listen(PORT, '127.0.0.1');
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { db.close(); process.exit(0); }));
