@@ -173,3 +173,47 @@ test('the revision is wired from git all the way into the browser bundle', () =>
   assert.match(readFileSync(join(ROOT, 'web/report.jsx'), 'utf8'), /__APP_REVISION__/,
     'nothing sends it with a report, so baking it in achieves nothing');
 });
+
+/**
+ * Whatever the Dockerfile copies, `.dockerignore` has to let through.
+ *
+ * The two files disagreeing is invisible from every direction except a real
+ * `docker build`: the Dockerfile says `COPY docs/manual`, the tests above
+ * confirm it says so, the folder is right there in the checkout -- and the
+ * build fails with `failed to compute cache key: "/docs/manual": not found`
+ * because `docs` is excluded and nothing brought it back (Infra, on the box,
+ * after the tests here went green).
+ *
+ * Reimplemented rather than shelled out to, because the point is to answer the
+ * question without docker installed.
+ */
+function ignoredByDocker(path) {
+  let ignored = false;
+  for (const raw of readFileSync(join(ROOT, '.dockerignore'), 'utf8').split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const negated = line.startsWith('!');
+    const pattern = negated ? line.slice(1) : line;
+    // A pattern matches the path itself and everything under it, which is all
+    // this repository's ignore file uses.
+    if (path === pattern || path.startsWith(`${pattern}/`) || pattern.startsWith(`${path}/`)) {
+      // A later line wins, which is how `!docs/manual` rescues one directory
+      // from the `docs` above it.
+      ignored = !negated && (path === pattern || path.startsWith(`${pattern}/`));
+    }
+  }
+  return ignored;
+}
+
+test('nothing the Dockerfile copies is taken back out by .dockerignore', () => {
+  const copied = new Set();
+  for (const stage of stages().values()) for (const source of stage.copies) copied.add(source);
+  assert.ok(copied.size, 'no COPY sources found at all');
+
+  for (const source of copied) {
+    assert.ok(existsSync(join(ROOT, source)), `Dockerfile copies ${source}, which is not in the repository`);
+    assert.equal(ignoredByDocker(source), false,
+      `Dockerfile copies ${source} but .dockerignore excludes it, so the build fails with `
+      + '"failed to compute cache key" and nothing in this repository says why');
+  }
+});
