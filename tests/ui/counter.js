@@ -68,6 +68,18 @@ export async function openUserMenu(page) {
   return button;
 }
 
+/**
+ * The scan stage, once it is really up.
+ *
+ * "พร้อมสแกน" appears when the camera has settled, which under the load of a
+ * full suite run arrives a beat after the stage itself. Waiting for the text
+ * alone is what turned into a timeout about once in three full runs (QA).
+ */
+export async function scanReady(page) {
+  await page.locator('.scanstage').waitFor();
+  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+}
+
 /** Signing out, which lives in that menu now and nowhere else. */
 export async function logOut(page) {
   await openUserMenu(page);

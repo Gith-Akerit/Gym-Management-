@@ -105,13 +105,16 @@ export function registerReportRoutes({ app, db, now, admin, counter, reportStore
     const id = randomUUID();
     const at = now();
     transaction(db, () => {
-      // The reference is the highest so far plus one rather than a count, so
-      // deleting a report never hands its number to the next one.
-      const { top } = db.prepare('SELECT COALESCE(MAX(reference),0) AS top FROM problem_reports').get();
+      // Drawn from a counter that only moves forwards, never from the rows
+      // that happen to be left: `MAX(reference) + 1` handed the number of a
+      // deleted report to the next one, and the number is what the screen
+      // tells somebody to write down (QA REPORT-01).
+      const { value: reference } = db.prepare(
+        "UPDATE counters SET value = value + 1 WHERE name='problem_report' RETURNING value").get();
       db.prepare(`INSERT INTO problem_reports(id,reference,message,screen,reported_by,user_agent,viewport,
         app_revision,image_stored_name,image_content_type,status,internal_note,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?, 'new','',?,?)`).run(
-        id, top + 1, input.message, input.screen ?? '', req.user.id,
+        id, reference, input.message, input.screen ?? '', req.user.id,
         shortAgent(req.get('user-agent')), input.viewport ?? '', input.app_revision ?? '',
         saved?.storedName ?? null, saved?.contentType ?? null, at, at);
       audit(db, req.user.id, 'report.create', id, null, null, at, 'report');

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cardToken, go, scan, signIn, signUpMember } from './counter.js';
+import { cardToken, go, scan, scanReady, signIn, signUpMember } from './counter.js';
 
 // The counter screen: a card is scanned, a face comes up, and a person decides.
 // Four states, one stage, nothing else on it (Designer, แบบ 2).
@@ -75,7 +75,7 @@ test('the counter tablet scans with its own camera', async ({ page }) => {
   // this proves the permission flow and that frames really are arriving. It
   // cannot prove a QR decodes: the fake device shows a test pattern.
   await signIn(page, 'staff4-ui@example.test');
-  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  await scanReady(page);
   const video = page.getByLabel('ภาพจากกล้องสำหรับสแกน QR');
   await expect(video).toBeVisible();
   await expect.poll(() => video.evaluate(el => el.videoWidth), { timeout: 15000 }).toBeGreaterThan(0);

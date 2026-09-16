@@ -16,6 +16,7 @@ export const MIGRATIONS = [
   { version: 9, name: '009_gym_branding' },
   { version: 10, name: '010_appbar_style' },
   { version: 11, name: '011_problem_reports' },
+  { version: 12, name: '012_report_counter' },
 ];
 
 const sql = (name, direction) =>

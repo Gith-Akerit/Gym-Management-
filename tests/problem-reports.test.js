@@ -192,6 +192,31 @@ test('the owner works through them: status, a private note, and deleting one', a
   assert.equal(third.body.reference, 3);
 });
 
+test('a deleted number is never handed out again, even when it was the newest', async t => {
+  const { call, signIn, db } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const staff = await signIn('desk@example.test', 'staff');
+
+  const first = await send(call, staff, 'เรื่องแรก').expect(201);
+  const second = await send(call, staff, 'เรื่องที่สอง').expect(201);
+  assert.deepEqual([first.body.reference, second.body.reference], [1, 2]);
+
+  // Counting the rows that are left rather than the numbers already issued is
+  // what handed #2 out twice: the number is what the screen tells somebody to
+  // write down, and the manual tells them to write it down, so two reports
+  // months apart answering to "เรื่อง 2" is a conversation nobody can hold.
+  await call('delete', `/reports/${second.body.id}`, owner, {}).expect(200);
+  const third = await send(call, staff, 'เรื่องที่สาม').expect(201);
+  assert.equal(third.body.reference, 3, 'เลขของเรื่องที่ลบไปแล้วถูกแจกซ้ำ');
+
+  // Empty the table entirely and it still does not start over.
+  await call('delete', `/reports/${first.body.id}`, owner, {}).expect(200);
+  await call('delete', `/reports/${third.body.id}`, owner, {}).expect(200);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM problem_reports').get().n, 0);
+  const fourth = await send(call, staff, 'เรื่องที่สี่').expect(201);
+  assert.equal(fourth.body.reference, 4);
+});
+
 test('the staff guide is served from the repository, to anybody who asks', async t => {
   const { call, http } = counterFixture(t);
   assert.ok(call);

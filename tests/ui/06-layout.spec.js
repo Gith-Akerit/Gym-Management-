@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cardToken, go, PNG_PIXEL, scan, signIn } from './counter.js';
+import { cardToken, go, PNG_PIXEL, scan, scanReady, signIn } from './counter.js';
 
 // The complaint that started the redesign was "the screen is very strange on a
 // computer": a phone layout stretched across 1280px. These check the two widths
@@ -151,7 +151,7 @@ test('every screen in the console fits both sizes', async ({ browser }) => {
       await fits(page, `${tab} at ${size.width}px`);
     }
     await go(page, 'สแกนเช็คอิน');
-    await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+    await scanReady(page);
     await fits(page, `สแกนเช็คอิน at ${size.width}px`);
   }
 });

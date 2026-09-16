@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { logOut, PASSWORD, signIn } from './counter.js';
+import { logOut, PASSWORD, scanReady, signIn } from './counter.js';
 
 // Spec files share one test server and run in filename order, hence the number
 // prefixes. This one goes first because everything after it signs in.
@@ -70,7 +70,7 @@ test('the owner signs in and lands on the scan screen', async ({ page }) => {
   // Scanning is the first screen: it is the one opened every time the door
   // opens, which on a small gym is the owner's job as much as anybody's.
   await expect(page.locator('.scanstage')).toBeVisible();
-  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  await scanReady(page);
   await expect(page.getByText('เจ้าของยิม').first()).toBeVisible();
   // Signing out now lives in the corner menu, on this screen as on every other.
   await logOut(page);

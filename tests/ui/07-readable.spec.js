@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { go, PASSWORD, signIn } from './counter.js';
+import { go, PASSWORD, scanReady, signIn } from './counter.js';
 
 // Things a test with an accessible name in its hand cannot see.
 //
@@ -107,7 +107,7 @@ test('every label on the set-password screen can actually be read', async ({ pag
 test('the counter screens can be read once somebody is signed in', async ({ page }) => {
   await signIn(page, 'contrast2-ui@example.test', PASSWORD);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  await scanReady(page);
   // The dark stage is the other direction: white on near-black, and the same
   // rule has to hold there.
   expect(tooFaint(await contrastIn(page)), 'หน้าสแกน').toEqual([]);
@@ -137,7 +137,7 @@ test('a thumb can hit every control on a phone', async ({ page }) => {
 test('the gym own colour reaches the screen, and stays readable there', async ({ page }) => {
   // 07 runs last, so this is the one spec that may repaint the whole app.
   await signIn(page, 'contrast2-ui@example.test');
-  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  await scanReady(page);
   const token = name => page.evaluate(key =>
     getComputedStyle(document.documentElement).getPropertyValue(key).trim().toUpperCase(), name);
   const accent = () => token('--brand-surface');
@@ -150,7 +150,7 @@ test('the gym own colour reaches the screen, and stays readable there', async ({
   // from using it.
   expect(await paint(page, '#FFD400')).toBe(200);
   await page.reload();
-  await expect(page.getByText('พร้อมสแกน')).toBeVisible();
+  await scanReady(page);
   expect(await accent()).toBe('#FFD400');
   expect(await token('--on-brand')).toBe('#0E1418');
   // The colour that means "passed" is the system's, not the gym's: a red gym

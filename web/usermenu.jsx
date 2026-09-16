@@ -110,12 +110,19 @@ export function UserMenu({ user, groups, onPick, footer }) {
 
         {groups.map(group => <div className="menugroup" key={group.label ?? 'account'}>
           {group.label && <div className="gl">{group.label}</div>}
+          {/* The note under a row is pointed at rather than nested inside the
+              label: read as one string it comes out as "แจ้งปัญหาจับภาพหน้าจอ
+              นี้ให้อัตโนมัติ" with no seam, which is a sentence nobody wrote
+              (QA). `aria-describedby` keeps it available and separate. */}
           {group.items.map(item => <button key={item.key} type="button" role="menuitem"
             className={`mi${item.danger ? ' danger' : ''}`}
             aria-disabled={item.soon ? 'true' : undefined} disabled={item.soon || undefined}
+            aria-label={item.sub ? item.label : undefined}
+            aria-describedby={item.sub ? `usermenu-${item.key}-sub` : undefined}
             onClick={() => { close(); onPick(item); }}>
             <Icon name={item.icon}/>
-            <span>{item.label}{item.sub && <span className="sub">{item.sub}</span>}</span>
+            <span>{item.label}
+              {item.sub && <span className="sub" id={`usermenu-${item.key}-sub`}>{item.sub}</span>}</span>
           </button>)}
         </div>)}
 
