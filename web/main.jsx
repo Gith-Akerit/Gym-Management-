@@ -45,7 +45,11 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
     {includeEmail && field('email', 'อีเมล (ไม่บังคับ)', { type: 'email', autoComplete: 'email',
       hint: 'กรอกแล้วระบบส่งบัตรสมาชิกไปให้เขาทางอีเมลเลย · ไม่มีอีเมลก็สมัครและใช้บัตรได้ตามปกติ' })}
     <details><summary>ข้อมูลเพิ่มเติม (ไม่บังคับ)</summary>
-      {field('date_of_birth', 'วันเกิด (ค.ศ.)', { type: 'date', min: '1900-01-01', max: new Date().toISOString().slice(0, 10) })}
+      {field('date_of_birth', 'วันเกิด (ค.ศ.)', { type: 'date', min: '1900-01-01',
+        max: new Date().toISOString().slice(0, 10),
+        // The browser draws its own placeholder in ITS locale, not the page's,
+        // so a Thai counter is shown mm/dd/yyyy and types 16/09/2026 (QA).
+        hint: 'รูปแบบ วว/ดด/ปปปป (ค.ศ.) · ช่องนี้เป็นของเบราว์เซอร์ ลำดับวัน–เดือนอาจสลับตามภาษาของเครื่อง' })}
       {field('emergency_contact', 'ผู้ติดต่อฉุกเฉินและเบอร์โทร', { maxLength: 200 })}
     </details>
   </>;
@@ -216,11 +220,14 @@ function SignUp({ packages, onDone, onCancel, onAuthError }) {
   // refusal finishes the job instead of repeating it.
   const [memberId, setMemberId] = useState(null);
   const [photoSaved, setPhotoSaved] = useState(false), [saleSaved, setSaleSaved] = useState(false);
+  // Shown once, after the first press of "ถัดไป" with an empty frame (QA).
+  const [skipWarning, setSkipWarning] = useState(false);
   const chosen = packages.find(item => item.id === packageId) ?? null;
 
   function take(file) {
     setPhotoSaved(false);
     setPhoto(file);
+    setSkipWarning(false);
     setPreview(url => { if (url) URL.revokeObjectURL(url); return URL.createObjectURL(file); });
   }
 
@@ -295,9 +302,22 @@ function SignUp({ packages, onDone, onCancel, onAuthError }) {
           onChange={e => { const file = e.target.files?.[0]; if (file) take(file); }}/>
       </label>
     </div>
+    {/* BUG-02 (QA): moving on with no photograph was one press and no comment,
+        and a member walked out with a faceless card during the test. The
+        second press is still allowed -- somebody whose camera is broken has to
+        be able to finish signing a customer up -- but it is now a decision
+        rather than an accident, and it says what it costs. */}
+    {skipWarning && <div className="alert warn" role="alert">
+      <div className="ic" aria-hidden="true">!</div>
+      <div><b>ยังไม่มีรูปถ่าย · ไปต่อโดยไม่มีรูปใช่ไหม</b>
+        <span>บัตรที่ไม่มีรูปคือบัตรที่ใครยืมไปก็เข้าได้ รูปถ่ายคือด่านเดียวที่กันการส่งบัตรต่อ ·
+          ถ่ายทีหลังได้ที่หน้าบัตรของสมาชิก แต่ต้องเรียกเขากลับมา</span></div>
+    </div>}
     <div className="btn-row" style={{ marginTop: 'var(--sp-4)' }}>
       <button className="btn ghost" style={{ flex: '0 0 140px' }} onClick={onCancel}>ยกเลิก</button>
-      <button className="btn primary xl" style={{ flex: 1 }} onClick={() => setStep(1)}>ถัดไป · ชื่อและเบอร์</button>
+      <button className="btn primary xl" style={{ flex: 1 }}
+        onClick={() => { if (!photo && !skipWarning) { setSkipWarning(true); return; } setStep(1); }}>
+        {!photo && skipWarning ? 'ไปต่อโดยไม่มีรูป' : 'ถัดไป · ชื่อและเบอร์'}</button>
     </div></>}
 
     {step === 1 && <><div className="block">
@@ -735,7 +755,11 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
     <button className="btn auto ghost" style={{ marginBottom: 'var(--sp-4)' }} onClick={onCancel}>← กลับรายการแพ็กเกจ</button>
     <h1>{item ? 'แก้ไขแพ็กเกจ' : 'เพิ่มแพ็กเกจ'}</h1>
     <form className="block" onSubmit={save}>
-      <Field name="code" label="รหัสแพ็กเกจ" value={form.code} onChange={v => set('code', v)} error={errors.code} required/>
+      {/* QA จุดสะดุด 5: the rule only appeared after pressing save, by which
+          time somebody had typed QA-TEST-PKG1 and had it thrown back. */}
+      <Field name="code" label="รหัสแพ็กเกจ" value={form.code} onChange={v => set('code', v)}
+        error={errors.code} required
+        hint="ใช้ A–Z 0–9 และ _ ยาว 3–32 ตัว · ห้ามมีขีด - หรือเว้นวรรค เช่น MONTH_30D"/>
       <Field name="name_th" label="ชื่อแพ็กเกจ" value={form.name_th} onChange={v => set('name_th', v)} error={errors.name_th} required/>
       <Field name="type" label="ประเภท" value={form.type} onChange={v => set('type', v)} error={errors.type}>
         <select><option value="unlimited">ไม่จำกัดครั้ง</option><option value="limited_sessions">จำกัดจำนวนครั้ง</option></select>
@@ -1098,7 +1122,7 @@ function Shell({ brand, branding, user, tabs, tab, setTab, onLogout, onPick, pil
   const role = user?.role;
   return <>
     {pilot && <div className="pilot-banner" role="status">
-      <b>โหมดทดลอง</b><span>ยังไม่ได้ผูกบัญชีพร้อมเพย์ — รับเงินและมอบแพ็กเกจที่หน้าสมาชิกได้ตามปกติ</span></div>}
+      <b>โหมดทดลอง</b><span>รับเงินสด/โอนนอกระบบได้ตามปกติ ยังไม่เปิดพร้อมเพย์ในระบบ</span></div>}
     <header className="appbar"><div className="appbar-in">
       {branding?.logo_url
         ? <img className="brandlogo" src={branding.logo_url} alt={`โลโก้ของ ${brand}`}/>

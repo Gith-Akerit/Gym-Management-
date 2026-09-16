@@ -136,7 +136,8 @@ export function AuthScreens({ brand, branding, onLogin, initialPanel = 'login' }
 
   if (panel === 'forgot') {
     return <Stage brand={brand} branding={branding} title="ลืมรหัสผ่าน">
-      <ForgotPanel onSent={email => show('reset-sent', { email })} onCancel={() => show('login')}/>
+      <ForgotPanel mailReady={branding?.mail_ready !== false} phone={branding?.phone}
+        onSent={email => show('reset-sent', { email })} onCancel={() => show('login')}/>
     </Stage>;
   }
 
@@ -161,12 +162,12 @@ export function AuthScreens({ brand, branding, onLogin, initialPanel = 'login' }
   }
 
   return <Stage brand={brand} branding={branding} title="สำหรับพนักงานและเจ้าของยิมเท่านั้น">
-    <LoginPanel open={open} phone={branding?.phone} onLogin={onLogin} onForgot={() => show('forgot')} onSignup={() => show('signup')}
+    <LoginPanel open={open} phone={branding?.phone} mailReady={branding?.mail_ready !== false} onLogin={onLogin} onForgot={() => show('forgot')} onSignup={() => show('signup')}
       onPending={() => show('pending')} onRejected={reason => show('rejected', { reason })}/>
   </Stage>;
 }
 
-function LoginPanel({ open, phone, onLogin, onForgot, onSignup, onPending, onRejected }) {
+function LoginPanel({ open, phone, mailReady, onLogin, onForgot, onSignup, onPending, onRejected }) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(null);
 
@@ -233,6 +234,10 @@ function LoginPanel({ open, phone, onLogin, onForgot, onSignup, onPending, onRej
     {!open && <div className="authfoot">
       บัญชีพนักงานออกให้โดยเจ้าของยิมเท่านั้น
       {phone && <> · ต้องการบัญชีใหม่ โทร <b>{phone}</b></>}
+      {/* Until the gym fills in its mailbox, "ลืมรหัสผ่าน" posts nothing --
+          so the way back in is named here rather than discovered by waiting
+          for a letter that never arrives (QA). */}
+      {!mailReady && <><br/>ลืมรหัสผ่าน ให้เจ้าของยิมสร้างลิงก์ตั้งรหัสผ่านให้จากหน้า “ผู้ใช้และสิทธิ์”</>}
     </div>}
   </>;
 }
@@ -291,7 +296,7 @@ function SignUpPanel({ branding, onSent, onCancel }) {
   </form>;
 }
 
-function ForgotPanel({ onSent, onCancel }) {
+function ForgotPanel({ mailReady, phone, onSent, onCancel }) {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState(null);
@@ -307,6 +312,16 @@ function ForgotPanel({ onSent, onCancel }) {
   return <form onSubmit={submit}>
     <h2>ลืมรหัสผ่าน</h2>
     <p className="lead">กรอกอีเมลที่ใช้เข้าสู่ระบบ เราจะส่งลิงก์ตั้งรหัสผ่านใหม่ไปให้</p>
+    {/* QA จุดสะดุด 6: the screen has to say which of the two worlds this gym is
+        in. Sending somebody to a form that will silently post nothing is worse
+        than telling them to telephone -- they wait for a letter that is never
+        coming. */}
+    {!mailReady && <div className="alert warn" role="status">
+      <div className="ic" aria-hidden="true">!</div>
+      <div><b>ยิมนี้ยังไม่ได้ตั้งค่าการส่งอีเมล</b>
+        <span>กดส่งได้ตามปกติ แต่ตอนนี้จะยังไม่มีจดหมายออก — ให้ติดต่อเจ้าของยิม
+          {phone ? ` ที่ ${phone} ` : ' '}เพื่อขอลิงก์ตั้งรหัสผ่าน เจ้าของยิมสร้างให้ได้จากหน้า “ผู้ใช้และสิทธิ์”</span></div>
+    </div>}
     <Field label="อีเมล" name="forgot-email" type="email" value={email} onChange={setEmail}
       required autoComplete="username" disabled={busy} error={failure?.fields?.email}/>
     {failure && !failure.fields && <div className="alert err" role="alert">

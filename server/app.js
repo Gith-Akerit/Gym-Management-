@@ -43,7 +43,25 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   // whole gym shares one per-IP budget — 20 members and the rest are locked out
   // of login (BUG-01). Set TRUST_PROXY to the real number of hops.
   app.set('trust proxy', trustProxy);
-  app.use(helmet({ strictTransportSecurity: production ? undefined : false }));
+  // BUG-01 (QA, เครื่องจริง): helmet's default img-src is `'self' data:`, which
+  // blocks `blob:` -- and every photograph preview in this app is a blob URL
+  // from `URL.createObjectURL`. The effect on the counter was that a member of
+  // staff took a photograph, saw an empty black frame and the words "รูปถ่าย
+  // เรียบร้อย" beside it, and had no way at all to tell whether it worked. A
+  // member walked out with a card that had no face on it, which is the one
+  // thing the card is supposed to make impossible.
+  //
+  // Only `blob:`, and only for images: a blob URL is made by this page, for
+  // this page, and cannot be pointed at anything a stranger supplied.
+  app.use(helmet({
+    strictTransportSecurity: production ? undefined : false,
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'img-src': ["'self'", 'data:', 'blob:'],
+      },
+    },
+  }));
   app.use(express.json({ limit: '16kb' }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -185,7 +203,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   app.get('/api/public/gym', (req, res) => res.json(publicGym(db)));
   // The gym's own colours and logo, for the screens drawn before anybody has
   // signed in. Nothing in it is private: it is what is painted on the door.
-  registerPublicThemeRoutes({ app, db, logoStore, selfSignup });
+  registerPublicThemeRoutes({ app, db, logoStore, selfSignup, mailReady: () => mailer.ready });
   app.get('/api/public/packages', (req, res) => res.json({
     items: db.prepare("SELECT * FROM packages WHERE status='active' ORDER BY sort_order, created_at")
       .all().map(publicPackage),

@@ -125,6 +125,13 @@ export function PhotoCapture({ onCapture, busy, preview }) {
   const stream = useRef(null);
   const [on, setOn] = useState(false);
   const [error, setError] = useState(null);
+  // BUG-02 (QA, กล้อง USB จริง): a real camera takes two to three seconds
+  // between `getUserMedia` returning and the first frame arriving. The frame
+  // was plain black for all of it, the shutter was live, and pressing it
+  // returned silently -- so the member of staff had pressed the button, seen
+  // nothing happen, and moved on. A member was signed up with no photograph
+  // that way during the test.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!on) return undefined;
@@ -149,9 +156,14 @@ export function PhotoCapture({ onCapture, busy, preview }) {
       if (cancelled) { stream.current.getTracks().forEach(track => track.stop()); return; }
       video.current.srcObject = stream.current;
       await video.current.play().catch(() => {});
+      // `play()` resolving is not the same as a frame existing, which is the
+      // whole of this bug. `loadeddata` is, and the poll is the belt to its
+      // braces on browsers that fire it early.
+      if (!cancelled && video.current?.videoWidth) setReady(true);
     })();
     return () => {
       cancelled = true;
+      setReady(false);
       stream.current?.getTracks().forEach(track => track.stop());
       stream.current = null;
     };
@@ -159,7 +171,9 @@ export function PhotoCapture({ onCapture, busy, preview }) {
 
   function take() {
     const source = video.current;
-    if (!source?.videoWidth) return;
+    // Cannot happen now that the button is dead until a frame exists, but a
+    // silent return is what made the original bug invisible, so it says so.
+    if (!source?.videoWidth) { setError(new Error('กล้องยังไม่พร้อม รอสักครู่แล้วกดใหม่')); return; }
     // Square, cropped from the middle of the frame, and no larger than the
     // card needs: a 4000px phone photo makes a card too heavy to send.
     const side = Math.min(source.videoWidth, source.videoHeight);
@@ -179,16 +193,24 @@ export function PhotoCapture({ onCapture, busy, preview }) {
       <div><b>{error.message}</b></div></div>}
     <div className="photoframe">
       {on
-        ? <video ref={video} muted playsInline aria-label="ภาพจากกล้องสำหรับถ่ายรูปสมาชิก"/>
+        ? <video ref={video} muted playsInline aria-label="ภาพจากกล้องสำหรับถ่ายรูปสมาชิก"
+            onLoadedData={() => setReady(true)}/>
         : preview && <img src={preview} alt="รูปที่เพิ่งถ่าย"/>}
       <span className="ring" aria-hidden="true"/>
+      {/* The frame says which of the three states it is in. A black rectangle
+          that means "opening", "on" and "nothing here" equally is a frame that
+          tells the counter nothing (QA). */}
+      {on && !ready && <span className="framestate" role="status">
+        <span className="spin"/>กำลังเปิดกล้อง…</span>}
+      {!on && !preview && <span className="framestate">ยังไม่ได้ถ่ายรูป · กดปุ่มด้านล่างเพื่อเปิดกล้อง</span>}
       <span className="tip">ให้ใบหน้าอยู่ในวงกลม แสงส่องหน้า ไม่ย้อนแสง</span>
     </div>
     <canvas ref={canvas} hidden/>
     <div className="btn-row" style={{ marginTop: 'var(--sp-4)' }}>
-      <button type="button" className="btn primary xl" disabled={busy}
+      <button type="button" className="btn primary xl" disabled={busy || (on && !ready)}
+        aria-disabled={(on && !ready) || undefined}
         onClick={() => { setError(null); if (on) take(); else setOn(true); }}>
-        {on ? 'ถ่ายรูปนี้' : preview ? 'ถ่ายรูปใหม่' : 'เปิดกล้องถ่ายรูป'}</button>
+        {on ? (ready ? 'ถ่ายรูปนี้' : 'กำลังเปิดกล้อง…') : preview ? 'ถ่ายรูปใหม่' : 'เปิดกล้องถ่ายรูป'}</button>
       {on && <button type="button" className="btn ghost" disabled={busy} onClick={() => setOn(false)}>ปิดกล้อง</button>}
     </div>
   </div>;

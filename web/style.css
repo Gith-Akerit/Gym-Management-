@@ -43,6 +43,9 @@
   --pass:#07784C;        /* พื้นแถบผลผ่าน ขาวบนพื้นนี้ = 5.53:1 */
   --bad:#9B1C13;         --bad-soft:#FBE7E5;
   --deny:#C62A1E;        /* พื้นแถบผลไม่ผ่าน ขาวบนพื้นนี้ = 5.60:1 */
+  /* BUG-03 (QA): "เช็คอินไปแล้ว" ใช้สีเดียวกับ "เข้าไม่ได้" ทั้งที่คนนี้เข้าได้
+     สีที่สาม บอกว่า "ไม่ใช่ผ่าน และไม่ใช่ปฏิเสธ" ขาวบนพื้นนี้ = 5.93:1 */
+  --again:#8A5A00;
   --warn:#7A4A00;        --warn-soft:#FDF2DF;
 
   /* รูปทรง */
@@ -279,6 +282,8 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .result .rfacts b{font-size:var(--fs-28);font-weight:800}
 .result .reason{margin:var(--sp-5) 0 0;padding-top:var(--sp-5);border-top:3px solid rgba(255,255,255,.3);font-size:var(--fs-20);font-weight:700}
 .result.deny{background:var(--deny)}
+/* คนนี้เข้าได้ แค่บันทึกไปแล้ว — พนักงานใหม่ที่เห็นสีแดงจะไล่ลูกค้ากลับ (QA) */
+.result.again{background:var(--again)}
 .result.wait{background:#243430}
 
 .checkline{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);
@@ -401,6 +406,10 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 
   .scanbody{grid-template-columns:1fr;padding:var(--sp-4);gap:var(--sp-4)}
   .scanbody>*{min-width:0}
+  /* QA จุดสะดุด 2: บนจอ 390 ผลสแกน (รูปหน้า สิทธิ์คงเหลือ ปุ่มยืนยัน) อยู่ใต้
+     กล้องทั้งหมด ต้องปัดจอทุกคน ที่เคาน์เตอร์คือเสียเวลาทุกครั้งที่มีคนเข้า
+     พอมีผลแล้วสลับให้ผลขึ้นก่อน กล้องเลื่อนลงไปอยู่ล่าง */
+  .scanbody.hasresult>*:last-child{order:-1}
   .darkbtns .btn{min-width:0;flex:1 1 140px}
   .result{flex-direction:column;text-align:center;padding:var(--sp-5);gap:var(--sp-5)}
   .result .rface{width:220px;height:220px}
@@ -458,9 +467,15 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
    what has to clear 44px on a phone. */
 .check-row{display:flex;gap:var(--sp-3);align-items:center;margin:var(--sp-3) 0;min-height:44px;cursor:pointer}
 .check-row input{width:24px;height:24px;accent-color:var(--brand-surface);flex:none}
-.pilot-banner{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;flex-wrap:wrap;
+/* QA จุดสะดุด 1: กินสองบรรทัดเต็มบนจอ 390 ทุกหน้า และข้อความเดิมอ่านแล้วเหมือน
+   ระบบยังใช้จริงไม่ได้ · บรรทัดเดียว ตัดท้ายถ้ายาว และบอกสิ่งที่ทำได้ ไม่ใช่
+   สิ่งที่ยังไม่ได้ทำ */
+.pilot-banner{display:flex;gap:var(--sp-2);align-items:center;justify-content:center;
   background:var(--warn-soft);border-bottom:2px solid var(--warn);color:var(--warn);
-  padding:10px var(--sp-4);font-size:var(--fs-16)}
+  padding:6px var(--sp-4);font-size:var(--fs-14);line-height:1.4;
+  white-space:nowrap;overflow:hidden}
+.pilot-banner b{flex:none}
+.pilot-banner span{overflow:hidden;text-overflow:ellipsis}
 .sales{width:100%;border-collapse:collapse;font-size:var(--fs-16)}
 .sales th,.sales td{padding:10px var(--sp-3);border-bottom:2px solid var(--panel);text-align:left}
 .sales td:not(:first-child),.sales th:not(:first-child){text-align:right;font-family:var(--font-num)}
@@ -494,3 +509,16 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
   border:4px dashed rgba(255,255,255,.75);border-radius:50%}
 .photoframe .tip{position:absolute;left:0;right:0;bottom:0;padding:12px;background:rgba(0,0,0,.62);
   color:#fff;font-size:var(--fs-16);font-weight:600;text-align:center}
+/* BUG-02 (QA): the frame has three states and used to look identical in all
+   three -- a black rectangle. Two to three seconds of black while a real
+   camera warms up reads as "broken", and an empty frame before anybody has
+   pressed anything reads as "the camera is on and my face is not in it". */
+.photoframe .framestate{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  display:flex;align-items:center;justify-content:center;gap:10px;padding:0 var(--sp-4);
+  color:var(--on-dark);font-size:var(--fs-16);font-weight:700;text-align:center;z-index:1}
+.photoframe .framestate .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff}
+
+/* BUG-06 (QA): "แพ็กเกจ" was breaking across two lines as "แพ็ก / เกจ" in the
+   narrow summary column. Thai has no spaces, so the browser breaks a word
+   wherever it likes unless it is told not to. */
+.row>.muted,.row .lb,.summary .muted{white-space:nowrap}

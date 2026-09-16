@@ -76,14 +76,24 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
       <UserMenu user={user} groups={menu} onPick={onPick} footer={brand}/>
     </div>
 
-    <div className="scanbody">
+    <div className={`scanbody${outcome && !busy ? ' hasresult' : ''}`}>
       <div>
         <div className={`cam${camera && !cameraError ? '' : ' off'}`}
           style={cameraError ? { borderColor: 'var(--deny)' } : undefined}>
-          <CameraScanner active={camera && !cameraError} onScan={value => submit(value)} onError={setCameraError}/>
+          {/* BUG-04 (QA): the loop kept reading the card that was still being
+              held up while staff compared the photograph to the face -- which
+              takes longer than four seconds every time -- and each read wrote
+              another row. A day's history was 15 duplicates to 3 real entries.
+              The lens stops looking once there is an answer on screen, and
+              starts again when somebody says they are ready for the next
+              person. */}
+          <CameraScanner active={camera && !cameraError && !outcome && !busy}
+            onScan={value => submit(value)} onError={setCameraError}/>
           {(!camera || cameraError) && <span className="camhint">
             {cameraError ? 'กล้องถูกปิดอยู่' : 'กล้องปิดอยู่'}</span>}
-          {camera && !cameraError && <><span className="frame"/><span className="laser"/></>}
+          {camera && !cameraError && outcome && <span className="camhint">
+            หยุดสแกนไว้ก่อน · กด “สแกนคนถัดไป” เมื่อพร้อม</span>}
+          {camera && !cameraError && !outcome && !busy && <><span className="frame"/><span className="laser"/></>}
         </div>
         <div className="darkbtns">
           {cameraError
@@ -127,12 +137,25 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
               <button className="btn primary" onClick={() => setTyping(true)}>พิมพ์รหัสจากบัตรแทน</button>
             </div>
           </div>
+          {/* BUG-07 (QA): this used to name "the padlock beside the address
+              bar", which the counter tablet does not have — and the tablet is
+              the device the gym actually bought this for. Three ways, named by
+              the machine in front of the person reading it. */}
           <div className="checkline" style={{ marginTop: 'var(--sp-5)' }}>
-            <b>วิธีเปิดกล้องคืน</b><br/>
-            1. กดไอคอนรูปกุญแจ 🔒 ข้างช่อง URL ด้านบนของเบราว์เซอร์<br/>
-            2. เลือก “กล้อง” แล้วเปลี่ยนเป็น “อนุญาต”<br/>
-            3. โหลดหน้านี้ใหม่<br/>
-            <span style={{ color: 'var(--on-dark-2)', fontSize: 'var(--fs-14)' }}>
+            <b>วิธีเปิดกล้องคืน · ทำตามเครื่องที่คุณใช้อยู่</b>
+            <div style={{ marginTop: 'var(--sp-3)' }}>
+              <b>คอมพิวเตอร์ (Chrome/Edge)</b><br/>
+              กดไอคอนซ้ายของช่อง URL (รูปกุญแจหรือรูปเลื่อน) → “กล้อง” → อนุญาต → โหลดหน้านี้ใหม่
+            </div>
+            <div style={{ marginTop: 'var(--sp-3)' }}>
+              <b>แท็บเล็ต/มือถือ Android</b><br/>
+              ตั้งค่าของเครื่อง → แอป → Chrome → สิทธิ์ → กล้อง → อนุญาต แล้วกลับมาโหลดหน้านี้ใหม่
+            </div>
+            <div style={{ marginTop: 'var(--sp-3)' }}>
+              <b>iPad/iPhone (Safari)</b><br/>
+              ตั้งค่า → Safari → กล้อง → อนุญาต · ถ้าเพิ่มหน้านี้ไว้ที่หน้าโฮม ให้ดูที่ ตั้งค่า → แอปนั้น → กล้อง
+            </div>
+            <span style={{ color: 'var(--on-dark-2)', fontSize: 'var(--fs-14)', display: 'block', marginTop: 'var(--sp-3)' }}>
               ถ้าเปิดผ่าน http:// ธรรมดาเบราว์เซอร์จะไม่ให้ใช้กล้องเลย ต้องเป็น https:// เท่านั้น — แจ้งทีมติดตั้ง</span>
           </div>
         </>}
@@ -156,7 +179,13 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
         </div>}
 
         {!error && !busy && outcome && <>
-          <section className={`result${outcome.result === 'allowed' ? '' : ' deny'}`} role="status" aria-live="assertive">
+          {/* BUG-03 (QA): duplicate shared the refusal's red. A new member of
+              staff reads red and turns the customer away, when the answer is
+              "they may come in, we simply wrote it down already". The list
+              below was already drawing it as a third, neutral state -- the big
+              panel disagreed with it. */}
+          <section className={`result${outcome.result === 'allowed' ? ''
+            : outcome.result === 'duplicate' ? ' again' : ' deny'}`} role="status" aria-live="assertive">
             {member?.photo_url
               ? <span className="rface"><img src={`${member.photo_url}?at=${outcome.checked_in_at ?? ''}`}
                   alt={`รูปถ่ายของ ${member.name}`}/></span>
@@ -178,14 +207,17 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
 
           {outcome.result === 'allowed' && <div className="checkline">
             <b>ดูรูปเทียบกับคนตรงหน้าก่อนให้เข้า</b> — บัตรเป็นรูปภาพ ส่งต่อกันได้ รูปถ่ายคือด่านที่คนส่งต่อบัตรผ่านไม่ได้</div>}
+          {outcome.result === 'duplicate' && <div className="checkline">
+            <b>คนนี้เข้าได้ ระบบแค่บันทึกไปแล้วรอบนี้</b> — ดูรูปเทียบหน้าเหมือนเดิมแล้วให้เข้าได้เลย
+            ไม่ต้องหักสิทธิ์ซ้ำและไม่ต้องสแกนใหม่</div>}
           {revoked && <div className="checkline">
             <b>ให้ลูกค้าใช้บัตรใบล่าสุดที่ยิมส่งให้</b> ถ้าเขาไม่มี ให้เปิดหน้าสมาชิกรายนี้แล้วกด “ส่งบัตรซ้ำ” ·
             ถ้าเขายืนยันว่าไม่เคยได้รับบัตรใหม่ ให้แจ้งเจ้าของยิม อาจมีคนอื่นถือบัตรเก่าอยู่</div>}
 
           <div className="darkbtns">
             <button className="btn primary" onClick={() => setOutcome(null)}>
-              {outcome.result === 'allowed' ? 'ยืนยันให้เข้า · สแกนคนถัดไป' : 'สแกนคนถัดไป'}</button>
-            {outcome.result === 'allowed' && <button className="btn" onClick={() => setOutcome(null)}>ไม่ใช่คนนี้</button>}
+              {outcome.result === 'denied' ? 'สแกนคนถัดไป' : 'ยืนยันให้เข้า · สแกนคนถัดไป'}</button>
+            {outcome.result !== 'denied' && <button className="btn" onClick={() => setOutcome(null)}>ไม่ใช่คนนี้</button>}
             {member && onOpenMember && <button className="btn" onClick={() => onOpenMember(member)}>เปิดหน้าสมาชิกรายนี้</button>}
           </div>
 
@@ -230,7 +262,8 @@ export function CheckInLog({ compact = false }) {
       {scope === 'unknown' && <p className="note">รายการที่สแกนแล้วระบุตัวสมาชิกไม่ได้ เช่น QR ปลอมหรืออ่านไม่ออก
         แยกไว้ที่นี่เพื่อไม่ให้กลบประวัติการเข้าใช้บริการจริง</p>}
       <div className="two">
-        <Field name="checkin-date" label="วันที่" value={date} onChange={setDate} type="date"/>
+        <Field name="checkin-date" label="วันที่" value={date} onChange={setDate} type="date"
+          hint="รูปแบบ วว/ดด/ปปปป (ค.ศ.)"/>
         {scope === 'identified' && <Field name="checkin-q" label="ค้นหาสมาชิก" value={q} onChange={setQ} type="search"
           placeholder="ชื่อ หรือรหัสสมาชิก" maxLength={120}/>}
       </div>

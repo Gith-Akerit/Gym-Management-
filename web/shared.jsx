@@ -64,6 +64,14 @@ export function useBranding() {
     // White bar with a brand line under it unless the gym asked for the full
     // colour, which is a choice they make once (Designer, ข้อ 5).
     document.body.dataset.appbar = theme.appbar === 'brand' ? 'brand' : 'light';
+
+    // BUG-08 (QA): the tab said "ยิมของเรา · สมาชิก" and Android painted the
+    // top of the screen the old green, because both were baked into
+    // index.html before this gym had a name or a colour. Both now come from
+    // the same row everything else on screen comes from.
+    document.title = branding.brand ? `${branding.brand} · จัดการยิม` : 'ระบบจัดการยิม';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme.brand_surface);
   }, [branding]);
   return [branding, reload];
 }

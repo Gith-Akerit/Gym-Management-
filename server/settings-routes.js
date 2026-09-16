@@ -39,7 +39,7 @@ export function brandShort(settings, gym) {
  * `logo_url` carries the timestamp of the file so a browser that cached the
  * old logo does not keep showing it after the owner changes one.
  */
-export function publicTheme(db) {
+export function publicTheme(db, mailReady = () => false) {
   const settings = settingsRow(db);
   const gym = getGym(db).profile;
   const phone = gym?.phone_display === 'hidden' ? null
@@ -58,6 +58,11 @@ export function publicTheme(db) {
     line_id: settings?.line_id || '',
     // Whether the form should ask for a code -- never the code itself.
     needs_invite_code: !!(settings?.invite_code ?? '').trim(),
+    // Whether "ลืมรหัสผ่าน" will actually send anything. The login screen has
+    // to say which of the two worlds it is in, and until the gym fills in its
+    // mailbox the honest answer is "ask the owner for a link" (QA จุดสะดุด 6).
+    // A boolean and nothing else: not the address, not the host.
+    mail_ready: mailReady(),
     theme: resolveTheme(settings),
     // The screen redraws the card image when this moves, so a colour change is
     // visible without anybody pressing reload.
@@ -85,11 +90,13 @@ const settingsSchema = z.object({
 /** What the second tablet is told, wherever it is the second tablet. */
 const STALE_SETTINGS = 'มีคนแก้ตั้งค่ายิมไปแล้วระหว่างที่คุณเปิดหน้านี้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง';
 
-export function registerPublicThemeRoutes({ app, db, logoStore, selfSignup = false }) {
+export function registerPublicThemeRoutes({ app, db, logoStore, selfSignup = false,
+  mailReady = () => false }) {
   // The login screen draws itself from this. Whether the gym takes sign-ups is
   // not a secret -- the form is a public URL when it is on -- and the screen
   // has to know before anybody has signed in.
-  app.get('/api/public/theme', (req, res) => res.json({ ...publicTheme(db), self_signup: !!selfSignup }));
+  app.get('/api/public/theme', (req, res) =>
+    res.json({ ...publicTheme(db, mailReady), self_signup: !!selfSignup }));
 
   /**
    * The logo bytes, to anybody who asks.
