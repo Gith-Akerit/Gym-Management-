@@ -14,7 +14,8 @@ set -e
 mkdir -p "$(dirname "${DATABASE_PATH:-./data/gym.sqlite}")" \
   "${SLIP_STORAGE_PATH:-./data/slips}" \
   "${PHOTO_STORAGE_PATH:-./data/photos}" \
-  "${LOGO_STORAGE_PATH:-./data/logo}"
+  "${LOGO_STORAGE_PATH:-./data/logo}" \
+  "${REPORT_STORAGE_PATH:-./data/reports}"
 
 node server/manage.js migrate
 node server/manage.js seed

@@ -59,6 +59,9 @@ async function menuItem(page, label) {
 /** Opens the menu in the top right corner and waits for it to be there. */
 export async function openUserMenu(page) {
   const button = page.getByRole('button', { name: 'เมนู', exact: true });
+  // Signing in does not wait for the app to draw, so the first thing a spec
+  // does after it may arrive before the header exists.
+  await button.waitFor();
   if (await button.getAttribute('aria-expanded') === 'false') await button.click();
   await expect(page.locator('#usermenu-panel')).toBeVisible();
   return button;

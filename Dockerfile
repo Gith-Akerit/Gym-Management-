@@ -30,6 +30,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 # that builds green and then crash-loops on the first boot.
 COPY shared ./shared
 COPY server ./server
+# The staff guide, served at /manual.pdf. Without it the menu item in the app
+# opens a 404 on the machine while working perfectly in a checkout --
+# tests/dockerfile-copies.test.js is what turns that into a red test instead.
+COPY docs/manual ./docs/manual
 COPY --from=build /app/dist ./dist
 COPY deploy/entrypoint.sh ./deploy/entrypoint.sh
 RUN chmod +x deploy/entrypoint.sh && mkdir -p /data && chown -R node:node /data /app

@@ -1,6 +1,8 @@
 import express from 'express';
 import helmet from 'helmet';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { registerCardRoutes } from './cards-routes.js';
 import { registerCheckInRoutes } from './checkin.js';
@@ -8,6 +10,7 @@ import { hashPassword, verifyPassword } from './passwords.js';
 import { readSetupToken, setupTokenHash } from './password-setup.js';
 import { registerPaymentRoutes } from './payments.js';
 import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
+import { registerReportRoutes } from './reports-routes.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
 import { gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, roleSchema, setPasswordSchema, updateSchema, userSchema } from './validation.js';
 
@@ -15,7 +18,7 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
 export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, secret, origin = 'http://localhost:5173', production = false,
-  now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, promptPayId, pilotMode = false }) {
+  now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, reportStore, promptPayId, pilotMode = false }) {
   if (!secret || secret.length < 32) throw new Error('CARD_SIGNING_SECRET must have at least 32 characters');
   if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
   const app = express();
@@ -109,6 +112,26 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   app.locals.pilotMode = pilotMode;
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+  /**
+   * The staff guide, served out of the repository.
+   *
+   * It ships with the code on purpose: a manual that lives in somebody's chat
+   * history is a manual that a new member of staff cannot find at 19:00, and
+   * one that lives on a file-sharing link is a manual that stops working the
+   * day the link expires. This way the version on the machine is the version
+   * of the app on the machine.
+   *
+   * No session: it is instructions for using a counter, not gym data, and the
+   * person who most needs it may be the one who cannot get signed in.
+   */
+  app.get('/manual.pdf', (req, res, next) => {
+    const file = fileURLToPath(new URL('../docs/manual/staff-guide-th.pdf', import.meta.url));
+    if (!existsSync(file)) return next(new HttpError(404, 'ยังไม่มีคู่มือในระบบ'));
+    res.type('application/pdf');
+    res.set('Content-Disposition', 'inline; filename="suklutai-staff-guide.pdf"');
+    return res.sendFile(file);
+  });
 
   // The trial banner has to be on the login screen, before anybody has signed
   // in, so this one fact is public.
@@ -247,6 +270,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   // The photograph and the card it goes on.
   registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret });
   registerSettingsRoutes({ app, db, now, admin, counter, logoStore });
+  registerReportRoutes({ app, db, now, admin, counter, reportStore });
 
   // Check-in at the counter.
   registerCheckInRoutes({ app, db, now, admin, counter, secret, limit });

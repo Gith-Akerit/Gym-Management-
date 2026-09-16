@@ -28,10 +28,10 @@ const seedUsers = (role, addresses) => {
       .run(randomUUID(), address, role, secret, Date.now(), Date.now());
   }
 };
-seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test',
+seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test',
   ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
 seedUsers('admin', ['layout-admin@example.test', 'admin@example.test', 'contrast2-ui@example.test',
-  'brand-admin@example.test', 'menu-admin@example.test',
+  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test',
   ...Array.from({ length: 11 }, (_, i) => `admin${i + 2}@example.test`)]);
 // One account with no password at all: the state an owner leaves somebody in
 // when they add them before their first shift.
@@ -49,9 +49,17 @@ const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `ht
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),
   photoStore: new SlipStore(photoRoot, { maxBytes: MAX_PHOTO_BYTES }),
   logoStore: new SlipStore(resolve(PILOT ? 'data/test-logo-pilot' : 'data/test-logo')),
+  reportStore: new SlipStore(resolve(PILOT ? 'data/test-reports-pilot' : 'data/test-reports'), { maxBytes: 6e6 }),
   // Exactly what a pilot deployment has: no merchant account at all.
   promptPayId: PILOT ? null : '0899999999',
   pilotMode: PILOT });
+// The real server allows 60 sign-ins per quarter of an hour from one address,
+// which is generous for a gym and far too little for a browser suite: every
+// spec signs in, they all come from 127.0.0.1, and the fifty-somethingth one
+// starts being told to wait fifteen minutes. Cleared here rather than raised
+// in the app, so the limit the gym runs with is the limit that is tested.
+setInterval(() => db.prepare('DELETE FROM rate_limits').run(), 2000).unref();
+
 // The one thing a browser cannot find out for itself. Test-only: this route
 // does not exist in the real server.
 app.get('/__test/password', (req, res) => res.json({ password: UI_PASSWORD }));

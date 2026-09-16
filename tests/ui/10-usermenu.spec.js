@@ -35,11 +35,12 @@ test('the everyday four stay on the rail and the rest move into the menu', async
   for (const away of ['แพ็กเกจ', 'ผู้ใช้และสิทธิ์', 'ข้อมูลยิม', 'ตั้งค่ายิม', 'ประวัติเช็คอิน']) {
     expect(labels, `${away} หายไปจากเมนู`).toContain(away);
   }
-  // Approved and not built yet: shown, so "where do I report this?" has an
-  // answer, but not clickable, so nothing pretends to work.
+  // The help group: reporting a problem, the owner's list of what was
+  // reported, and the staff guide.
   expect(labels).toContain('แจ้งปัญหา');
+  expect(labels).toContain('เรื่องที่แจ้งไว้');
   expect(labels).toContain('คู่มือการใช้งาน');
-  await expect(page.getByRole('menuitem', { name: 'แจ้งปัญหา' })).toBeDisabled();
+  await expect(page.getByRole('menuitem', { name: /^แจ้งปัญหา/ })).toBeEnabled();
   expect(labels.at(-1)).toBe('ออกจากระบบ');
   await page.screenshot({ path: 'artifacts/menu-admin-1280.png', fullPage: true });
 });

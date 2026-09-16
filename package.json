@@ -19,7 +19,8 @@
     "db:seed:demo": "node server/manage.js seed:demo",
     "slips:prune": "node server/prune-slips.js",
     "env:set": "node server/env-set.js",
-    "admin:set-password-link": "node server/admin-link.js"
+    "admin:set-password-link": "node server/admin-link.js",
+    "reports:prune": "node server/prune-reports.js"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.3.0",
@@ -29,6 +30,7 @@
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "jsqr": "^1.4.0",
+    "modern-screenshot": "^4.7.0",
     "multer": "^2.3.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",

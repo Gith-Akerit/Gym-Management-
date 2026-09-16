@@ -6,6 +6,7 @@ import { createApp } from './app.js';
 import { SlipStore } from './slips.js';
 import { MAX_PHOTO_BYTES } from './cards-routes.js';
 import { MAX_LOGO_BYTES } from './theme.js';
+import { MAX_REPORT_BYTES } from './reports.js';
 import { loadPromptPayId } from './promptpay.js';
 import { cardSecret } from './secret.js';
 
@@ -51,6 +52,11 @@ const app = createApp({
   // that is not personal data -- it is served without a session -- and a
   // backup of faces should not be a backup of shop signs.
   logoStore: new SlipStore(process.env.LOGO_STORAGE_PATH || './data/logo', { maxBytes: MAX_LOGO_BYTES }),
+  // Screenshots attached to problem reports. Its own directory because these
+  // are pictures of whatever was on screen -- usually a member -- and only the
+  // owner may read them back, so nobody should be able to hand out this folder
+  // by handing out another.
+  reportStore: new SlipStore(process.env.REPORT_STORAGE_PATH || './data/reports', { maxBytes: MAX_REPORT_BYTES }),
   promptPayId: pilotMode ? null : loadPromptPayId(),
   pilotMode,
 });

@@ -12,6 +12,8 @@ import { GymBranding } from './settings.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { UserMenu } from './usermenu.jsx';
 import { PhotoCapture } from './camera.jsx';
+import { ProblemReports } from './reports.jsx';
+import { captureScreen, flushPendingReports, pendingReportCount, ReportDialog } from './report.jsx';
 
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
 const blankPackage = { code: '', name_th: '', type: 'unlimited', duration_days: 30, session_limit: '', price_satang: '', description: '', status: 'draft', sort_order: 0 };
@@ -1034,10 +1036,16 @@ const NAV = [
   ['gym', 'ข้อมูลยิม', null],
   ['branding', 'ตั้งค่ายิม', null],
   ['checkin', 'ประวัติเช็คอิน', null],
+  ['reports', 'เรื่องที่แจ้งไว้', null],
 ];
 
 const EVERYDAY = ['scan', 'signup', 'members', 'payment'];
-const ICON_FOR = { gym: 'gym', branding: 'branding', packages: 'packages', users: 'users', checkin: 'checkin' };
+const ICON_FOR = {
+  gym: 'gym', branding: 'branding', packages: 'packages', users: 'users',
+  checkin: 'checkin', reports: 'report',
+};
+/** In the menu these sit under "ช่วยเหลือ" rather than with the gym's settings. */
+const HELP = ['reports'];
 
 /**
  * The menu in the corner, in three groups.
@@ -1046,24 +1054,27 @@ const ICON_FOR = { gym: 'gym', branding: 'branding', packages: 'packages', users
  * not allowed to open is not listed here either -- a greyed-out row teaches
  * staff to keep trying the thing that will never work.
  *
- * `soon` marks what the owner has approved but the team has not built yet. It
- * is shown rather than hidden because "where would I report this?" is itself
- * worth answering, and because it is one line to switch on when it lands.
+ * "แจ้งปัญหา" carries a count when this browser is holding reports it could
+ * not send: without it, an outage would look exactly like nothing happening.
  */
-function menuGroups(tabs) {
-  const settings = tabs.filter(([key]) => !EVERYDAY.includes(key))
+function menuGroups(tabs, { pending = 0 } = {}) {
+  const pick = keys => tabs.filter(([key]) => keys(key))
     .map(([key, label]) => ({ key, label, icon: ICON_FOR[key] }));
   return [
-    { label: 'จัดการยิม', items: settings },
+    { label: 'จัดการยิม', items: pick(key => !EVERYDAY.includes(key) && !HELP.includes(key)) },
     { label: 'ช่วยเหลือ', items: [
-      { key: 'report', label: 'แจ้งปัญหา', icon: 'report', sub: 'กำลังพัฒนา จะเปิดใช้ในรอบถัดไป', soon: true },
-      { key: 'manual', label: 'คู่มือการใช้งาน', icon: 'manual', sub: 'กำลังพัฒนา จะเปิดใช้ในรอบถัดไป', soon: true },
+      { key: 'report',
+        label: pending ? `แจ้งปัญหา (รอส่ง ${pending})` : 'แจ้งปัญหา',
+        icon: 'report',
+        sub: 'จับภาพหน้าจอนี้ให้อัตโนมัติ' },
+      ...pick(key => HELP.includes(key)),
+      { key: 'manual', label: 'คู่มือการใช้งาน', icon: 'manual', sub: 'เปิดไฟล์ PDF ในแท็บใหม่' },
     ] },
     { items: [{ key: 'logout', label: 'ออกจากระบบ', icon: 'logout', danger: true }] },
   ].filter(group => group.items.length);
 }
 
-function Shell({ brand, branding, user, tabs, tab, setTab, onLogout, onPick, pilot, wide = false, children }) {
+function Shell({ brand, branding, user, tabs, tab, setTab, onLogout, onPick, pilot, pending = 0, wide = false, children }) {
   const everyday = tabs.filter(([key]) => EVERYDAY.includes(key));
   const role = user?.role;
   return <>
@@ -1075,7 +1086,7 @@ function Shell({ brand, branding, user, tabs, tab, setTab, onLogout, onPick, pil
         : <Mark branding={branding} brand={brand}/>}
       <div className="brand">{brand}<small>{role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}</small></div>
       <div className="spacer"/>
-      <UserMenu user={user} groups={menuGroups(tabs)} onPick={onPick} footer={brand}/>
+      <UserMenu user={user} groups={menuGroups(tabs, { pending })} onPick={onPick} footer={brand}/>
     </div></header>
     <main className={wide ? 'wrap wide' : 'wrap'}><div className="page">
       <nav aria-label="เมนูหลัก">
@@ -1106,26 +1117,70 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
   const { data: packages } = useResource('/packages');
   const sellable = (packages?.items ?? []).filter(item => item.price_thb !== null && item.status === 'active');
   const admin = user.role === 'admin';
-  // Only the owner sets prices, hands out roles or edits the gym's own facts.
+  // Only the owner sets prices, hands out roles, edits the gym's own facts, or
+  // reads problem reports -- the pictures in those have members on them.
   // Everyone reaches ตั้งค่ายิม: staff open it to answer "what is your LINE?",
   // and the screen itself refuses to let them change anything.
-  const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages'].includes(key) ? admin : true));
+  const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages', 'reports'].includes(key) ? admin : true));
+
+  // null · { capturing: true } · { shot, screen, failed }
+  const [report, setReport] = useState(null);
+  const [pending, setPending] = useState(() => pendingReportCount());
+
+  // Anything this browser kept during an outage leaves as soon as it can.
+  useEffect(() => {
+    const flush = () => flushPendingReports().then(() => setPending(pendingReportCount()));
+    flush();
+    window.addEventListener('online', flush);
+    return () => window.removeEventListener('online', flush);
+  }, []);
+
+  /**
+   * The picture is taken before the box opens, or the picture is of the box.
+   *
+   * That ordering costs a visible pause of up to a second, which is why
+   * "capturing" is a state on the screen rather than something hidden: a
+   * button that appears to do nothing gets pressed again.
+   */
+  async function startReport() {
+    const screen = NAV.find(([key]) => key === tab)?.[1] ?? '';
+    setReport({ capturing: true });
+    try { setReport({ shot: await captureScreen(), screen }); }
+    catch { setReport({ shot: null, screen, failed: true }); }
+  }
 
   // One handler for everything the corner menu can do, so the menu itself does
   // not have to know the difference between a screen and an action.
   const pick = item => {
     if (item.key === 'logout') { onLogout(); return; }
+    if (item.key === 'report') { startReport(); return; }
+    if (item.key === 'manual') { window.open('/manual.pdf', '_blank', 'noopener'); return; }
     setNotice(''); setOpen(null); setTab(item.key);
   };
+
+  /** Drawn over whatever screen is underneath, including the scan stage. */
+  const reportUi = report && (report.capturing
+    ? <div className="sheet" role="status" aria-live="polite">
+        <div className="sheet-in"><div className="sheet-b done-big">
+          <span className="spin" style={{ width: 44, height: 44, margin: '0 auto var(--sp-4)' }}/>
+          <b>กำลังจับภาพหน้าจอ…</b>
+          <p className="note">ระบบจับภาพก่อนเปิดกล่อง ภาพที่ได้จึงเป็นหน้าที่คุณเห็นตอนกด</p>
+        </div></div>
+      </div>
+    : <ReportDialog user={user} screen={report.screen} shot={report.shot} captureFailed={report.failed}
+        onClose={() => { setReport(null); setPending(pendingReportCount()); }}/>);
 
   // The scan screen is a stage of its own: dark, full bleed, no rail. It is
   // the only screen used while standing up with somebody waiting -- and the
   // one staff are on longest, so the menu has to be there too.
   if (tab === 'scan') {
-    return <StaffScanner brand={brand} branding={branding} user={user}
-      menu={menuGroups(tabs)} onPick={pick}
-      onOpenMember={member => { setOpen(member); setTab('members'); }}
-      onLeave={() => setTab('members')}/>;
+    return <>
+      <StaffScanner brand={brand} branding={branding} user={user}
+        menu={menuGroups(tabs, { pending })} onPick={pick}
+        onOpenMember={member => { setOpen(member); setTab('members'); }}
+        onLeave={() => setTab('members')}/>
+      {reportUi}
+    </>;
   }
 
   const banner = notice && <div className="banner ok" role="status">
@@ -1133,7 +1188,8 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
 
   return <Shell brand={brand} branding={branding} user={user} tabs={tabs} tab={tab}
     setTab={key => { setTab(key); setNotice(''); setOpen(null); }}
-    onLogout={onLogout} onPick={pick} pilot={pilot} wide={tab === 'branding'}>
+    onLogout={onLogout} onPick={pick} pilot={pilot} wide={tab === 'branding'} pending={pending}>
+    {reportUi}
     {banner}
     {tab === 'signup' && <SignUp packages={sellable} onAuthError={onAuthError}
       onCancel={() => setTab('members')}
@@ -1164,6 +1220,7 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
       <p className="sub">ดูว่าใครเข้ายิมเมื่อไร และใครถูกปฏิเสธเพราะอะไร</p>
       <CheckInLog/>
       <div className="block"><h2>สรุปรายวัน</h2><CheckInSummary/></div></>}
+    {tab === 'reports' && <ProblemReports onAuthError={onAuthError}/>}
   </Shell>;
 }
 

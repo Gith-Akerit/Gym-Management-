@@ -201,3 +201,58 @@
   .avatar-btn .cav{display:none}
   .mi{min-height:58px}
 }
+
+
+/* ============================================ แจ้งปัญหา ==================
+   ยกจาก features.css ของ Designer ส่วนที่ 2 · กล่องแจ้งปัญหาลอยอยู่บนหน้าเดิม
+   ไม่แตะหน้าไหน และหน้ารายการฝั่งเจ้าของ
+   ========================================================================== */
+/* กล่องหรี่หน้าด้วยตัวเอง ไม่ใช้ .scrim ของเมนู เพราะนั่นเป็นอิลิเมนต์ fixed
+   ที่มี z-index สูงกว่าตัวแผง ถ้าเอามาซ้อนในนี้จะบังกล่องเองที่ 390 px */
+.sheet{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;
+  padding:var(--sp-5);background:rgba(8,12,15,.55)}
+.sheet-in{background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-3);
+  width:100%;max-width:620px;max-height:92dvh;overflow:auto;box-shadow:0 24px 60px rgba(14,20,24,.3)}
+.sheet-h{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-5);border-bottom:2px solid var(--line)}
+.sheet-h h2{margin:0;flex:1;font-size:var(--fs-24)}
+.sheet-b{padding:var(--sp-5)}
+.sheet-f{padding:var(--sp-5);border-top:2px solid var(--line);display:flex;gap:var(--sp-3);flex-wrap:wrap}
+.sheet-f .btn{width:auto;flex:1 1 160px}
+.iconbtn{width:48px;height:48px;border-radius:var(--r-1);border:2px solid var(--line-ctl);
+  background:var(--surface);cursor:pointer;display:grid;place-items:center;font-size:var(--fs-20);flex:none}
+
+/* ภาพหน้าจอที่จับได้ */
+.shot-prev{position:relative;border:2px solid var(--line);border-radius:var(--r-1);overflow:hidden;
+  background:var(--panel);aspect-ratio:16/10}
+.shot-prev img,.shot-prev svg{width:100%;height:100%;object-fit:cover;object-position:top center;display:block}
+.shot-prev .tag{position:absolute;left:10px;top:10px;background:rgba(14,20,24,.82);color:#fff;
+  font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px}
+.shot-prev .zoom{position:absolute;right:10px;bottom:10px;background:#fff;border:2px solid var(--line-strong);
+  border-radius:var(--r-1);min-height:44px;padding:0 14px;font-size:var(--fs-14);font-weight:700;cursor:pointer}
+.shot-skel{aspect-ratio:16/10;border-radius:var(--r-1)}
+
+/* กล่องข้อมูลที่แนบไปด้วยอัตโนมัติ — โชว์เสมอ ไม่ซ่อน */
+.meta{background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-1);padding:var(--sp-4);margin-top:var(--sp-4)}
+.meta dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px var(--sp-4);font-size:var(--fs-14)}
+.meta dt{color:var(--ink-2)}
+.meta dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+
+/* สถานะสำเร็จ */
+.done-big{text-align:center;padding:var(--sp-6) var(--sp-4)}
+.done-big .tick{width:84px;height:84px;border-radius:50%;background:var(--ok);color:#fff;
+  display:grid;place-items:center;font-size:42px;margin:0 auto var(--sp-4)}
+.done-big b{display:block;font-size:var(--fs-28);font-weight:800}
+.done-big .ref{font-family:var(--font-num);font-size:var(--fs-24);font-weight:700;
+  background:var(--panel);border-radius:var(--r-1);padding:8px 18px;display:inline-block;margin-top:var(--sp-3)}
+
+/* รายการแจ้งปัญหาฝั่งเจ้าของ */
+.rep{display:flex;gap:var(--sp-4);align-items:flex-start;background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-4);flex-wrap:wrap}
+.rep .thumb{width:112px;height:76px;border-radius:var(--r-1);overflow:hidden;background:var(--panel);
+  border:2px solid var(--line);flex:none}
+.rep .thumb img,.rep .thumb svg{width:100%;height:100%;object-fit:cover;object-position:top center}
+.rep .body{flex:1 1 240px;min-width:0}
+.rep .body b{display:block;font-size:var(--fs-18);line-height:1.4}
+.rep .body .m{font-size:var(--fs-14);color:var(--ink-2);margin-top:4px}
+.rep .btn{width:auto;min-height:48px;font-size:var(--fs-16)}
+.rep.unread{border-color:var(--brand-line);border-width:3px;padding:calc(var(--sp-4) - 1px)}
