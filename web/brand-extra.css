@@ -19,6 +19,12 @@
 [data-appbar="brand"] .appbar .btn{background:transparent;border-color:var(--on-brand);color:var(--on-brand)}
 [data-appbar="brand"] .appbar .mark{background:rgba(255,255,255,.18);color:var(--on-brand)}
 [data-appbar="brand"] .appbar .mark.haslogo{background:#fff;border-color:transparent}
+/* MENU-02 ปุ่มเมนูเป็นของใหม่ เลยไม่ได้อยู่ในบล็อกนี้ตั้งแต่แรก จึงคงหมึกของ
+   แถบขาวไว้บนแถบสีแบรนด์ · บรรทัด role ลดน้ำหนัก ไม่ลดความทึบ */
+[data-appbar="brand"] .appbar .avatar-btn{background:transparent;border-color:var(--on-brand)}
+[data-appbar="brand"] .appbar .avatar-btn .cav{color:var(--on-brand)}
+[data-appbar="brand"] .appbar .avatar-btn .cav span{color:var(--on-brand);opacity:1;font-weight:500}
+[data-appbar="brand"] .appbar .avatar-btn .av{background:rgba(255,255,255,.18);color:var(--on-brand)}
 /* ค่าเริ่มต้น: หัวขาว + เส้นแบรนด์ 6 px ใต้ */
 [data-appbar="light"] .appbar{border-bottom:2px solid var(--line-strong);
   box-shadow:inset 0 -6px 0 -2px var(--brand-surface)}
@@ -161,7 +167,10 @@
 .avatar-btn .caret{width:20px;height:20px;flex:none}
 
 /* เดสก์ท็อปเป็น dropdown */
-.menupanel{position:absolute;right:0;top:calc(100% + 10px);width:312px;background:var(--surface);
+/* MENU-01 หมึกตั้งที่ระดับแผง ไม่ใช่ทีละบรรทัด: แผงตั้งพื้นเป็น --surface เอง
+   แต่บนจอสแกน .scanstage ตั้ง color:var(--on-dark) ให้ทั้งกิ่ง อีเมลหัวแผงจึง
+   เป็นขาวบนครีม 1.04:1 ตั้งที่นี่ครอบของที่จะเพิ่มในแผงวันหลังด้วย */
+.menupanel{color:var(--ink);position:absolute;right:0;top:calc(100% + 10px);width:312px;background:var(--surface);
   border:2px solid var(--line-strong);border-radius:var(--r-2);box-shadow:0 16px 40px rgba(14,20,24,.22);
   z-index:60;overflow:auto;max-height:calc(100dvh - 96px)}
 .menupanel .who{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4);
@@ -190,6 +199,11 @@
 .scanbar .avatar-btn{background:transparent;border-color:rgba(255,255,255,.4);color:var(--on-dark)}
 .scanbar .avatar-btn .av{background:rgba(255,255,255,.18);color:var(--on-dark)}
 .scanbar .avatar-btn .cav span{color:var(--on-dark-2)}
+/* MENU-10 ต่ำกว่า ~430 px ชื่อยิมบนแถบจอสแกนเหลือที่ 24 px คือ "สุ…" ซึ่งไม่ได้
+   บอกอะไรเลย ซ่อนไปตรง ๆ ดีกว่า ชื่อยิมยังอยู่บนทุกหน้าที่ไม่ใช่จอสแกน */
+@media (max-width:430px){
+  .scanbar .brand{display:none}
+}
 
 /* ฉากหลังของแผงบนมือถือเท่านั้น เดสก์ท็อปเป็น dropdown จึงไม่ต้องมีฉากมืด */
 .scrim{display:none}

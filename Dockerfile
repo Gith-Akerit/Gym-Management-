@@ -4,6 +4,12 @@ FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
+# Baked into the browser bundle and sent with every problem report, so a
+# report that arrives after the next deploy still says which screen it is
+# about. Empty when nobody passes one, which reads as unknown rather than
+# wrong. deploy/up.sh fills it in from git so nobody has to remember.
+ARG APP_REVISION=""
+ENV APP_REVISION=$APP_REVISION
 COPY vite.config.js index.html ./
 # web/settings.jsx imports ../shared/brand.cjs. A build context that leaves a
 # top-level directory out fails here and nowhere else: vite in a checkout has

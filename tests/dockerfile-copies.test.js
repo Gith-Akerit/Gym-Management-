@@ -145,3 +145,31 @@ test('nothing the entrypoint or the start command needs is left out', () => {
         `Dockerfile runs ${file} but the runtime stage never copies it`);
     }
 });
+
+// The build argument that says which version this is.
+//
+// `APP_REVISION` travels with every problem report, and half of any report
+// arrives after the next deploy -- without it nobody can tell which screen the
+// person was describing. It is passed in at build time, which means four
+// separate pieces have to agree: the Dockerfile declares it, compose forwards
+// it, the deploy script reads it from git, and vite bakes it into the bundle.
+// Any one of them dropping out leaves the field empty and says nothing.
+test('the revision is wired from git all the way into the browser bundle', () => {
+  const dockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
+  const build = dockerfile.slice(0, dockerfile.indexOf('AS runtime'));
+  assert.match(build, /^\s*ARG APP_REVISION/m, 'the build stage does not declare ARG APP_REVISION');
+  assert.match(build, /^\s*ENV APP_REVISION/m,
+    'ARG alone is not visible to vite: it needs ENV in the same stage');
+
+  assert.match(readFileSync(join(ROOT, 'docker-compose.yml'), 'utf8'), /APP_REVISION:\s*\$\{APP_REVISION/,
+    'compose does not forward APP_REVISION into the build');
+
+  const script = readFileSync(join(ROOT, 'deploy/up.sh'), 'utf8');
+  assert.match(script, /git rev-parse --short HEAD/, 'deploy/up.sh does not read the revision from git');
+  assert.match(script, /export APP_REVISION/, 'deploy/up.sh reads it but never exports it to compose');
+
+  assert.match(readFileSync(join(ROOT, 'vite.config.js'), 'utf8'), /__APP_REVISION__/,
+    'vite does not bake it into the bundle');
+  assert.match(readFileSync(join(ROOT, 'web/report.jsx'), 'utf8'), /__APP_REVISION__/,
+    'nothing sends it with a report, so baking it in achieves nothing');
+});

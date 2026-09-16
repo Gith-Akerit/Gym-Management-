@@ -9,7 +9,11 @@
 #   docker compose up -d --build
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        # Set by deploy/up.sh; empty on a plain `docker compose build`.
+        APP_REVISION: ${APP_REVISION:-}
     restart: unless-stopped
     env_file: .env
     environment:

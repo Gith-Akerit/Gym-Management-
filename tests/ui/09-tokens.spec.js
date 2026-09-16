@@ -90,8 +90,10 @@ function ratio(a, b) {
 /** Signed in and waited for: the API calls below need the session to exist. */
 const enter = async page => {
   await signIn(page, 'brand-admin@example.test');
-  // Signing in lands on the scan stage, which has no app bar, so wait for the
-  // one control every screen carries: the menu in the corner.
+  // Wait for the header to exist before looking for anything inside it. Under
+  // the load of a full suite run, hunting for the button first turned into a
+  // thirty-second timeout about once in three runs (QA).
+  await page.locator('.scanbar, .appbar').first().waitFor();
   await page.getByRole('button', { name: 'เมนู', exact: true }).waitFor();
 };
 

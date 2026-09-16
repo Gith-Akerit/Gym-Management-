@@ -146,3 +146,94 @@ test('on a phone it is a sheet at the bottom, in reach of a thumb', async ({ pag
   await expect(panel).toHaveCount(0);
   await page.setViewportSize({ width: 1280, height: 900 });
 });
+
+// The ink on the panel, and on the button, once the surface underneath can
+// change out from under both.
+//
+// This is the fourth time the same root has produced a bug: a colour is left
+// to be inherited, and then something changes what it is inherited from. The
+// panel paints its own white background but sat inside the dark scan stage, so
+// the email in its header was white on white. The menu button was written
+// after the "app bar in the gym's colour" block and was never added to it.
+const ratio = (a, b) => {
+  const lum = text => {
+    const [r, g, bl] = text.match(/\d+/g).map(Number);
+    const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(bl);
+  };
+  const [x, y] = [lum(a), lum(b)];
+  return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2);
+};
+
+/** Every line of text in the open panel, against the colour behind it. */
+const panelInk = page => page.evaluate(() => {
+  const behind = el => {
+    for (let node = el; node; node = node.parentElement) {
+      const colour = getComputedStyle(node).backgroundColor;
+      if (colour && !/, 0\)$/.test(colour)) return colour;
+    }
+    return 'rgb(255, 255, 255)';
+  };
+  return [...document.querySelectorAll('#usermenu-panel .who b, #usermenu-panel .who span,'
+    + '#usermenu-panel .gl, #usermenu-panel [role="menuitem"]')]
+    .filter(el => el.textContent.trim())
+    .map(el => ({ text: el.textContent.trim().slice(0, 20), ink: getComputedStyle(el).color, on: behind(el) }));
+});
+
+test('every line in the panel is readable, including on the dark scan stage', async ({ page }) => {
+  await signIn(page, ADMIN);
+  // The scan stage sets a white ink on the whole branch; the panel puts a pale
+  // surface inside it, so it has to set its own ink back.
+  await expect(page.locator('.scanstage')).toBeVisible();
+  await openUserMenu(page);
+
+  const failures = [];
+  for (const line of await panelInk(page)) {
+    const seen = ratio(line.ink, line.on);
+    if (seen < 4.5) failures.push(`"${line.text}" ${line.ink} บน ${line.on} = ${seen}:1`);
+  }
+  expect(failures, failures.join('\n')).toEqual([]);
+});
+
+test('the menu button follows the app bar into the gym colour', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await go(page, 'ตั้งค่ายิม');
+  // Off by default, which is why this went unseen: it only appears once an
+  // owner ticks the box.
+  await page.getByLabel(/ทำหัวแอปเป็นสีแบรนด์/).check();
+  await page.getByRole('button', { name: 'บันทึกการตั้งค่า' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'บันทึกการตั้งค่ายิมแล้ว' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.body.dataset.appbar)).toBe('brand');
+
+  const lines = await page.locator('.appbar .avatar-btn').evaluate(el => {
+    const bar = getComputedStyle(el.closest('.appbar')).backgroundColor;
+    return [...el.querySelectorAll('.cav, .cav span')]
+      .map(part => ({ ink: getComputedStyle(part).color, opacity: getComputedStyle(part).opacity, bar }));
+  });
+  expect(lines.length).toBeGreaterThan(0);
+  for (const line of lines) {
+    // Full opacity, always: the token guarantees 4.5:1 at full strength and
+    // nothing below it (Designer).
+    expect(line.opacity, 'ปุ่มเมนูใช้ opacity ลดความทึบ').toBe('1');
+    expect(ratio(line.ink, line.bar), `${line.ink} บน ${line.bar}`).toBeGreaterThanOrEqual(4.5);
+  }
+  await page.screenshot({ path: 'artifacts/menu-brand-appbar-1280.png', fullPage: true });
+
+  // Put the app bar back the way the rest of the suite expects to find it.
+  await page.getByLabel(/ทำหัวแอปเป็นสีแบรนด์/).uncheck();
+  await page.getByRole('button', { name: 'บันทึกการตั้งค่า' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'บันทึกการตั้งค่ายิมแล้ว' })).toBeVisible();
+});
+
+test('the gym name gets out of the way on a narrow scan bar', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.scanbar')).toBeVisible();
+  // At 390 the name had 24 px to live in, which drew "สุ…" -- less use than
+  // nothing, and it was pushing the controls that matter.
+  await expect(page.locator('.scanbar .brand')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'เมนู', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ไปหน้าจัดการ' })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/menu-scan-390.png', fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+});

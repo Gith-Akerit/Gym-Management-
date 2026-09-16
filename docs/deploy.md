@@ -73,9 +73,11 @@ git checkout release/pilot
 cp .env.example .env
 nano .env          # กรอกตามเช็กลิสต์ข้างบน และเพิ่ม APP_DOMAIN=app.example.com
 
-docker compose up -d --build
+./deploy/up.sh                    # = docker compose up -d --build บวกเลข commit
 docker compose logs -f app        # ดูจนเห็น {"event":"ready","port":3000}
 ```
+
+**ใช้ `./deploy/up.sh` แทน `docker compose up -d --build`** สคริปต์ต่างกันแค่อ่านเลข commit จาก git แล้วส่งเข้า build เป็น `APP_REVISION` ซึ่งติดไปกับทุกเรื่องที่พนักงานกดแจ้ง — ครึ่งหนึ่งของเรื่องจะมาถึงหลัง deploy รอบถัดไป ถ้าไม่มีเลขนี้จะบอกไม่ได้ว่าเรื่องนั้นพูดถึงหน้าจอเวอร์ชันไหน · รันคำสั่ง compose ตรง ๆ ก็ยังได้ แค่ช่องนั้นจะว่าง
 
 Caddy จะขอใบรับรอง Let's Encrypt ให้เองภายในไม่กี่วินาทีหลัง DNS ชี้ถูก ไม่ต้องตั้งอะไรเพิ่มและไม่ต้องต่ออายุเอง
 
@@ -87,7 +89,7 @@ Caddy จะขอใบรับรอง Let's Encrypt ให้เองภ�
 docker compose exec app node -e "process.exit(0)"   # ยืนยันว่ายังรันอยู่
 # สำรองก่อนเสมอ ดูหัวข้อ "สำรองและกู้คืน"
 git pull
-docker compose up -d --build
+./deploy/up.sh
 ```
 
 ## B. Hostinger VPS + PM2 + nginx
