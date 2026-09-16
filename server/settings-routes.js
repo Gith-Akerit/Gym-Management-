@@ -56,6 +56,8 @@ export function publicTheme(db) {
     has_logo: !!settings?.logo_stored_name,
     logo_url: settings?.logo_stored_name ? `/api/gym/logo?v=${settings.logo_updated_at ?? 0}` : null,
     line_id: settings?.line_id || '',
+    // Whether the form should ask for a code -- never the code itself.
+    needs_invite_code: !!(settings?.invite_code ?? '').trim(),
     theme: resolveTheme(settings),
     // The screen redraws the card image when this moves, so a colour change is
     // visible without anybody pressing reload.
@@ -69,6 +71,9 @@ const settingsSchema = z.object({
   // Empty string means "go back to working it out from the primary colour".
   color_secondary: z.string().trim().nullish(),
   line_id: z.string().trim().max(60, 'LINE ID ยาวได้ไม่เกิน 60 ตัวอักษร').optional(),
+  // Empty turns it off. Anybody with the code can still sign themselves up --
+  // this only stops the queue being open to the whole internet (Designer).
+  invite_code: z.string().trim().max(60, 'รหัสเชิญยาวได้ไม่เกิน 60 ตัวอักษร').optional(),
   appbar_style: z.enum(['light', 'brand']).optional(),
   // Not optional. A save that carries no version cannot be checked against
   // anybody else's, and a guard that is only armed when the caller feels like
@@ -142,14 +147,24 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
     try { return logoStore?.read(settings.logo_stored_name) ?? null; } catch { return null; }
   };
 
-  /** The settings screen's whole state, including what the logo is made of. */
-  async function view() {
+  /**
+   * The settings screen's whole state, including what the logo is made of.
+   *
+   * Staff open this screen too -- it is where they read the gym's LINE ID out
+   * to a member -- so the one secret on it is handed out by role rather than
+   * by who can see the page. A code that lets somebody into the queue is not
+   * something every counter shift needs a copy of.
+   */
+  async function view(isOwner = false) {
     const settings = settingsRow(db);
     const bytes = readLogo(settings);
     const found = bytes ? await paletteFrom(bytes) : { colors: [], avg: null };
     return {
       ...publicTheme(db),
       brand_short_source: (settings?.brand_short ?? '').trim() ? 'gym' : 'auto',
+      // Only here, never in publicTheme: the code is what keeps the public
+      // sign-up form from being open to everybody.
+      ...(isOwner ? { invite_code: settings?.invite_code ?? '' } : {}),
       color_secondary_source: normalizeHex(settings?.color_secondary) ? 'gym' : 'auto',
       logo_updated_at: settings?.logo_updated_at ?? null,
       // Offered, not applied: the owner picks one of these or a colour of
@@ -164,7 +179,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
 
   // Staff see it because the screen they use is painted with it and "why is it
   // green" is a question they get asked; they cannot change it.
-  app.get('/api/gym/settings', counter, async (req, res) => res.json(await view()));
+  app.get('/api/gym/settings', counter, async (req, res) => res.json(await view(req.user.role === 'admin')));
 
   app.put('/api/gym/settings', admin, async (req, res) => {
     // A request with no version at all is the same thing as a request that
@@ -193,6 +208,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
     if (input.brand_short !== undefined) fields.brand_short = input.brand_short;
     if (input.appbar_style !== undefined) fields.appbar_style = input.appbar_style;
     if (input.line_id !== undefined) fields.line_id = input.line_id;
+    if (input.invite_code !== undefined) fields.invite_code = input.invite_code;
     if (!Object.keys(fields).length) throw new HttpError(400, 'ไม่มีอะไรให้บันทึก');
 
     transaction(db, () => {
@@ -205,7 +221,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
         .run(...Object.values(fields), now());
       audit(db, req.user.id, 'gym.settings', '1', before, settingsRow(db), now(), 'gym');
     });
-    res.json(await view());
+    res.json(await view(true));
   });
 
   app.put('/api/gym/settings/logo', admin, receiveLogo, async (req, res) => {
@@ -244,7 +260,7 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
     });
     // Only once the row points at the new file.
     if (previous) logoStore.remove(previous);
-    res.json(await view());
+    res.json(await view(true));
   });
 
   app.delete('/api/gym/settings/logo', admin, async (req, res) => {
@@ -258,6 +274,6 @@ export function registerSettingsRoutes({ app, db, now, admin, counter, logoStore
       audit(db, req.user.id, 'gym.logo_remove', '1', before, settingsRow(db), now(), 'gym');
     });
     logoStore?.remove(previous);
-    res.json(await view());
+    res.json(await view(true));
   });
 }

@@ -108,6 +108,7 @@ export function GymBranding({ role, onAuthError, onSaved }) {
       color_primary: data.theme.brand,
       color_secondary: data.color_secondary_source === 'gym' ? data.theme.brand_2 : '',
       line_id: data.line_id ?? '',
+      invite_code: data.invite_code ?? '',
       appbar_style: data.theme.appbar,
     });
   }, [data]);
@@ -127,6 +128,7 @@ export function GymBranding({ role, onAuthError, onSaved }) {
     form.color_primary !== data.theme.brand,
     form.color_secondary !== (data.color_secondary_source === 'gym' ? data.theme.brand_2 : ''),
     form.line_id !== (data.line_id ?? ''),
+    form.invite_code !== (data.invite_code ?? ''),
     form.appbar_style !== data.theme.appbar,
   ].filter(Boolean).length;
 
@@ -353,6 +355,24 @@ export function GymBranding({ role, onAuthError, onSaved }) {
             <p className="hint">พิมพ์ต่อท้ายเบอร์โทรที่ท้ายบัตร เว้นว่างไว้ก็ได้</p>
           </div>
         </div>
+
+        {/* Not a colour and not on the card, but it belongs to the owner and
+            nowhere else: a second screen for one field would be a screen
+            nobody ever finds. Only the owner sees this block -- staff open
+            this page to read the LINE ID aloud, not to hand out keys. */}
+        {canEdit && <div className="sect">
+          <h2>รหัสเชิญของยิม</h2>
+          <p className="note">ฟอร์ม “ขอบัญชีพนักงาน” เปิดให้ใครก็กรอกได้ ตั้งรหัสเชิญไว้แล้วจะกรอกได้เฉพาะคนที่รู้รหัส
+            · เว้นว่างไว้ = เปิดให้ทุกคน (คุณยังต้องกดอนุมัติเองอยู่ดี)</p>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label htmlFor="invite_code">รหัสเชิญ</label>
+            <input id="invite_code" value={form.invite_code} maxLength={60} autoComplete="off"
+              placeholder="เว้นว่างไว้ = ไม่ต้องใช้รหัสเชิญ"
+              onChange={e => set('invite_code', e.target.value)}/>
+            <p className="hint">บอกรหัสนี้กับพนักงานใหม่ตัวต่อตัว ไม่ส่งลงกลุ่ม · เปลี่ยนได้ทุกเมื่อ
+              รหัสเดิมจะใช้ไม่ได้ทันทีที่บันทึก</p>
+          </div>
+        </div>}
       </div>
       {preview}
     </div>
@@ -368,6 +388,7 @@ export function GymBranding({ role, onAuthError, onSaved }) {
           color_primary: data.theme.brand,
           color_secondary: data.color_secondary_source === 'gym' ? data.theme.brand_2 : '',
           line_id: data.line_id ?? '',
+          invite_code: data.invite_code ?? '',
           appbar_style: data.theme.appbar,
         })}>คืนค่าเดิม</button>
       <button className="btn primary" disabled={!changed || saving} onClick={save}>

@@ -310,7 +310,14 @@ export const signupSchema = z.object({
   name: z.string().trim().min(1, 'กรุณากรอกชื่อ–นามสกุล').max(120, 'ชื่อยาวได้ไม่เกิน 120 ตัวอักษร'),
   phone,
   password,
+  // The gym's own lock on a public form. Optional here because most gyms
+  // never set one; when one is set, a wrong code is answered exactly like a
+  // duplicate address -- same sentence, nothing written (Designer).
+  invite_code: z.string().trim().max(60).optional(),
 }).strict();
+
+/** "I forgot my password", which is one field and a great deal of restraint. */
+export const forgotSchema = z.object({ email }).strict();
 
 /** Approving a request, which is also where the role is decided. */
 export const approveRequestSchema = z.object({

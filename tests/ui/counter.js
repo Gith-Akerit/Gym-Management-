@@ -26,6 +26,12 @@ export async function signIn(page, email, password = PASSWORD) {
  * is on every screen including the scan stage.
  */
 export async function go(page, label) {
+  // Wait until somebody is really signed in before deciding where we are. The
+  // corner menu is on every screen behind the sign-in and on none in front of
+  // it, so it is the one thing that means "the app is up". Asking a beat too
+  // early -- while the sign-in is still in flight -- answers "not on the scan
+  // stage" and then hunts for a rail that the scan stage does not have.
+  await page.getByRole('button', { name: 'เมนู', exact: true }).waitFor();
   const onStage = await page.locator('.scanstage').isVisible().catch(() => false);
   if (onStage && label === 'สแกนเช็คอิน') return undefined;
 

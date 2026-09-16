@@ -28,7 +28,7 @@ export function createMailer({ apiKey = '', from = '', fromName = 'ระบบ�
    * provider was slow, and the caller has no better answer than we have: the
    * outcome is written down either way and the person can be told in the room.
    */
-  async function send({ to, subject, text }) {
+  async function send({ to, subject, text, html, senderName }) {
     if (!to || !subject) return { sent: false, reason: 'incomplete' };
     if (!ready) {
       // The address is logged, the body is not: these messages carry one-time
@@ -40,11 +40,15 @@ export function createMailer({ apiKey = '', from = '', fromName = 'ระบบ�
       const response = await fetchImpl(BREVO_ENDPOINT, {
         method: 'POST',
         headers: { 'api-key': apiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+        // Both halves, plain text first in spirit: the provider builds the
+        // multipart/alternative and the UTF-8 and RFC 2047 encoding from these
+        // two fields. The sender name is the gym's, never the word no-reply.
         body: JSON.stringify({
-          sender: { email: from, name: fromName },
+          sender: { email: from, name: senderName || fromName },
           to: [{ email: to }],
           subject,
           textContent: text,
+          ...(html ? { htmlContent: html } : {}),
         }),
       });
       if (!response.ok) {
@@ -64,28 +68,22 @@ export function createMailer({ apiKey = '', from = '', fromName = 'ระบบ�
   return { ready, send };
 }
 
-/** The wording, in one place, so the screens and the mail cannot drift apart. */
-export const letters = {
-  signupReceived: ({ gym }) => ({
-    subject: `ได้รับคำขอเข้าใช้งาน ${gym} แล้ว`,
-    text: `เราได้รับคำขอเข้าใช้งานระบบของ ${gym} แล้ว\n\n`
-      + 'เจ้าของยิมจะเป็นผู้อนุมัติและกำหนดสิทธิ์ให้ เมื่ออนุมัติแล้วคุณจะได้รับอีเมลอีกฉบับ '
-      + 'และเข้าสู่ระบบด้วยอีเมลกับรหัสผ่านที่ตั้งไว้ได้ทันที\n\n'
-      + 'ระหว่างนี้ยังเข้าใช้งานไม่ได้ ถ้ารอนานผิดปกติ ติดต่อเจ้าของยิมได้โดยตรง',
-  }),
-  signupWaiting: ({ gym, name, email, phone }) => ({
-    subject: `มีคำขอเข้าใช้งาน ${gym} รออนุมัติ`,
-    text: `มีคนขอเข้าใช้งานระบบ\n\nชื่อ: ${name || '—'}\nอีเมล: ${email}\nเบอร์โทร: ${phone || '—'}\n\n`
-      + 'เปิดเมนู "ผู้ใช้และสิทธิ์" เพื่ออนุมัติและกำหนดสิทธิ์ หรือปฏิเสธคำขอนี้',
-  }),
-  approved: ({ gym, role }) => ({
-    subject: `อนุมัติให้เข้าใช้งาน ${gym} แล้ว`,
-    text: `เจ้าของยิมอนุมัติคำขอของคุณแล้ว สิทธิ์ที่ได้รับคือ${role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}\n\n`
-      + 'เข้าสู่ระบบด้วยอีเมลและรหัสผ่านที่ตั้งไว้ตอนสมัครได้เลย',
-  }),
-  rejected: ({ gym, reason }) => ({
-    subject: `คำขอเข้าใช้งาน ${gym} ไม่ได้รับอนุมัติ`,
-    text: `คำขอเข้าใช้งานของคุณไม่ได้รับอนุมัติ\n\nเหตุผล: ${reason}\n\n`
-      + 'ถ้าคิดว่าเป็นความเข้าใจผิด ติดต่อเจ้าของยิมได้โดยตรง',
-  }),
-};
+/**
+ * The one message the Designer did not write, because it never leaves the
+ * gym: the note telling the owner that somebody is waiting. The four letters
+ * that reach an applicant live in server/emails/ and are filled in by
+ * server/letters.js.
+ */
+export function ownerNotice({ gym, name, email, phone }) {
+  const lines = [
+    `มีคนขอบัญชีพนักงานในระบบของ ${gym}`,
+    '',
+    `ชื่อ: ${name || '—'}`,
+    `อีเมล: ${email}`,
+    `เบอร์โทร: ${phone || '—'}`,
+    '',
+    'เปิดเมนู “ผู้ใช้และสิทธิ์” เพื่ออนุมัติและกำหนดสิทธิ์ หรือปฏิเสธคำขอนี้',
+    'อนุมัติเฉพาะคนที่คุณรู้จักตัวจริงเท่านั้น ถ้าไม่แน่ใจ โทรตามเบอร์ข้างบนก่อน',
+  ];
+  return { subject: `มีคำขอใช้งานระบบรออนุมัติ — ${gym}`, text: lines.join('\n') };
+}

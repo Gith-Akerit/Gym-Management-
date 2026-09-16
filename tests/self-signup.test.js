@@ -14,11 +14,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { counterFixture } from './counter.js';
-import { createMailer, letters } from '../server/mail.js';
+import { createMailer, ownerNotice } from '../server/mail.js';
+import { letter, variablesUsed } from '../server/letters.js';
 
 const APPLICANT = { email: 'nid@example.test', name: 'นิด ขยันมาก', phone: '0891112222', password: 'counter-test-password' };
 
 const signup = (call, values = {}) => call('post', '/auth/signup', null, { ...APPLICANT, ...values });
+
+/** Signs up and then opens the link in the letter, the way a person does. */
+async function signupAndVerify(fixture, values = {}) {
+  await signup(fixture.call, values).expect(202);
+  const token = fixture.verifyToken();
+  assert.ok(token, 'ต้องมีลิงก์ยืนยันอีเมลในจดหมายฉบับแรก');
+  await fixture.call('get', `/auth/verify/${token}`, null).expect(200);
+  return token;
+}
 
 test('a request arrives, opens nothing, and is visible to the owner', async t => {
   const { call, signIn, db, at } = counterFixture(t);
@@ -73,9 +83,10 @@ test('the form says the same thing about an address that already has an account'
 });
 
 test('the owner approves, chooses the role, and the person is in', async t => {
-  const { call, signIn, db } = counterFixture(t);
+  const fixture = counterFixture(t);
+  const { call, signIn, db } = fixture;
   const owner = await signIn('owner@example.test');
-  await signup(call).expect(202);
+  await signupAndVerify(fixture);
   const request = (await call('get', '/users/requests', owner).expect(200)).body.items[0];
 
   const approved = await call('post', `/users/${request.id}/approve`, owner, { role: 'staff' }).expect(200);
@@ -164,20 +175,26 @@ test('the mailer keeps the flow alive when there is no provider yet', async t =>
   assert.deepEqual(await quiet.send({ to: 'a@b.test', subject: 'x', text: 'y' }),
     { sent: false, reason: 'not_configured' });
 
-  // Configured: one HTTPS call, the sender the gym verified, and the body.
+  // Configured: one HTTPS call carrying both halves of the letter, with the
+  // gym's own name as the sender rather than the word no-reply.
   const calls = [];
   const live = createMailer({
-    apiKey: 'key', from: 'gym@example.test', fromName: 'สุขฤทัย',
+    apiKey: 'key', from: 'gym@example.test', fromName: 'ระบบจัดการยิม',
     fetchImpl: async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { ok: true }; },
   });
-  assert.equal(live.ready, true);
-  const letter = letters.approved({ gym: 'สุขฤทัย ฟิตเนส', role: 'staff' });
-  assert.deepEqual(await live.send({ to: 'nid@example.test', ...letter }), { sent: true });
+  const built = letter('2-approved', {
+    gym_name: 'สุขฤทัย ฟิตเนส', gym_phone: '038-541-029', email: 'nid@example.test',
+    role: 'staff', brand_surface: '#DD610B', on_brand: '#0E1418',
+    login_url: 'https://gym.example', signin_method: 'อีเมลและรหัสผ่านที่คุณตั้งไว้ตอนสมัคร',
+  });
+  assert.deepEqual(await live.send({ to: 'nid@example.test', senderName: 'สุขฤทัย ฟิตเนส', ...built }), { sent: true });
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /brevo/);
-  assert.equal(calls[0].body.sender.email, 'gym@example.test');
-  assert.equal(calls[0].body.to[0].email, 'nid@example.test');
-  assert.match(calls[0].body.textContent, /พนักงาน/);
+  assert.equal(calls[0].body.sender.name, 'สุขฤทัย ฟิตเนส', 'ผู้รับต้องเห็นชื่อยิม ไม่ใช่คำว่า no-reply');
+  assert.ok(calls[0].body.textContent, 'ต้องมีฉบับข้อความล้วนเสมอ');
+  assert.ok(calls[0].body.htmlContent, 'และฉบับ HTML คู่กัน');
+  // Transactional mail: a newsletter header gets it filed as a newsletter.
+  assert.equal(JSON.stringify(calls[0].body).includes('List-Unsubscribe'), false);
 
   // A provider that is down must never become a gym that cannot approve
   // somebody: the decision is already written down.
@@ -189,20 +206,64 @@ test('the mailer keeps the flow alive when there is no provider yet', async t =>
     { sent: false, reason: 'network' });
 });
 
-test('the letters that go out say what happened, in Thai', async t => {
+test('the four letters come out filled in, in Thai, with nothing left over', async t => {
   assert.ok(t);
-  for (const letter of [
-    letters.signupReceived({ gym: 'สุขฤทัย ฟิตเนส' }),
-    letters.signupWaiting({ gym: 'สุขฤทัย ฟิตเนส', name: 'นิด', email: 'nid@example.test', phone: '0891112222' }),
-    letters.approved({ gym: 'สุขฤทัย ฟิตเนส', role: 'admin' }),
-    letters.rejected({ gym: 'สุขฤทัย ฟิตเนส', reason: 'ไม่ใช่พนักงาน' }),
-  ]) {
-    assert.match(letter.subject, /[ก-๙]/);
-    assert.match(letter.text, /[ก-๙]/);
-    assert.ok(letter.subject.length < 120, 'หัวเรื่องยาวเกินจะอ่านบนมือถือ');
+  const context = {
+    gym_name: 'สุขฤทัย ฟิตเนส', gym_phone: '038-541-029',
+    brand_surface: '#DD610B', on_brand: '#0E1418', email: 'nid@example.test',
+  };
+  const built = {
+    '1-verify-email': letter('1-verify-email', { ...context, name: 'นิด', verify_url: 'https://gym.example/?verify=t' }),
+    '2-approved': letter('2-approved', { ...context, name: 'นิด', role: 'admin', login_url: 'https://gym.example', signin_method: 'บัญชี Google ของคุณ' }),
+    '3-rejected': letter('3-rejected', { ...context, name: 'นิด' }),
+    '4-reset-password': letter('4-reset-password', { ...context, name: 'นิด', reset_url: 'https://gym.example/?setpw=t' }),
+  };
+  for (const [key, mail] of Object.entries(built)) {
+    assert.match(mail.subject, /[ก-๙]/, key);
+    assert.match(mail.subject, /สุขฤทัย ฟิตเนส/, `${key}: หัวเรื่องต้องมีชื่อยิม`);
+    // A hole nobody filled is the failure that reaches a real inbox looking
+    // like {{name}}, so both halves are checked.
+    assert.equal((mail.html.match(/\{\{[a-z_]+\}\}/g) ?? []).length, 0, `${key}: HTML ยังมีตัวแปรค้าง`);
+    assert.equal((mail.text.match(/\{\{[a-z_]+\}\}/g) ?? []).length, 0, `${key}: ข้อความล้วนยังมีตัวแปรค้าง`);
+    // The Designer's rules, checked rather than trusted.
+    assert.equal((mail.html.match(/<img/gi) ?? []).length, 0, `${key}: อีเมลต้องไม่มีรูป`);
+    assert.equal((mail.html.match(/<script/gi) ?? []).length, 0, `${key}: ต้องไม่มีสคริปต์`);
+    assert.equal((mail.html.match(/<style/gi) ?? []).length, 0, `${key}: CSS ต้อง inline ทั้งหมด`);
+    assert.ok(mail.html.length < 20000, `${key}: ยาวเกินจนอาจถูกตัด`);
+    // Every line of the plain-text twin fits in a terminal-width mailbox.
+    for (const line of mail.text.split('\n')) {
+      assert.ok([...line].length <= 78, `${key}: บรรทัดยาวเกิน 78 ตัวอักษร -> ${line}`);
+    }
   }
-  // The one the owner gets has to carry enough to decide with.
-  const waiting = letters.signupWaiting({ gym: 'ยิม', name: 'นิด', email: 'nid@example.test', phone: '0891112222' });
-  assert.match(waiting.text, /nid@example\.test/);
-  assert.match(waiting.text, /0891112222/);
+  // Exactly one link, and it is the one that letter is about.
+  assert.equal((built['3-rejected'].html.match(/https?:\/\//g) ?? []).length, 0,
+    'ฉบับปฏิเสธต้องไม่มีลิงก์เลย');
+  assert.match(built['4-reset-password'].text, /30 นาที/);
+
+  // The colour comes from the same engine that paints the card, not a
+  // hardcoded white on a hardcoded green.
+  assert.match(built['2-approved'].html, /#DD610B/);
+  assert.match(built['2-approved'].html, /#0E1418/);
+
+  assert.ok(variablesUsed().includes('gym_phone'));
+});
+
+test('a gym with no telephone number does not send a letter saying "โทร -"', async t => {
+  assert.ok(t);
+  const quiet = letter('3-rejected', { gym_name: 'ยิมไม่มีเบอร์', email: 'a@b.test', name: 'เอ' });
+  assert.doesNotMatch(quiet.text, /โทร/, 'ต้องตัดทั้งประโยคออก ไม่ใช่ขึ้นว่า โทร -');
+  assert.doesNotMatch(quiet.html, /โทร/);
+  assert.equal((quiet.text.match(/\{\{[a-z_]+\}\}/g) ?? []).length, 0);
+  // And the rest of the letter is still whole.
+  assert.match(quiet.text, /ยิมไม่มีเบอร์/);
+});
+
+test('the note to the owner carries enough to decide with', async t => {
+  assert.ok(t);
+  const note = ownerNotice({ gym: 'ยิม', name: 'นิด', email: 'nid@example.test', phone: '0891112222' });
+  assert.match(note.subject, /[ก-๙]/);
+  assert.match(note.text, /nid@example.test/);
+  assert.match(note.text, /0891112222/);
+  // The warning the Designer asked for, where the owner reads it.
+  assert.match(note.text, /รู้จักตัวจริง/);
 });

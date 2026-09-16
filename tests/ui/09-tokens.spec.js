@@ -45,7 +45,7 @@ test('no screen asks for a colour that is defined nowhere', async ({ page }) => 
   // Signed out first: the login screen is the one every gym sees before it has
   // anything at all, and it is where this went wrong.
   await page.goto('/');
-  await expect(page.locator('.loginstage .mark')).toBeVisible();
+  await expect(page.locator('.authstage .authtop .mk')).toBeVisible();
   await sweep('หน้าเข้าสู่ระบบ');
 
   await signIn(page, 'brand-admin@example.test');

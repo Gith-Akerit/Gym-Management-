@@ -25,15 +25,27 @@ test('the owner creates a staff account, hands over a password, and it works', a
   await signIn(staff, 'newcounter@example.test', 'whatever-they-guess');
   await expect(staff.getByRole('alert')).toContainText('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
 
-  // The owner types one in front of them at the counter. It is a screen, not a
-  // browser prompt: a suggested password has to be readable aloud.
-  await row.getByRole('button', { name: 'ตั้งรหัสผ่านของ newcounter@example.test' }).click();
-  await expect(admin.getByRole('heading', { name: 'ตั้งรหัสผ่านใหม่ให้ newcounter@example.test' })).toBeVisible();
-  await expect(admin.getByLabel('รหัสผ่านใหม่')).not.toHaveValue('');
-  await expect(admin.getByText('เขาจะถูกออกจากระบบทันที', { exact: false })).toBeVisible();
-  await admin.getByLabel('รหัสผ่านใหม่').fill(PASSWORD);
-  await admin.getByRole('button', { name: 'บันทึกรหัสผ่านใหม่' }).click();
-  await expect(admin.getByRole('status').filter({ hasText: 'ตั้งรหัสผ่านใหม่ให้' })).toBeVisible();
+  // The owner no longer types one in front of them: a password somebody else
+  // chose has to be said out loud to be handed over, and out loud is how it
+  // reaches a group chat. The screen has no button for it any more.
+  await expect(admin.getByRole('button', { name: /^ตั้งรหัสผ่านของ/ })).toHaveCount(0);
+
+  // The new account sets its own, from the link the "ลืมรหัสผ่าน" letter carries.
+  await staff.getByRole('button', { name: 'ลืมรหัสผ่าน' }).click();
+  await staff.getByLabel('อีเมล', { exact: true }).fill('newcounter@example.test');
+  await staff.getByRole('button', { name: 'ส่งลิงก์ตั้งรหัสผ่านใหม่' }).click();
+  await expect(staff.getByRole('heading', { name: 'ถ้ามีบัญชีนี้อยู่ เราส่งอีเมลไปแล้ว' })).toBeVisible();
+  const letters = await (await staff.request.get('/__test/outbox?to=newcounter@example.test')).json();
+  const link = letters.items.map(letter => /\/\?setpw=[A-Za-z0-9_-]{43}/.exec(letter.text ?? '')).find(Boolean)[0];
+  await staff.goto(link);
+  await staff.getByLabel('รหัสผ่านใหม่').fill(PASSWORD);
+  await staff.getByLabel('พิมพ์รหัสผ่านอีกครั้ง').fill(PASSWORD);
+  await staff.getByRole('button', { name: 'บันทึกรหัสผ่าน' }).click();
+  await expect(staff.getByRole('heading', { name: 'ตั้งรหัสผ่านใหม่แล้ว' })).toBeVisible();
+
+  // Cleared and typed again: the list only goes back for more when the search
+  // changes, and the password was set on the other person's machine.
+  await admin.getByLabel('ค้นหาบัญชี').fill('');
   await admin.getByLabel('ค้นหาบัญชี').fill('newcounter@example.test');
   await expect(row).toContainText('ตั้งแล้ว');
 

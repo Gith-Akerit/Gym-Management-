@@ -30,17 +30,10 @@
   box-shadow:inset 0 -6px 0 -2px var(--brand-surface)}
 
 /* ------------------------------------------------- หน้าเข้าสู่ระบบ -------
-   เวทีเป็น var(--brand-2) หมึกทุกตัวบนมันจึงต้อง derive จาก --brand-2 ด้วย
-   ไม่ใช่ขาวตายตัว ยิมสีเหลืองหรือสีขาวจะได้หมึกเข้มอัตโนมัติ เพราะ
-   --on-brand-2 เลือกขาวหรือดำตามความสว่างของพื้นและรับประกัน >= 4.5:1
-   ลำดับชั้นระหว่างชื่อยิมกับบรรทัดใต้ชื่อมาจากขนาดและน้ำหนัก ไม่ใช่ opacity
-   เพราะ opacity กินคอนทราสต์ที่ token อุตส่าห์คำนวณมาให้                    */
-.scanstage.loginstage{background:var(--brand-2)}
-.loginstage .mark{background:#fff;color:var(--brand-ink)}
-.loginstage .mark.haslogo{background:#fff}
-.stagehead{text-align:center;margin-bottom:var(--sp-6)}
-.loginstage h1{color:var(--on-brand-2)}
-.loginstage .stagesub{margin:4px 0 0;color:var(--on-brand-2);font-size:var(--fs-16);font-weight:500}
+   ย้ายไปอยู่ท้ายไฟล์ในบล็อก "หน้า auth" ของ Designer แล้ว กฎเดิมยังอยู่ครบ
+   ทุกข้อ: เวทีเป็น var(--brand-2) หมึกบนเวที derive จาก --brand-2 ไม่ใช่
+   ขาวตายตัว และลำดับชั้นมาจากขนาดกับน้ำหนัก ไม่ใช่ opacity เพราะ opacity
+   กินคอนทราสต์ที่ token อุตส่าห์คำนวณมาให้                                  */
 
 /* ============================================ หน้า "ตั้งค่ายิม" ========== */
 /* ฟอร์มซ้าย · พรีวิวขวาที่ติดหนึบไว้ตลอด เพราะทุกการเปลี่ยนสีต้องเห็นผลทันที */
@@ -270,3 +263,110 @@
 .rep .body .m{font-size:var(--fs-14);color:var(--ink-2);margin-top:4px}
 .rep .btn{width:auto;min-height:48px;font-size:var(--fs-16)}
 .rep.unread{border-color:var(--brand-line);border-width:3px;padding:calc(var(--sp-4) - 1px)}
+
+
+/* ============================================ หน้า auth ==================
+   ยกจาก auth.css ของ Designer · เวทีเดียวหลายแผง ทุกสถานะใช้โครงเดียวกัน
+   คนที่เดินจากสมัคร → ยืนยันอีเมล → รออนุมัติ จะรู้สึกว่าอยู่ที่เดิมตลอด
+   ========================================================================== */
+
+/* เวทีเดียว หลายแผง — ทุกสถานะใช้โครงเดียวกัน ต่างแค่เนื้อใน */
+.authstage{background:var(--brand-2);min-height:100vh;min-height:100dvh;
+  display:grid;place-items:center;padding:var(--sp-6) var(--sp-4)}
+.authbox{width:100%;max-width:460px}
+.authtop{text-align:center;margin-bottom:var(--sp-5)}
+.authtop .mk{width:76px;height:76px;border-radius:22px;background:#FFFFFF;
+  display:grid;place-items:center;margin:0 auto var(--sp-4);padding:10px}
+.authtop .mk img{width:100%;height:100%;object-fit:contain;display:block}
+.authtop .mk span{font-weight:800;font-size:var(--fs-24);color:var(--brand-ink)}
+/* ทั้งสองบรรทัดใช้ --on-brand-2 เต็มความทึบ แยกลำดับชั้นด้วยขนาด/น้ำหนัก */
+.authtop h1{margin:0;font-size:var(--fs-28);font-weight:800;color:var(--on-brand-2)}
+.authtop p{margin:4px 0 0;font-size:var(--fs-16);font-weight:500;color:var(--on-brand-2)}
+
+.authcard{background:var(--surface);border:2px solid var(--line-strong);
+  border-radius:var(--r-2);padding:var(--sp-6)}
+.authcard h2{margin:0 0 6px;font-size:var(--fs-24)}
+.authcard .lead{margin:0 0 var(--sp-5);font-size:var(--fs-16);color:var(--ink-2);line-height:1.6}
+
+/* ตัวคั่น "หรือ" */
+.orline{display:flex;align-items:center;gap:var(--sp-3);margin:var(--sp-5) 0;
+  color:var(--ink-2);font-size:var(--fs-14);font-weight:600}
+.orline::before,.orline::after{content:"";flex:1;height:2px;background:var(--panel)}
+
+/* ปุ่ม Google — รูปแบบต้องเปลี่ยนเป็น asset ทางการของ Google ก่อนขึ้นจริง */
+.gbtn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;
+  min-height:var(--tap);border:2px solid var(--line-strong);border-radius:var(--r-1);
+  background:#FFFFFF;color:var(--ink);font-size:var(--fs-18);font-weight:700;cursor:pointer}
+.gbtn:hover{background:var(--panel)}
+.gbtn .g{width:26px;height:26px;flex:none}
+
+.authfoot{margin-top:var(--sp-5);text-align:center;font-size:var(--fs-16);color:var(--ink-2)}
+.authfoot a{color:var(--brand-ink);font-weight:700;text-decoration:none}
+.authfoot a:hover{text-decoration:underline}
+.authlink{display:block;text-align:right;margin-top:-6px;margin-bottom:var(--sp-4);
+  font-size:var(--fs-14);font-weight:700;color:var(--brand-ink);text-decoration:none}
+
+/* ข้อความใต้เวที — ช่องทางติดต่อยิม อยู่นอกการ์ดเสมอ */
+.authhelp{margin-top:var(--sp-5);text-align:center;font-size:var(--fs-16);
+  font-weight:500;color:var(--on-brand-2)}
+.authhelp b{font-weight:700}
+
+/* ------------------------------- สถานะผลลัพธ์ (ส่งเมล/รออนุมัติ/ฯลฯ) ----- */
+.authres{text-align:center}
+.authres .ic{width:88px;height:88px;border-radius:50%;display:grid;place-items:center;
+  margin:0 auto var(--sp-5);font-size:42px;font-weight:800}
+.authres .ic.mail{background:var(--brand-soft);color:var(--brand-ink)}
+.authres .ic.wait{background:var(--warn-soft);color:var(--warn);border:3px solid var(--warn)}
+.authres .ic.stop{background:var(--bad-soft);color:var(--bad);border:3px solid var(--bad)}
+.authres .ic.done{background:var(--ok);color:#fff}
+.authres h2{margin:0 0 var(--sp-3);font-size:var(--fs-24)}
+.authres p{margin:0 0 var(--sp-4);font-size:var(--fs-16);color:var(--ink-2);line-height:1.7}
+.authres .mailto{display:inline-block;font-family:var(--font-num);font-weight:700;
+  font-size:var(--fs-18);background:var(--panel);border-radius:var(--r-1);padding:8px 16px;
+  margin-bottom:var(--sp-4);overflow-wrap:anywhere}
+
+/* รายการขั้นตอนถัดไป — บอกว่าให้ทำอะไรต่อ ไม่ใช่แค่บอกว่าเกิดอะไรขึ้น */
+.nextsteps{text-align:left;background:var(--canvas);border:2px solid var(--line);
+  border-radius:var(--r-1);padding:var(--sp-4);margin-bottom:var(--sp-4)}
+.nextsteps b{display:block;margin-bottom:8px;font-size:var(--fs-16)}
+.nextsteps ol{margin:0;padding-left:22px;font-size:var(--fs-16);line-height:1.7;color:var(--ink-2)}
+.nextsteps li{margin-bottom:6px}
+.nextsteps li:last-child{margin-bottom:0}
+
+/* ความแข็งแรงของรหัสผ่าน */
+.pwbar{display:flex;gap:6px;margin-top:10px}
+.pwbar i{flex:1;height:8px;border-radius:4px;background:var(--panel)}
+.pwbar i.on{background:var(--ok)}
+.pwbar i.weak{background:var(--warn)}
+.pwhint{margin-top:8px;font-size:var(--fs-14);color:var(--ink-2)}
+
+/* ------------------------------- คิวอนุมัติฝั่งเจ้าของ -------------------- */
+/* อยู่ในหน้า "ผู้ใช้และสิทธิ์" เดิม ไม่ใช่หน้าใหม่ */
+.queue{border:3px solid var(--warn);border-radius:var(--r-2);background:var(--warn-soft);
+  padding:var(--sp-5);margin-bottom:var(--sp-6)}
+.queue>h2{margin:0 0 4px;color:var(--warn);display:flex;align-items:center;gap:10px}
+.queue>.note{margin:0 0 var(--sp-4);color:var(--ink-2)}
+.qitem{display:flex;gap:var(--sp-4);align-items:flex-start;background:var(--surface);
+  border:2px solid var(--line-strong);border-radius:var(--r-2);padding:var(--sp-4);
+  margin-bottom:var(--sp-3);flex-wrap:wrap}
+.qitem:last-child{margin-bottom:0}
+.qitem .av{width:52px;height:52px;border-radius:50%;background:var(--panel);
+  display:grid;place-items:center;font-weight:800;font-size:var(--fs-20);flex:none}
+.qitem .who{flex:1 1 220px;min-width:0}
+.qitem .who b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.35}
+.qitem .who .m{font-size:var(--fs-16);color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere}
+.qitem .acts{display:flex;gap:var(--sp-2);flex-wrap:wrap;flex:1 1 100%}
+.qitem .acts .btn{width:auto;flex:1 1 150px;min-height:52px;font-size:var(--fs-16)}
+.waitnote{flex:1 1 100%;margin:0 0 var(--sp-2);font-size:var(--fs-16);
+  color:var(--ink-2);line-height:1.6}
+.via{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-14);font-weight:700;
+  background:var(--panel);border-radius:999px;padding:3px 10px;color:var(--ink-2)}
+.via svg{width:16px;height:16px}
+
+@media (max-width:899px){
+  .authstage{padding:var(--sp-5) var(--sp-4);align-items:start}
+  .authcard{padding:var(--sp-5)}
+  .authtop .mk{width:64px;height:64px;border-radius:18px}
+  .qitem .acts .btn{flex:1 1 100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

@@ -81,7 +81,7 @@ test('every label on the sign-in screen can actually be read', async ({ page }) 
   }
   // Named explicitly, because these two are the ones that were invisible and a
   // general sweep can quietly stop covering them.
-  const labels = await page.locator('.block label').allInnerTexts();
+  const labels = await page.locator('.authcard label').allInnerTexts();
   expect(labels).toEqual(['อีเมล', 'รหัสผ่าน']);
 });
 
@@ -99,7 +99,7 @@ test('every label on the set-password screen can actually be read', async ({ pag
     const faint = tooFaint(await contrastIn(page));
     expect(faint, `หน้าตั้งรหัสผ่าน at ${width}px has text below 4.5:1`).toEqual([]);
   }
-  expect(await page.locator('.block label').allInnerTexts()).toEqual(['รหัสผ่านใหม่', 'พิมพ์รหัสผ่านอีกครั้ง']);
+  expect(await page.locator('.authcard label').allInnerTexts()).toEqual(['รหัสผ่านใหม่', 'พิมพ์รหัสผ่านอีกครั้ง']);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'artifacts/ui-setpassword-390.png', fullPage: true });
 });

@@ -10,6 +10,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 export const SETUP_TTL_MS = 24 * 3600000;
+/**
+ * Half an hour for a reset, because the person who asked for it is standing
+ * at the login screen waiting. A link that outlives that moment is a link
+ * sitting in a mailbox for somebody else to find.
+ */
+export const RESET_TTL_MS = 30 * 60000;
+/** A day to prove an address, which somebody may only read that evening. */
+export const VERIFY_TTL_MS = 24 * 3600000;
+const TTL = { setup: SETUP_TTL_MS, reset: RESET_TTL_MS, verify: VERIFY_TTL_MS };
 
 export const setupTokenHash = token => createHash('sha256').update(token).digest('hex');
 
@@ -19,23 +28,32 @@ export const setupTokenHash = token => createHash('sha256').update(token).digest
  * Retiring matters: somebody who runs the command twice because the first
  * message did not send should not leave two working ways in.
  */
-export function issueSetupToken(db, { userId, now, issuedBy = null }) {
+export function issueSetupToken(db, { userId, now, issuedBy = null, purpose = 'setup' }) {
   const token = randomBytes(32).toString('base64url');
-  db.prepare('UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL')
-    .run(now, userId);
-  db.prepare(`INSERT INTO password_setup_tokens(token_hash,user_id,created_at,expires_at,issued_by)
-    VALUES(?,?,?,?,?)`).run(setupTokenHash(token), userId, now, now + SETUP_TTL_MS, issuedBy);
-  return { token, expiresAt: now + SETUP_TTL_MS };
+  const life = TTL[purpose] ?? SETUP_TTL_MS;
+  // Only links of the same kind are retired: asking for a password reset must
+  // not quietly kill the verification link in the same person's inbox.
+  db.prepare('UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND purpose=? AND used_at IS NULL')
+    .run(now, userId, purpose);
+  db.prepare(`INSERT INTO password_setup_tokens(token_hash,user_id,created_at,expires_at,issued_by,purpose)
+    VALUES(?,?,?,?,?,?)`).run(setupTokenHash(token), userId, now, now + life, issuedBy, purpose);
+  return { token, expiresAt: now + life, purpose };
 }
 
 /** The account a live token belongs to, or null for every way of being invalid. */
-export function readSetupToken(db, token, now) {
+export function readSetupToken(db, token, now, purposes = ['setup', 'reset']) {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  const row = db.prepare(`SELECT t.*, u.email, u.role, u.status FROM password_setup_tokens t
-    JOIN users u ON u.id=t.user_id WHERE t.token_hash=?`).get(setupTokenHash(token));
+  const row = db.prepare(`SELECT t.*, u.email, u.role, u.status, u.approval, u.name
+    FROM password_setup_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=?`)
+    .get(setupTokenHash(token));
   if (!row || row.used_at !== null || row.expires_at <= now) return null;
+  // A link that proves an address must not also set a password, and the other
+  // way round: one token, one thing.
+  if (!purposes.includes(row.purpose ?? 'setup')) return null;
   return row;
 }
 
 /** The path the owner is told to open. Relative, so it works on any hostname. */
 export const setupPath = token => `/?setpw=${token}`;
+/** The link in the letter that proves an address belongs to whoever typed it. */
+export const verifyPath = token => `/?verify=${token}`;

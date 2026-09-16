@@ -7,12 +7,16 @@ import { logOut, PASSWORD, scanReady, signIn } from './counter.js';
 test('the login screen is for staff, and says so', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByText('สำหรับพนักงานและเจ้าของยิมเท่านั้น')).toBeVisible();
-  // Nothing about codes, mailboxes or signing up: there is no member app left
-  // for any of it to belong to, and no public page in front of this one.
+  // Nothing about codes or a member app: there is none left for any of it to
+  // belong to, and no public page in front of this one. Asking for a STAFF
+  // account is offered, and is a different thing.
   await expect(page.getByRole('button', { name: 'รับรหัสทางอีเมล' })).toHaveCount(0);
   await expect(page.getByText('ยังไม่เปิดขายแพ็กเกจ')).toHaveCount(0);
   await expect(page.getByLabel('รหัสผ่าน', { exact: true })).toHaveAttribute('type', 'password');
-  await expect(page.getByText('ให้เจ้าของยิมตั้งรหัสใหม่ให้', { exact: false })).toBeVisible();
+  // The way back in is on the screen rather than a sentence telling somebody
+  // to telephone the owner and be read a password out loud.
+  await expect(page.getByRole('button', { name: 'ลืมรหัสผ่าน' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ขอบัญชีพนักงาน' })).toBeVisible();
 });
 
 test('a wrong password is refused, and says how many tries are left', async ({ page }) => {
@@ -54,7 +58,7 @@ test('a set-password link opens a form with no session, and works once', async (
   await page.getByLabel('รหัสผ่านใหม่', { exact: true }).fill('a-password-the-owner-picked');
   await page.getByLabel('พิมพ์รหัสผ่านอีกครั้ง').fill('a-password-the-owner-picked');
   await page.getByRole('button', { name: 'บันทึกรหัสผ่าน' }).click();
-  await expect(page.getByText('ตั้งรหัสผ่านเรียบร้อย', { exact: false })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ตั้งรหัสผ่านใหม่แล้ว' })).toBeVisible();
 
   await signIn(page, 'relink-ui@example.test', 'a-password-the-owner-picked');
   await expect(page.getByRole('button', { name: 'ไปหน้าจัดการ' })).toBeVisible();

@@ -7,13 +7,16 @@ import { z } from 'zod';
 import { registerCardRoutes } from './cards-routes.js';
 import { registerCheckInRoutes } from './checkin.js';
 import { hashPassword, verifyPassword } from './passwords.js';
-import { readSetupToken, setupTokenHash } from './password-setup.js';
+import { issueSetupToken, readSetupToken, setupPath, setupTokenHash, verifyPath } from './password-setup.js';
 import { registerPaymentRoutes } from './payments.js';
 import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
 import { registerReportRoutes } from './reports-routes.js';
-import { createMailer, letters } from './mail.js';
+import { createMailer, ownerNotice } from './mail.js';
+import { letter } from './letters.js';
+import { resolveTheme } from './theme.js';
+import { settingsRow } from './settings-routes.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
-import { approveRequestSchema, gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, rejectRequestSchema, roleSchema, setPasswordSchema, signupSchema, updateSchema, userSchema } from './validation.js';
+import { approveRequestSchema, forgotSchema, gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, rejectRequestSchema, roleSchema, setPasswordSchema, signupSchema, updateSchema, userSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
@@ -112,6 +115,32 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   app.locals.sweep = sweep;
 
   app.locals.pilotMode = pilotMode;
+
+  /**
+   * Everything the four letters need about this gym, read fresh each time.
+   *
+   * The colours come from the same engine that paints the membership card, so
+   * a gym that changes its colour on Tuesday sends Tuesday's colour in
+   * Wednesday's email without anybody touching a template.
+   */
+  function gymLetterContext() {
+    const profile = publicGym(db);
+    const theme = resolveTheme(settingsRow(db));
+    return {
+      gym_name: profile.brand_name_th || profile.name || 'ยิม',
+      gym_phone: profile.phone || '',
+      brand_surface: theme.brand_surface,
+      on_brand: theme.on_brand,
+      login_url: origin || '',
+    };
+  }
+
+  /** Builds one of the Designer's letters and hands it to the mailer. */
+  function post(key, to, values = {}) {
+    const context = gymLetterContext();
+    const built = letter(key, { ...context, email: to, ...values });
+    return mailer.send({ to, senderName: context.gym_name, ...built });
+  }
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -225,8 +254,14 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     // Before the lookup, so the timing of the reply says nothing either.
     const hash = hashPassword(input.password);
     const taken = db.prepare('SELECT 1 FROM users WHERE email=?').get(input.email);
+    // The gym's own lock on a form that lives on a public URL. Empty means
+    // off, which is how every gym starts; set, and the queue stops being open
+    // to the whole internet (Designer). A wrong code is answered exactly like
+    // a duplicate address -- silence, and the same sentence.
+    const expected = (settingsRow(db)?.invite_code ?? '').trim();
+    const codeOk = !expected || expected === (input.invite_code ?? '').trim();
 
-    if (!taken) {
+    if (!taken && codeOk) {
       const id = randomUUID();
       transaction(db, () => {
         // The role is written now but means nothing until approval: the owner
@@ -236,21 +271,80 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
           .run(id, input.email, hash, now(), now(), input.name, input.phone, now());
         audit(db, id, 'user.signup_requested', id, null, { email: input.email }, now(), 'user');
       });
-      const gym = publicGym(db).brand_name_th || publicGym(db).name || 'ยิม';
       // Not awaited before replying: the person is looking at a spinner, and
       // whether a mail provider is slow is not their problem. The request is
       // already written down and visible to the owner on the screen.
-      const applicant = letters.signupReceived({ gym });
-      mailer.send({ to: input.email, subject: applicant.subject, text: applicant.text });
+      const { token } = issueSetupToken(db, { userId: id, now: now(), purpose: 'verify' });
+      post('1-verify-email', input.email, { name: input.name, verify_url: `${origin}${verifyPath(token)}` });
+
+      const gym = gymLetterContext().gym_name;
+      const note = ownerNotice({ gym, name: input.name, email: input.email, phone: input.phone });
       for (const owner of db.prepare("SELECT email FROM users WHERE role='admin' AND status='active' AND approval='approved'").all()) {
-        const note = letters.signupWaiting({ gym, name: input.name, email: input.email, phone: input.phone });
-        mailer.send({ to: owner.email, subject: note.subject, text: note.text });
+        mailer.send({ to: owner.email, senderName: gym, subject: note.subject, text: note.text });
       }
     }
 
     res.status(202).json({
       pending: true,
       message: 'ส่งคำขอแล้ว เจ้าของยิมจะอนุมัติและกำหนดสิทธิ์ให้ เมื่ออนุมัติแล้วจะมีอีเมลแจ้งและเข้าสู่ระบบได้ทันที',
+    });
+  });
+
+  /**
+   * Proving the address in a sign-up is reachable by whoever typed it.
+   *
+   * No session is created and nothing is granted: the account still waits for
+   * the owner. All this does is let the owner see that the letter arrived
+   * somewhere, which is what makes approving safe to do.
+   */
+  app.get('/api/auth/verify/:token', (req, res) => {
+    limit(`verify-ip:${req.ip}`, 60, 900000);
+    const result = transaction(db, () => {
+      const row = readSetupToken(db, req.params.token, now(), ['verify']);
+      if (!row) throw new HttpError(404, 'ลิงก์ยืนยันอีเมลหมดอายุหรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่จากเจ้าของยิม');
+      const claimed = db.prepare('UPDATE password_setup_tokens SET used_at=? WHERE token_hash=? AND used_at IS NULL')
+        .run(now(), setupTokenHash(req.params.token));
+      if (claimed.changes !== 1) throw new HttpError(404, 'ลิงก์ยืนยันอีเมลถูกใช้ไปแล้ว');
+      db.prepare('UPDATE users SET email_verified_at=?,email_verified_by_link_at=? WHERE id=?')
+        .run(now(), now(), row.user_id);
+      audit(db, row.user_id, 'user.email_verified', row.user_id, null, { via: 'link' }, now(), 'user');
+      return { email: row.email, approval: row.approval };
+    });
+    res.json(result);
+  });
+
+  /**
+   * "I forgot my password."
+   *
+   * The reply is one sentence, always the same one, and the work done before
+   * it is the same too -- a token is minted and hashed whatever happens, so an
+   * address with no account costs the same milliseconds as one with. An email
+   * goes out ONLY when the account is real: a letter saying "there is no
+   * account here" would undo the whole thing from the other side (Designer).
+   */
+  app.post('/api/auth/forgot', (req, res) => {
+    limit(`forgot-ip:${req.ip}`, 20, 900000);
+    const input = parse(forgotSchema, req.body);
+    // Per address as well as per address-that-asked: an IP limit alone leaves
+    // one person's mailbox open to being buried from a hundred machines.
+    limit(`forgot-email:${input.email}`, 5, 900000);
+
+    const user = db.prepare('SELECT * FROM users WHERE email=?').get(input.email);
+    const eligible = user && ['admin', 'staff'].includes(user.role)
+      && user.status === 'active' && user.approval === 'approved';
+    if (eligible) {
+      const { token } = issueSetupToken(db, { userId: user.id, now: now(), purpose: 'reset' });
+      post('4-reset-password', user.email, {
+        name: user.name, reset_url: `${origin}${setupPath(token)}`,
+      });
+    } else {
+      // The same work, thrown away: a token is minted and hashed so the reply
+      // for an address with no account takes as long as one for a real one.
+      setupTokenHash(randomBytes(32).toString('base64url'));
+    }
+    res.json({
+      sent: true,
+      message: 'ถ้ามีบัญชีของอีเมลนี้อยู่ เราส่งลิงก์ตั้งรหัสผ่านใหม่ไปแล้ว ลิงก์ใช้ได้ 30 นาที',
     });
   });
 
@@ -511,15 +605,19 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     res.json({ items: rows.map(publicUser), total: rows.length });
   });
 
-  /** The gym's own name, for the letters. Falls back rather than failing. */
-  const gymName = () => publicGym(db).brand_name_th || publicGym(db).name || 'ยิม';
-
   app.post('/api/users/:id/approve', admin, (req, res) => {
     const input = parse(approveRequestSchema, req.body);
     const result = transaction(db, () => {
       const before = db.prepare(`${userWithMember()} WHERE u.id=?`).get(req.params.id);
       if (!before) throw new HttpError(404, 'ไม่พบบัญชีนี้');
       if (before.approval !== 'pending') throw new HttpError(409, 'คำขอนี้ถูกตัดสินไปแล้ว กรุณาโหลดหน้าใหม่');
+      // Approving somebody whose address has never answered means the "you are
+      // in" letter goes nowhere and nobody finds out until they telephone. The
+      // screen offers to send the verification again rather than greying the
+      // button out with no explanation (Designer).
+      if (!before.email_verified_at) {
+        throw new HttpError(409, 'อีเมลนี้ยังไม่ได้ยืนยัน กรุณากด "ส่งอีเมลยืนยันอีกครั้ง" แล้วรอให้เขากดลิงก์ก่อน');
+      }
       db.prepare("UPDATE users SET approval='approved',role=?,decided_at=?,decided_by=?,reject_reason='' WHERE id=?")
         .run(input.role, now(), req.user.id, before.id);
       const after = db.prepare(`${userWithMember()} WHERE u.id=?`).get(before.id);
@@ -527,9 +625,31 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
       audit(db, req.user.id, 'user.approve', before.id, publicUser(before), publicUser(after), now(), 'user');
       return after;
     });
-    const letter = letters.approved({ gym: gymName(), role: result.role });
-    mailer.send({ to: result.email, subject: letter.subject, text: letter.text });
+    post('2-approved', result.email, {
+      name: result.name,
+      role: result.role,
+      signin_method: result.google_sub ? 'บัญชี Google ของคุณ' : 'อีเมลและรหัสผ่านที่คุณตั้งไว้ตอนสมัคร',
+    });
     res.json(publicUser(result));
+  });
+
+  /**
+   * Sending the verification letter again.
+   *
+   * The owner's way out of the only state that blocks them: a request they
+   * want to approve whose address has never answered. Rate limited per account
+   * so pressing it repeatedly does not turn into a way to post mail at
+   * somebody.
+   */
+  app.post('/api/users/:id/resend-verify', admin, (req, res) => {
+    const row = db.prepare(`${userWithMember()} WHERE u.id=?`).get(req.params.id);
+    if (!row) throw new HttpError(404, 'ไม่พบบัญชีนี้');
+    if (row.email_verified_at) throw new HttpError(409, 'อีเมลนี้ยืนยันแล้ว');
+    limit(`verify-resend:${row.id}`, 5, 3600000);
+    const { token } = issueSetupToken(db, { userId: row.id, now: now(), issuedBy: req.user.id, purpose: 'verify' });
+    post('1-verify-email', row.email, { name: row.name, verify_url: `${origin}${verifyPath(token)}` });
+    audit(db, req.user.id, 'user.verify_resent', row.id, null, null, now(), 'user');
+    res.json({ sent: true });
   });
 
   app.post('/api/users/:id/reject', admin, (req, res) => {
@@ -546,8 +666,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
       audit(db, req.user.id, 'user.reject', before.id, publicUser(before), publicUser(after), now(), 'user');
       return after;
     });
-    const letter = letters.rejected({ gym: gymName(), reason: input.reason });
-    mailer.send({ to: result.email, subject: letter.subject, text: letter.text });
+    post('3-rejected', result.email, { name: result.name });
     res.json(publicUser(result));
   });
 

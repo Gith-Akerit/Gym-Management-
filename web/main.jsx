@@ -11,7 +11,7 @@ import { SalesReport } from './payments.jsx';
 import { GymBranding } from './settings.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { UserMenu } from './usermenu.jsx';
-import { SignUpRequest } from './signup-request.jsx';
+import { AuthResult, AuthScreens, AuthStage, VerifyEmail } from './auth.jsx';
 import { PendingRequests } from './user-requests.jsx';
 import { PhotoCapture } from './camera.jsx';
 import { ProblemReports } from './reports.jsx';
@@ -51,81 +51,19 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
 
 // ------------------------------------------------------------------ sign in
 
-/** The dark stage the login and set-password screens share. */
-const Stage = ({ brand, branding, title, children }) => <div className="scanstage loginstage" style={{ justifyContent: 'center' }}>
-  <div style={{ maxWidth: 430, width: '100%', margin: '0 auto', padding: 'var(--sp-6)' }}>
-    {/* Sizes here, colours in brand-extra.css. Ink on this stage has to follow
-        the gym's own colour, and an inline style cannot: it wins over every
-        rule in the sheet, so the one white that was written here left the
-        initials white on a white plate in every gym, green included. */}
-    <div className="stagehead">
-      <Mark branding={branding} brand={brand}
-        style={{ width: 66, height: 66, margin: '0 auto var(--sp-4)', fontSize: 22 }}/>
-      <h1>{brand}</h1>
-      <p className="stagesub">{title}</p>
-    </div>
-    {children}
-  </div>
-</div>;
-
 /**
- * The counter sign-in.
+ * Setting a password from a link that arrived in a letter.
  *
- * Only the people who work here have an account, so there is no "sign up" and
- * nothing to explain about codes and mailboxes.
- */
-function Login({ brand, branding, onLogin }) {
-  const [asking, setAsking] = useState(false);
-  const [email, setEmail] = useState(''), [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false), [error, setError] = useState(null);
-  async function submit(e) {
-    e.preventDefault();
-    setBusy(true); setError(null);
-    try { onLogin(await api('/auth/login', { method: 'POST', body: { email, password } })); }
-    // The password is deliberately left in the box: somebody who mistyped one
-    // character should fix that character, not type twelve again.
-    catch (e) { setError(e); } finally { setBusy(false); }
-  }
-  if (asking) {
-    return <Stage brand={brand} branding={branding} title="ขอเข้าใช้งานระบบ">
-      <SignUpRequest onCancel={() => setAsking(false)}/>
-    </Stage>;
-  }
-
-  return <Stage brand={brand} branding={branding} title="สำหรับพนักงานและเจ้าของยิมเท่านั้น">
-    <form className="block" onSubmit={submit}>
-      <Field label="อีเมล" name="email" type="email" value={email} onChange={setEmail}
-        required autoComplete="username" disabled={busy}/>
-      <div className={`field${error ? ' invalid' : ''}`}>
-        <label htmlFor="password">รหัสผ่าน</label>
-        <input id="password" name="password" type="password" value={password} autoComplete="current-password"
-          required disabled={busy} aria-invalid={!!error} aria-describedby={error ? 'password-error' : undefined}
-          onChange={e => setPassword(e.target.value)}/>
-        {error && <p className="err" id="password-error" role="alert">✕ {error.message}</p>}
-      </div>
-      <button className="btn primary xl" disabled={busy} aria-disabled={busy || undefined}>
-        {busy ? <><span className="spin"/>กำลังเข้าสู่ระบบ…</> : 'เข้าสู่ระบบ'}</button>
-      {/* A second way in, not a second primary action: almost everybody who
-          opens this screen already has an account and is here to use it. */}
-      <button className="btn" type="button" onClick={() => setAsking(true)} disabled={busy}
-        style={{ marginTop: 'var(--sp-3)' }}>ยังไม่มีบัญชี · ขอเข้าใช้งาน</button>
-      <p className="note" style={{ margin: 'var(--sp-4) 0 0', textAlign: 'center', fontSize: 'var(--fs-14)' }}>
-        ลืมรหัสผ่าน ให้เจ้าของยิมตั้งรหัสใหม่ให้ที่หน้า “ผู้ใช้และสิทธิ์”</p>
-    </form>
-  </Stage>;
-}
-
-/**
- * Setting a password from a link issued at the terminal.
- *
- * The only way into a gym whose administrator account predates passwords. No
- * session is needed and none is created: the owner types a password and then
- * signs in with it like anybody else.
+ * Two errands share this screen because to the person holding the link they
+ * are the same errand: the "ลืมรหัสผ่าน" letter and the terminal command
+ * `npm run admin:set-password-link` both end here. The server decides which
+ * link is which; this only has to say what happens next.
  */
 function SetPassword({ brand, branding, token, onDone }) {
   const { data, error, busy } = useResource(`/auth/set-password/${token}`);
   const [password, setPassword] = useState(''), [again, setAgain] = useState('');
   const [working, setWorking] = useState(false), [failure, setFailure] = useState(null), [done, setDone] = useState(false);
+  const strength = password.length >= 16 ? 3 : password.length >= 12 ? 2 : password ? 1 : 0;
 
   async function submit(e) {
     e.preventDefault();
@@ -135,34 +73,46 @@ function SetPassword({ brand, branding, token, onDone }) {
     catch (e) { setFailure(e); } finally { setWorking(false); }
   }
 
-  if (busy) return <Stage brand={brand} branding={branding} title="กำลังตรวจสอบลิงก์…"><div className="block"><Skeletonish/></div></Stage>;
+  if (busy) {
+    return <AuthStage brand={brand} branding={branding} title="ตั้งรหัสผ่าน">
+      <Skeletonish/></AuthStage>;
+  }
   if (error) {
-    return <Stage brand={brand} branding={branding} title="ลิงก์ตั้งรหัสผ่าน">
-      <div className="block">
-        <div className="banner bad"><div className="ic" aria-hidden="true">!</div>
-          <div><b>ลิงก์นี้ใช้ไม่ได้แล้ว</b><span>{error.message}</span></div></div>
-        <p className="note">ลิงก์ใช้ได้ครั้งเดียวและหมดอายุใน 24 ชั่วโมง ให้คนที่ติดตั้งระบบออกลิงก์ใหม่ด้วยคำสั่ง
-          {' '}<code>npm run admin:set-password-link</code></p>
-        <button className="btn" onClick={onDone}>ไปหน้าเข้าสู่ระบบ</button>
-      </div>
-    </Stage>;
+    return <AuthStage brand={brand} branding={branding} title="ตั้งรหัสผ่าน">
+      <AuthResult tone="stop" icon="!" title="ลิงก์นี้ใช้ไม่ได้แล้ว">
+        <p>{error.message}</p>
+        {/* Said as a fact rather than a fault: a link that expired while
+            somebody was driving home is the usual reason to be here. */}
+        <p className="note">ลิงก์ใช้ได้ครั้งเดียว ลิงก์ลืมรหัสผ่านหมดอายุใน 30 นาที
+          ขอลิงก์ใหม่ได้จากหน้า “ลืมรหัสผ่าน”</p>
+      </AuthResult>
+      <button className="btn primary xl" onClick={onDone}>ขอลิงก์ใหม่</button>
+    </AuthStage>;
   }
   if (done) {
-    return <Stage brand={brand} branding={branding} title="ตั้งรหัสผ่านเรียบร้อย">
-      <div className="block">
-        <div className="banner ok"><div className="ic" aria-hidden="true">✓</div>
-          <div><b>ตั้งรหัสผ่านให้ {data.email} แล้ว</b><span>เข้าสู่ระบบด้วยรหัสผ่านที่เพิ่งตั้งได้เลย</span></div></div>
-        <button className="btn primary xl" onClick={onDone}>ไปหน้าเข้าสู่ระบบ</button>
-      </div>
-    </Stage>;
+    return <AuthStage brand={brand} branding={branding} title="ตั้งรหัสผ่าน">
+      <AuthResult tone="done" icon="✓" title="ตั้งรหัสผ่านใหม่แล้ว">
+        <div className="mailto">{data.email}</div>
+        <p>เข้าสู่ระบบด้วยรหัสผ่านที่เพิ่งตั้งได้เลย</p>
+        <p className="note">เครื่องอื่นที่เคยเข้าไว้ถูกออกจากระบบทั้งหมดแล้ว
+          ถ้ายังใช้เครื่องนั้นอยู่ ให้เข้าสู่ระบบใหม่ด้วยรหัสผ่านนี้</p>
+      </AuthResult>
+      <button className="btn primary xl" onClick={onDone}>ไปหน้าเข้าสู่ระบบ</button>
+    </AuthStage>;
   }
-  return <Stage brand={brand} branding={branding} title={`ตั้งรหัสผ่านของ ${data.email}`}>
-    <form className="block" onSubmit={submit}>
+  return <AuthStage brand={brand} branding={branding} title="ตั้งรหัสผ่านใหม่">
+    <form onSubmit={submit}>
+      <h2>ตั้งรหัสผ่านใหม่</h2>
+      <p className="lead">สำหรับบัญชี <b>{data.email}</b></p>
       <div className="field">
         <label htmlFor="newpw">รหัสผ่านใหม่</label>
         <input id="newpw" type="password" value={password} autoComplete="new-password" required minLength={12}
           onChange={e => setPassword(e.target.value)}/>
-        <p className="hint">อย่างน้อย 12 ตัวอักษร ใช้ประโยคที่จำได้ดีกว่าคำสั้น ๆ ที่มีสัญลักษณ์</p>
+        <div className="pwbar" aria-hidden="true">
+          {[1, 2, 3].map(step => <i key={step}
+            className={strength >= step ? (strength === 1 ? 'weak' : 'on') : ''}/>)}
+        </div>
+        <p className="pwhint">อย่างน้อย 12 ตัวอักษร ใช้ประโยคที่จำได้ดีกว่าคำสั้น ๆ ที่มีสัญลักษณ์</p>
       </div>
       <div className={`field${failure ? ' invalid' : ''}`}>
         <label htmlFor="againpw">พิมพ์รหัสผ่านอีกครั้ง</label>
@@ -173,9 +123,9 @@ function SetPassword({ brand, branding, token, onDone }) {
       <button className="btn primary xl" disabled={working}>
         {working ? <><span className="spin"/>กำลังบันทึก…</> : 'บันทึกรหัสผ่าน'}</button>
       <p className="note" style={{ margin: 'var(--sp-4) 0 0', fontSize: 'var(--fs-14)' }}>
-        ลิงก์นี้ใช้ได้ครั้งเดียว กดบันทึกแล้วจะใช้ซ้ำไม่ได้</p>
+        ลิงก์นี้ใช้ได้ครั้งเดียว · กดบันทึกแล้วเครื่องที่เข้าไว้ทั้งหมดจะถูกออกจากระบบ</p>
     </form>
-  </Stage>;
+  </AuthStage>;
 }
 
 const Skeletonish = () => <>
@@ -816,7 +766,6 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
   const requests = useResource('/users/requests');
   const [email, setEmail] = useState(''), [role, setRole] = useState('staff'), [secret, setSecret] = useState('');
   const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null), [notice, setNotice] = useState('');
-  const [setting, setSetting] = useState(null), [newPassword, setNewPassword] = useState('');
 
   async function act(path, options, message, farewell) {
     setWorking(true); setActionError(null); setNotice('');
@@ -838,32 +787,6 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
     const pick = set => set[Math.floor(Math.random() * set.length)];
     return `Gym-${Array.from({ length: 4 }, () => pick(alphabet)).join('')}-${Array.from({ length: 4 }, () => pick(digits)).join('')}`;
   };
-
-  if (setting) {
-    return <div style={{ maxWidth: 620 }}>
-      <h1>ตั้งรหัสผ่านใหม่ให้ {setting.email}</h1>
-      <p className="sub">ใช้เมื่อพนักงานลืมรหัสผ่าน ไม่มีการส่งอีเมล คุณบอกรหัสให้เขาโดยตรง</p>
-      <div className="block">
-        <Field name="new-password" label="รหัสผ่านใหม่" value={newPassword} onChange={setNewPassword} className="num"
-          error={actionError?.fields?.password}
-          hint="แสดงเป็นตัวอักษรปกติเพื่อให้คุณอ่านให้เขาฟังได้ถูก · ไม่มีการเก็บรหัสนี้ไว้ที่ไหนหลังกดบันทึก"/>
-        <div className="btn-row" style={{ marginBottom: 'var(--sp-5)' }}>
-          <button className="btn ghost" onClick={() => setNewPassword(suggest())}>สุ่มรหัสผ่านให้</button>
-        </div>
-        <div className="banner bad"><div className="ic" aria-hidden="true">!</div>
-          <div><b>กดบันทึกแล้วเขาจะถูกออกจากระบบทันที</b>
-            <span>ถ้าเขากำลังสแกนอยู่หน้าเคาน์เตอร์ ให้บอกเขาก่อน</span></div></div>
-        <Notice error={actionError}/>
-        <div className="btn-row" style={{ marginTop: 'var(--sp-5)' }}>
-          <button className="btn ghost" onClick={() => { setSetting(null); setActionError(null); }}>ยกเลิก</button>
-          <button className="btn primary" disabled={working || newPassword.trim().length < 12}
-            onClick={() => act(`/users/${setting.id}/password`, { method: 'PUT', body: { password: newPassword } },
-              `ตั้งรหัสผ่านใหม่ให้ ${setting.email} แล้ว`).then(() => { setSetting(null); setNewPassword(''); })}>
-            {working ? 'กำลังบันทึก…' : 'บันทึกรหัสผ่านใหม่'}</button>
-        </div>
-      </div>
-    </div>;
-  }
 
   return <>
     <h1>ผู้ใช้และสิทธิ์</h1>
@@ -927,10 +850,13 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
                 {user.has_password ? '✓ ตั้งแล้ว' : '✕ ยังไม่ได้ตั้ง'}</span>}</td>
             <td data-label="สถานะ"><span className={`chip ${user.status === 'suspended' ? 'bad' : 'ok'}`}>
               {user.status === 'suspended' ? '✕ ถูกระงับ' : '✓ ใช้งานได้'}</span></td>
+            {/* No "ตั้งรหัสใหม่" here any more. A password somebody else chooses
+                has to be said out loud to be handed over, and it was said in a
+                group chat more than once. Everyone sets their own now, from the
+                link in the letter "ลืมรหัสผ่าน" sends. The terminal command
+                `npm run admin:set-password-link` stays as the way back in when
+                nobody can receive mail at all. */}
             <td data-label="">
-              {user.role !== 'member' && <button className="btn ghost" disabled={working}
-                aria-label={`ตั้งรหัสผ่านของ ${user.email}`}
-                onClick={() => { setSetting(user); setNewPassword(suggest()); setActionError(null); }}>ตั้งรหัสใหม่</button>}
               <button className={user.status === 'suspended' ? 'btn ghost' : 'btn danger'} disabled={working}
                 aria-label={`${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email}`}
                 onClick={() => act(`/users/${user.id}/${user.status === 'suspended' ? 'restore' : 'suspend'}`,
@@ -1243,11 +1169,17 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
 
 // -------------------------------------------------------------------- root
 
-function setupTokenFromUrl() {
-  const token = new URLSearchParams(window.location.search).get('setpw');
+/**
+ * A one-time link out of the address bar.
+ *
+ * Both letters that carry a token land on the same page with a query on the
+ * end, and both are taken out of the address bar immediately: a link left
+ * there survives a screenshot, a shared screen and the back button long after
+ * it has been used.
+ */
+function tokenFromUrl(key) {
+  const token = new URLSearchParams(window.location.search).get(key);
   if (!/^[A-Za-z0-9_-]{43}$/.test(token ?? '')) return null;
-  // Out of the address bar, so a shared screenshot or a back button does not
-  // carry it around after it has been used.
   window.history.replaceState(null, '', window.location.pathname);
   return token;
 }
@@ -1255,7 +1187,8 @@ function setupTokenFromUrl() {
 function App() {
   const [user, setUser] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(null);
   const [gym, setGym] = useState(null), [pilot, setPilot] = useState(false), [farewell, setFarewell] = useState('');
-  const [setupToken, setSetupToken] = useState(setupTokenFromUrl);
+  const [setupToken, setSetupToken] = useState(() => tokenFromUrl('setpw'));
+  const [verifyTokenValue, setVerifyToken] = useState(() => tokenFromUrl('verify'));
   const [branding, reloadBranding] = useBranding();
   const onAuthError = e => { if (e.status === 401) setUser(null); };
   useEffect(() => {
@@ -1276,12 +1209,14 @@ function App() {
   return <PilotContext.Provider value={pilot}>
     {setupToken
       ? <SetPassword brand={brand} branding={branding} token={setupToken} onDone={() => setSetupToken(null)}/>
+      : verifyTokenValue
+      ? <VerifyEmail brand={brand} branding={branding} token={verifyTokenValue} onDone={() => setVerifyToken(null)}/>
       : !user
         ? <>
             {farewell && <div className="scanstage" style={{ minHeight: 0, padding: 'var(--sp-5)' }}>
               <div className="banner ok" style={{ maxWidth: 430, margin: '0 auto' }} role="status">
                 <div className="ic" aria-hidden="true">✓</div><div><b>{farewell}</b></div></div></div>}
-            <Login brand={brand} branding={branding} onLogin={u => { setError(null); setFarewell(''); setUser(u); }}/>
+            <AuthScreens brand={brand} branding={branding} onLogin={u => { setError(null); setFarewell(''); setUser(u); }}/>
           </>
         : <Console user={user} gym={gym} brand={brand} branding={branding} onBrandingChange={reloadBranding}
             onLogout={logout} onAuthError={onAuthError}

@@ -20,7 +20,8 @@
     "slips:prune": "node server/prune-slips.js",
     "env:set": "node server/env-set.js",
     "admin:set-password-link": "node server/admin-link.js",
-    "reports:prune": "node server/prune-reports.js"
+    "reports:prune": "node server/prune-reports.js",
+    "mail:build": "node server/emails/mkmail.cjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.3.0",

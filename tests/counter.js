@@ -27,6 +27,10 @@ export { jpegBuffer, PHOTO_JPEG, PNG_PIXEL } from './fixtures.js';
  */
 export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00+07:00'),
   promptPayId = '0899999999', pilotMode = false } = {}) {
+  // Every letter the app tries to send, kept rather than posted. The links in
+  // them are the only way a test can walk the journey a person walks, and
+  // "nothing was sent at all" is itself something several tests have to prove.
+  const outbox = [];
   const db = openDatabase(); migrate(db);
   const root = mkdtempSync(join(tmpdir(), 'gym-counter-'));
   let time = start;
@@ -37,6 +41,7 @@ export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00
     logoStore: new SlipStore(join(root, 'logo')),
     reportStore: new SlipStore(join(root, 'reports'), { maxBytes: 6e6 }),
     promptPayId, pilotMode,
+    mailer: { ready: true, send: async message => { outbox.push(message); return { sent: true }; } },
   });
   t.after(() => {
     app.locals.stopSweeper?.();
@@ -69,5 +74,19 @@ export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00
     return created.body;
   }
 
-  return { db, app, http, call, signIn, addMember, root, tick: ms => { time += ms; }, at: () => time };
+  /** The token out of the most recent letter of that kind, or null. */
+  const linkFrom = pattern => {
+    for (let at = outbox.length - 1; at >= 0; at -= 1) {
+      const found = pattern.exec(outbox[at].text ?? '');
+      if (found) return found[1];
+    }
+    return null;
+  };
+
+  return {
+    db, app, http, call, signIn, addMember, root, outbox,
+    verifyToken: () => linkFrom(/[?&]verify=([A-Za-z0-9_-]{43})/),
+    resetToken: () => linkFrom(/[?&]setpw=([A-Za-z0-9_-]{43})/),
+    tick: ms => { time += ms; }, at: () => time,
+  };
 }

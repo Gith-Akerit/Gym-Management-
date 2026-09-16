@@ -28,10 +28,10 @@ const seedUsers = (role, addresses) => {
       .run(randomUUID(), address, role, secret, Date.now(), Date.now());
   }
 };
-seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test',
+seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test', 'forgot-twice@example.test',
   ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
 seedUsers('admin', ['layout-admin@example.test', 'admin@example.test', 'contrast2-ui@example.test',
-  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test',
+  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test', 'forgot-admin@example.test', 'invite-admin@example.test',
   ...Array.from({ length: 11 }, (_, i) => `admin${i + 2}@example.test`)]);
 // One account with no password at all: the state an owner leaves somebody in
 // when they add them before their first shift.
@@ -44,12 +44,22 @@ db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)")
 // One more for the spec that measures what the set-password screen looks like.
 db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)")
   .run(randomUUID(), 'contrast-ui@example.test', Date.now());
+/**
+ * The post office, with nothing beyond the front door.
+ *
+ * Every letter this server would have sent is kept here instead, so a browser
+ * journey can do what the person receiving it does: open the letter and press
+ * the link. Without it the sign-up journey stops dead at "ยืนยันอีเมล", which
+ * is the one step a browser cannot take on its own.
+ */
+const outbox = [];
 const photoRoot = resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos');
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),
   photoStore: new SlipStore(photoRoot, { maxBytes: MAX_PHOTO_BYTES }),
   logoStore: new SlipStore(resolve(PILOT ? 'data/test-logo-pilot' : 'data/test-logo')),
   reportStore: new SlipStore(resolve(PILOT ? 'data/test-reports-pilot' : 'data/test-reports'), { maxBytes: 6e6 }),
+  mailer: { ready: true, send: async message => { outbox.push(message); return { sent: true }; } },
   // Exactly what a pilot deployment has: no merchant account at all.
   promptPayId: PILOT ? null : '0899999999',
   pilotMode: PILOT });
@@ -76,6 +86,13 @@ app.post('/__test/break-photo', express.json(), (req, res) => {
   writeFileSync(join(photoRoot, row.photo_stored_name),
     Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(512, 0x7f)]));
   res.json({ broken: true });
+});
+// The letters, newest first. Test-only, and the reason it can exist at all is
+// that this server posts nothing: in the real one these bodies carry one-time
+// links and are never written down anywhere, not even to the log.
+app.get('/__test/outbox', (req, res) => {
+  const to = req.query.to;
+  res.json({ items: [...outbox].reverse().filter(letter => !to || letter.to === to) });
 });
 app.post('/__test/setup-link', express.json(), (req, res) => {
   const user = db.prepare('SELECT id FROM users WHERE email=?').get(req.body?.email);
