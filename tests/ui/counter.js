@@ -19,26 +19,56 @@ export async function signIn(page, email, password = PASSWORD) {
 /**
  * Moves to a screen the way whoever is holding the machine would.
  *
- * The rail on a desktop and the bar at the bottom of a phone are the same menu
- * drawn twice, and only one of them is on the screen at a time, so a spec that
- * names a destination should not also have to know which. The scan screen is a
- * stage of its own with no menu at all: leaving it is its own button.
+ * Three ways in, and only one of them is on the screen at a time, so a spec
+ * that names a destination should not also have to know which: the rail on a
+ * desktop, the bar at the bottom of a phone -- both carrying the four everyday
+ * screens -- and the menu in the top right corner, which carries the rest and
+ * is on every screen including the scan stage.
  */
 export async function go(page, label) {
   const onStage = await page.locator('.scanstage').isVisible().catch(() => false);
   if (onStage && label === 'สแกนเช็คอิน') return undefined;
-  if (onStage) await page.getByRole('button', { name: 'ไปหน้าจัดการ' }).click();
+
+  // The scan stage has no rail and no bar. The menu is on it, so anything the
+  // menu carries is one tap away; the four everyday screens are not in the
+  // menu, so those are reached by stepping off the stage first.
+  if (onStage) {
+    const item = await menuItem(page, label);
+    if (item) return item.click();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'ไปหน้าจัดการ' }).click();
+  }
+
   const rail = page.locator('.railnav').getByRole('link', { name: label, exact: true });
   if (await rail.isVisible()) return rail.click();
+  const bottom = page.locator('.bottomnav').getByRole('link', { name: label, exact: true });
+  if (await bottom.isVisible()) return bottom.click();
 
-  const bottom = page.locator('.bottomnav');
-  let item = bottom.getByRole('link', { name: label, exact: true });
-  // Four everyday screens are on the bar; everything else is two taps away.
-  if (!await item.isVisible()) {
-    await bottom.getByRole('link', { name: 'เพิ่มเติม' }).click();
-    item = bottom.getByRole('link', { name: label, exact: true });
-  }
+  const item = await menuItem(page, label);
+  if (!item) throw new Error(`ไม่มีทางไปหน้า "${label}" ทั้งบนแถบและในเมนู`);
   return item.click();
+}
+
+/** The row with this label in the corner menu, or null when it carries none. */
+async function menuItem(page, label) {
+  await openUserMenu(page);
+  const item = page.getByRole('menuitem', { name: label, exact: true });
+  return await item.count() ? item : null;
+}
+
+/** Opens the menu in the top right corner and waits for it to be there. */
+export async function openUserMenu(page) {
+  const button = page.getByRole('button', { name: 'เมนู', exact: true });
+  if (await button.getAttribute('aria-expanded') === 'false') await button.click();
+  await expect(page.locator('#usermenu-panel')).toBeVisible();
+  return button;
+}
+
+/** Signing out, which lives in that menu now and nowhere else. */
+export async function logOut(page) {
+  await openUserMenu(page);
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'เข้าสู่ระบบ' })).toBeVisible();
 }
 
 /**

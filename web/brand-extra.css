@@ -12,7 +12,10 @@
 /* --------------------------------------------- หัวแอปเป็นสีแบรนด์ (ปิดไว้) */
 [data-appbar="brand"] .appbar{background:var(--brand-surface);border-bottom-color:var(--brand-2)}
 [data-appbar="brand"] .appbar .brand{color:var(--on-brand)}
-[data-appbar="brand"] .appbar .brand small{color:var(--on-brand);opacity:.82}
+/* BRAND-02 จุดที่ตกหล่น: opacity บนตัวอักษรที่วางบนสีแบรนด์ใช้ไม่ได้อีกแล้ว
+   ทุกกรณี เพราะ token รับประกัน 4.5:1 ที่ความทึบเต็ม ลดลงเมื่อไรก็หลุดเมื่อนั้น
+   ต้องการข้อความรองให้ลดขนาดหรือน้ำหนักแทน (Designer) */
+[data-appbar="brand"] .appbar .brand small{color:var(--on-brand);opacity:1;font-weight:500}
 [data-appbar="brand"] .appbar .btn{background:transparent;border-color:var(--on-brand);color:var(--on-brand)}
 [data-appbar="brand"] .appbar .mark{background:rgba(255,255,255,.18);color:var(--on-brand)}
 [data-appbar="brand"] .appbar .mark.haslogo{background:#fff;border-color:transparent}
@@ -140,4 +143,61 @@
   .sw{width:calc(50% - var(--sp-3))}
   .savebar{margin:var(--sp-5) calc(var(--sp-4) * -1) 0;position:sticky;bottom:64px}
   .savebar .btn{width:100%}
+}
+
+/* ============================================ เมนูมุมขวาบน ================
+   ยกจาก features.css ของ Designer ส่วนที่ 1 · แถบซ้ายเหลือสี่งานประจำ
+   ที่เหลือมาอยู่ที่นี่ จัดกลุ่มตามความถี่ที่ใช้ ไม่ใช่ตามประเภทของหน้า
+   ========================================================================== */
+.usermenu{position:relative;flex:none}
+.avatar-btn{display:flex;align-items:center;gap:10px;min-height:48px;padding:4px 10px 4px 4px;
+  border:2px solid var(--line-ctl);border-radius:999px;background:var(--surface);cursor:pointer}
+.avatar-btn:hover{background:var(--panel)}
+.avatar-btn .av{width:38px;height:38px;border-radius:50%;background:var(--brand-soft);
+  color:var(--brand-ink);display:grid;place-items:center;font-weight:800;font-size:var(--fs-16);flex:none}
+.avatar-btn .cav{font-size:var(--fs-14);font-weight:700;line-height:1.2;text-align:left;max-width:120px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.avatar-btn .cav span{display:block;font-weight:500;color:var(--ink-2);font-size:13px}
+.avatar-btn .caret{width:20px;height:20px;flex:none}
+
+/* เดสก์ท็อปเป็น dropdown */
+.menupanel{position:absolute;right:0;top:calc(100% + 10px);width:312px;background:var(--surface);
+  border:2px solid var(--line-strong);border-radius:var(--r-2);box-shadow:0 16px 40px rgba(14,20,24,.22);
+  z-index:60;overflow:auto;max-height:calc(100dvh - 96px)}
+.menupanel .who{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4);
+  background:var(--brand-soft);border-bottom:2px solid var(--line)}
+.menupanel .who .av{width:44px;height:44px;border-radius:50%;background:var(--brand-surface);
+  color:var(--on-brand);display:grid;place-items:center;font-weight:800;flex:none}
+.menupanel .who b{display:block;font-size:var(--fs-16);line-height:1.3;overflow-wrap:anywhere}
+.menupanel .who span{font-size:var(--fs-14);color:var(--ink-2)}
+.menugroup{padding:var(--sp-2) 0;border-bottom:2px solid var(--panel)}
+.menugroup:last-child{border-bottom:0}
+.menugroup .gl{font-size:13px;font-weight:700;color:var(--ink-2);padding:6px var(--sp-4) 2px;letter-spacing:.02em}
+.mi{display:flex;align-items:center;gap:var(--sp-3);width:100%;min-height:50px;padding:0 var(--sp-4);
+  background:none;border:0;cursor:pointer;text-decoration:none;color:var(--ink);
+  font-size:var(--fs-16);font-weight:600;text-align:left}
+.mi:hover{background:var(--panel)}
+.mi .ic{width:24px;height:24px;flex:none;display:grid;place-items:center;color:var(--ink-2)}
+.mi .ic svg{width:22px;height:22px;display:block}
+.mi .sub{display:block;font-weight:400;font-size:13px;color:var(--ink-2)}
+.mi.danger{color:var(--bad)}
+.mi.danger .ic{color:var(--bad)}
+.mi[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.mi[aria-disabled="true"]:hover{background:none}
+.menupanel .foot{padding:10px var(--sp-4);background:var(--canvas);font-size:13px;color:var(--ink-2)}
+
+/* บนจอมืดของหน้าสแกน ปุ่มต้องเป็นหมึกของพื้นมืด ไม่ใช่ของสีแบรนด์ */
+.scanbar .avatar-btn{background:transparent;border-color:rgba(255,255,255,.4);color:var(--on-dark)}
+.scanbar .avatar-btn .av{background:rgba(255,255,255,.18);color:var(--on-dark)}
+.scanbar .avatar-btn .cav span{color:var(--on-dark-2)}
+
+/* ฉากหลังของแผงบนมือถือเท่านั้น เดสก์ท็อปเป็น dropdown จึงไม่ต้องมีฉากมืด */
+.scrim{display:none}
+@media (max-width:899px){
+  /* มือถือเป็น bottom sheet ไม่ใช่ dropdown เพราะนิ้วโป้งถึงขอบล่างง่ายกว่ามุมขวาบน */
+  .scrim{display:block;position:fixed;inset:0;background:rgba(8,12,15,.55);z-index:55}
+  .menupanel{position:fixed;right:8px;left:8px;top:auto;bottom:calc(8px + env(safe-area-inset-bottom));
+    width:auto;border-radius:var(--r-3);max-height:82dvh;overflow:auto}
+  .avatar-btn .cav{display:none}
+  .mi{min-height:58px}
 }

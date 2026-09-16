@@ -10,6 +10,7 @@ import {
 import { SalesReport } from './payments.jsx';
 import { GymBranding } from './settings.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
+import { UserMenu } from './usermenu.jsx';
 import { PhotoCapture } from './camera.jsx';
 
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
@@ -1015,6 +1016,14 @@ function GymSettings({ onAuthError }) {
 
 // ------------------------------------------------------------- app shell
 
+/**
+ * The four screens a shift is made of, and everything else.
+ *
+ * The rail carried all eight, which meant somebody on their way to the scan
+ * screen read past "ผู้ใช้และสิทธิ์" every time. Split by how often a thing is
+ * opened rather than by what it is: these four stay in front of the hand, the
+ * rest moved into the menu in the corner (Designer).
+ */
 const NAV = [
   ['scan', 'สแกนเช็คอิน', 'สแกน'],
   ['signup', 'สมัครสมาชิก', 'สมัคร'],
@@ -1027,10 +1036,36 @@ const NAV = [
   ['checkin', 'ประวัติเช็คอิน', null],
 ];
 
-function Shell({ brand, branding, role, tabs, tab, setTab, onLogout, pilot, wide = false, children }) {
-  const [more, setMore] = useState(false);
-  const primary = tabs.filter(([, , short]) => short);
-  const secondary = tabs.filter(([, , short]) => !short);
+const EVERYDAY = ['scan', 'signup', 'members', 'payment'];
+const ICON_FOR = { gym: 'gym', branding: 'branding', packages: 'packages', users: 'users', checkin: 'checkin' };
+
+/**
+ * The menu in the corner, in three groups.
+ *
+ * Built from the same `tabs` the rail is built from, so a screen somebody is
+ * not allowed to open is not listed here either -- a greyed-out row teaches
+ * staff to keep trying the thing that will never work.
+ *
+ * `soon` marks what the owner has approved but the team has not built yet. It
+ * is shown rather than hidden because "where would I report this?" is itself
+ * worth answering, and because it is one line to switch on when it lands.
+ */
+function menuGroups(tabs) {
+  const settings = tabs.filter(([key]) => !EVERYDAY.includes(key))
+    .map(([key, label]) => ({ key, label, icon: ICON_FOR[key] }));
+  return [
+    { label: 'จัดการยิม', items: settings },
+    { label: 'ช่วยเหลือ', items: [
+      { key: 'report', label: 'แจ้งปัญหา', icon: 'report', sub: 'กำลังพัฒนา จะเปิดใช้ในรอบถัดไป', soon: true },
+      { key: 'manual', label: 'คู่มือการใช้งาน', icon: 'manual', sub: 'กำลังพัฒนา จะเปิดใช้ในรอบถัดไป', soon: true },
+    ] },
+    { items: [{ key: 'logout', label: 'ออกจากระบบ', icon: 'logout', danger: true }] },
+  ].filter(group => group.items.length);
+}
+
+function Shell({ brand, branding, user, tabs, tab, setTab, onLogout, onPick, pilot, wide = false, children }) {
+  const everyday = tabs.filter(([key]) => EVERYDAY.includes(key));
+  const role = user?.role;
   return <>
     {pilot && <div className="pilot-banner" role="status">
       <b>โหมดทดลอง</b><span>ยังไม่ได้ผูกบัญชีพร้อมเพย์ — รับเงินและมอบแพ็กเกจที่หน้าสมาชิกได้ตามปกติ</span></div>}
@@ -1040,30 +1075,24 @@ function Shell({ brand, branding, role, tabs, tab, setTab, onLogout, pilot, wide
         : <Mark branding={branding} brand={brand}/>}
       <div className="brand">{brand}<small>{role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}</small></div>
       <div className="spacer"/>
-      <button className="btn auto" onClick={onLogout}>ออกจากระบบ</button>
+      <UserMenu user={user} groups={menuGroups(tabs)} onPick={onPick} footer={brand}/>
     </div></header>
     <main className={wide ? 'wrap wide' : 'wrap'}><div className="page">
       <nav aria-label="เมนูหลัก">
-        <ul className="railnav">{tabs.map(([key, label]) =>
+        <ul className="railnav">{everyday.map(([key, label]) =>
           <li key={key}><a href={`#${key}`} aria-current={tab === key ? 'page' : undefined}
             onClick={e => { e.preventDefault(); setTab(key); }}>{label}</a></li>)}</ul>
       </nav>
       <div>{children}</div>
     </div></main>
+    {/* No "เพิ่มเติม" any more: the four here are the whole shift, and anything
+        else is one tap away in the corner menu, which is in reach of a thumb. */}
     <nav className="bottomnav" aria-label="เมนูหลัก (มือถือ)">
       <ul>
-        {primary.map(([key, label, short]) => <li key={key}>
+        {everyday.map(([key, label, short]) => <li key={key}>
           <a href={`#${key}`} aria-current={tab === key ? 'page' : undefined}
-            aria-label={label} onClick={e => { e.preventDefault(); setTab(key); setMore(false); }}>{short}</a></li>)}
-        {secondary.length > 0 && <li>
-          <a href="#more" aria-expanded={more} onClick={e => { e.preventDefault(); setMore(!more); }}>เพิ่มเติม</a></li>}
+            aria-label={label} onClick={e => { e.preventDefault(); setTab(key); }}>{short}</a></li>)}
       </ul>
-      {more && <ul style={{ display: 'block', borderTop: '2px solid var(--line)' }}>
-        {secondary.map(([key, label]) => <li key={key} style={{ display: 'block' }}>
-          <a href={`#${key}`} style={{ justifyContent: 'flex-start', padding: '0 var(--sp-5)', minHeight: 56 }}
-            aria-current={tab === key ? 'page' : undefined}
-            onClick={e => { e.preventDefault(); setTab(key); setMore(false); }}>{label}</a></li>)}
-      </ul>}
     </nav>
   </>;
 }
@@ -1082,10 +1111,19 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
   // and the screen itself refuses to let them change anything.
   const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages'].includes(key) ? admin : true));
 
+  // One handler for everything the corner menu can do, so the menu itself does
+  // not have to know the difference between a screen and an action.
+  const pick = item => {
+    if (item.key === 'logout') { onLogout(); return; }
+    setNotice(''); setOpen(null); setTab(item.key);
+  };
+
   // The scan screen is a stage of its own: dark, full bleed, no rail. It is
-  // the only screen used while standing up with somebody waiting.
+  // the only screen used while standing up with somebody waiting -- and the
+  // one staff are on longest, so the menu has to be there too.
   if (tab === 'scan') {
-    return <StaffScanner brand={brand} branding={branding} role={user.role} onLogout={onLogout}
+    return <StaffScanner brand={brand} branding={branding} user={user}
+      menu={menuGroups(tabs)} onPick={pick}
       onOpenMember={member => { setOpen(member); setTab('members'); }}
       onLeave={() => setTab('members')}/>;
   }
@@ -1093,8 +1131,9 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
   const banner = notice && <div className="banner ok" role="status">
     <div className="ic" aria-hidden="true">✓</div><div><b>{notice}</b></div></div>;
 
-  return <Shell brand={brand} branding={branding} role={user.role} tabs={tabs} tab={tab} setTab={key => { setTab(key); setNotice(''); setOpen(null); }}
-    onLogout={onLogout} pilot={pilot} wide={tab === 'branding'}>
+  return <Shell brand={brand} branding={branding} user={user} tabs={tabs} tab={tab}
+    setTab={key => { setTab(key); setNotice(''); setOpen(null); }}
+    onLogout={onLogout} onPick={pick} pilot={pilot} wide={tab === 'branding'}>
     {banner}
     {tab === 'signup' && <SignUp packages={sellable} onAuthError={onAuthError}
       onCancel={() => setTab('members')}

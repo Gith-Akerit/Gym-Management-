@@ -91,8 +91,8 @@ function ratio(a, b) {
 const enter = async page => {
   await signIn(page, 'brand-admin@example.test');
   // Signing in lands on the scan stage, which has no app bar, so wait for the
-  // one control both it and the counter screens carry.
-  await page.getByRole('button', { name: 'ออกจากระบบ' }).waitFor();
+  // one control every screen carries: the menu in the corner.
+  await page.getByRole('button', { name: 'เมนู', exact: true }).waitFor();
 };
 
 /** A colour saved the way the screen saves one, then waited for on the page. */

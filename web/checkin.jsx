@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Field, formatDateTime, Loading, Mark, StateBox, useResource } from './shared.jsx';
 import { CameraScanner } from './camera.jsx';
+import { UserMenu } from './usermenu.jsx';
 
 const resultLabels = { allowed: 'เข้าใช้บริการได้', duplicate: 'เช็คอินไปแล้ว', denied: 'เข้าใช้บริการไม่ได้' };
 const resultIcon = { allowed: '✓', duplicate: '!', denied: '✕' };
@@ -17,7 +18,7 @@ const resultIcon = { allowed: '✓', duplicate: '!', denied: '✕' };
  * than the verdict, and "ไม่ใช่คนนี้" sits beside the confirmation so refusing
  * is an ordinary thing to do rather than something to go and find.
  */
-export function StaffScanner({ brand = 'ยิมของเรา', branding, role = 'staff', onLogout, onOpenMember, onLeave }) {
+export function StaffScanner({ brand = 'ยิมของเรา', branding, user, menu = [], onPick, onOpenMember, onLeave }) {
   const [device, setDevice] = useState(() => localStorage.getItem('gym.device') || '');
   const [code, setCode] = useState('');
   const [outcome, setOutcome] = useState(null);
@@ -66,10 +67,13 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
     <div className="scanbar">
       <Mark branding={branding} brand={brand}/>
       <div className="brand">จุดสแกน{device ? ` · ${device}` : ''}
-        <small>{brand} · {role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}</small></div>
+        <small>{brand} · {user?.role === 'admin' ? 'เจ้าของยิม' : 'พนักงาน'}</small></div>
       <div className="spacer"/>
       <button className="btn auto" onClick={onLeave}>ไปหน้าจัดการ</button>
-      <button className="btn auto" onClick={onLogout}>ออกจากระบบ</button>
+      {/* The same menu as every other screen. This is the screen staff stand at
+          all day, so leaving it out would mean walking off the stage to reach
+          anything -- including, once it lands, reporting what just went wrong. */}
+      <UserMenu user={user} groups={menu} onPick={onPick} footer={brand}/>
     </div>
 
     <div className="scanbody">
