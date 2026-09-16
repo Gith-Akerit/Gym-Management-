@@ -234,6 +234,18 @@ test('the mailer keeps the flow alive when the gym has not filled in its mailbox
   });
   assert.equal((await wrongPassword.send({ to: 'a@b.test', subject: 'x', text: 'y' })).reason, 'password');
 
+  // QA-02: a server that does not offer STARTTLS. requireTLS refuses to carry
+  // on, which is right -- not sending beats sending the mailbox password in
+  // the clear -- but the owner who caused it by typing port 465 was told
+  // "cause unknown", which is not something anybody can act on.
+  const noTls = createMailer({
+    load: () => settings, gapMs: 0,
+    transportFor: () => ({ sendMail: async () => { throw new Error('Server does not support secure connection (STARTTLS)'); } }),
+  });
+  const refusedTls = await noTls.send({ to: 'a@b.test', subject: 'x', text: 'y' });
+  assert.equal(refusedTls.reason, 'no_tls');
+  assert.match(refusedTls.message, /587/, 'ต้องบอกพอร์ตที่ถูกต้องให้เจ้าของยิมแก้เองได้');
+
   const offline = createMailer({
     load: () => settings, gapMs: 0,
     transportFor: () => ({ sendMail: async () => { const error = new Error('connect ECONNREFUSED'); error.code = 'ECONNREFUSED'; throw error; } }),

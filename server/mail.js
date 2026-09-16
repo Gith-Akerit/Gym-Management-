@@ -75,6 +75,18 @@ export function explainFailure(error) {
       message: 'กล่องนี้ส่งในนามอีเมลผู้ส่งที่กรอกไว้ไม่ได้ — ให้อีเมลผู้ส่งตรงกับชื่อผู้ใช้ที่ล็อกอิน',
     };
   }
+  // QA-02: a server that does not offer STARTTLS. `requireTLS` refuses to
+  // continue, which is the right answer -- failing to send beats sending the
+  // gym's mailbox password in the clear -- but the owner who caused it by
+  // typing port 25 or 465 was told "cause unknown", which they cannot act on.
+  if (/STARTTLS|does not support|not supported|SSL routines|wrong version number/i.test(text)
+    || code === 'EPROTO' || code === 'ERR_SSL_WRONG_VERSION_NUMBER') {
+    return {
+      reason: 'no_tls', raw,
+      message: 'เซิร์ฟเวอร์นี้ไม่รองรับการเข้ารหัส ระบบจึงไม่ยอมส่งรหัสผ่านออกไป — '
+        + 'เกือบทุกครั้งคือพิมพ์ชื่อเซิร์ฟเวอร์หรือพอร์ตผิด Microsoft 365 ใช้ smtp.office365.com พอร์ต 587 เท่านั้น',
+    };
+  }
   if (['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'ESOCKET', 'EDNS', 'ECONNECTION', 'EAI_AGAIN']
     .includes(code) || /timed? ?out|getaddrinfo|socket/i.test(text)) {
     return {

@@ -159,3 +159,40 @@ test('a member with an address gets their card, and one without is not a broken 
   const refused = await call('post', `/members/${member.id}/welcome`, desk, {}).expect(409);
   assert.match(refused.body.error, /ตั้งค่าอีเมล/);
 });
+
+test('staff fix an address at the counter, and are told if the card already went', async t => {
+  // QA-01: there was no screen for this at all. An address mistyped by one
+  // character meant the member's card -- a QR that opens the door, in a PNG --
+  // had been emailed to a stranger, and nothing on any screen could change it.
+  const fixture = counterFixture(t);
+  const { call, signIn, addMember, db } = fixture;
+  const desk = await signIn('desk@example.test', 'staff');
+  const member = await addMember(desk, { name: 'พิมพ์ผิด ทดสอบ', phone: '0899000777', email: 'wrogn@example.test' });
+
+  // Before the card goes out, a correction is just a correction.
+  const quiet = (await call('put', `/members/${member.id}`, desk,
+    { name: member.name, phone: member.phone, email: 'right@example.test', version: member.version }).expect(200)).body;
+  assert.equal(quiet.email, 'right@example.test');
+  assert.equal(quiet.card_went_to, undefined, 'ยังไม่เคยส่งบัตร ไม่ต้องเตือน');
+  // Staff, not only the owner -- and the audit row is what makes that safe.
+  assert.ok(db.prepare("SELECT 1 FROM audit_logs WHERE action='member.update' AND entity_id=?").get(member.id));
+
+  // Now the card goes out, and the address turns out to be wrong after all.
+  await call('post', `/members/${member.id}/welcome`, desk, {}).expect(200);
+  assert.ok(db.prepare('SELECT welcome_sent_at w FROM members WHERE id=?').get(member.id).w);
+
+  const after = (await call('put', `/members/${member.id}`, desk, {
+    name: member.name, phone: member.phone, email: 'actually-right@example.test',
+    version: quiet.version,
+  }).expect(200)).body;
+  // The screen has to be able to say WHERE it went, because the answer to
+  // "a stranger has the card" is a new card and the answer to "that was my
+  // old address" is nothing at all.
+  assert.equal(after.card_went_to, 'right@example.test');
+  // And the new address has not been sent anything, which puts the bar back
+  // on the card screen rather than leaving it looking sent.
+  assert.equal(db.prepare('SELECT welcome_sent_at w FROM members WHERE id=?').get(member.id).w, null);
+
+  // Deactivating is still the owner's: it is a decision, not a correction.
+  await call('delete', `/members/${member.id}`, desk, { version: after.version }).expect(403);
+});

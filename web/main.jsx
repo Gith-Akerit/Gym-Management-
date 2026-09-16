@@ -398,6 +398,80 @@ const MethodPicker = ({ value, onChange, onSlip, slip }) => <>
 // -------------------------------------------------------------------- card
 
 /**
+ * Correcting what was typed at the desk.
+ *
+ * QA-01: there was no way to do this at all. An address mistyped by one
+ * character meant the member's card -- a QR that opens the door, in a PNG --
+ * had been emailed to a stranger, and nothing on any screen could change it.
+ *
+ * Staff can use this, not only the owner, because the correction has to happen
+ * while the member is still standing at the counter. What makes that safe is
+ * not a narrower permission but the audit row written on every save: who
+ * changed what, and when.
+ */
+function MemberEdit({ member, onCancel, onSaved, onReissue, onAuthError }) {
+  const [value, setValue] = useState({
+    name: member.name ?? '', phone: member.phone ?? '', email: member.email ?? '',
+    date_of_birth: member.date_of_birth ?? '', emergency_contact: member.emergency_contact ?? '',
+    status: member.status ?? 'active',
+  });
+  const [busy, setBusy] = useState(false), [error, setError] = useState(null);
+  // Set when the save came back saying the card had already gone to the old
+  // address. It is not an error, it is a thing somebody now has to decide.
+  const [wentTo, setWentTo] = useState(null);
+
+  async function save() {
+    setBusy(true); setError(null);
+    try {
+      const saved = await api(`/members/${member.id}`, { method: 'PUT', body: {
+        name: value.name, phone: value.phone, email: value.email || null,
+        date_of_birth: value.date_of_birth || null,
+        emergency_contact: value.emergency_contact || '',
+        status: value.status, version: member.version,
+      } });
+      if (saved.card_went_to) { setWentTo(saved.card_went_to); return; }
+      onSaved(saved, 'บันทึกข้อมูลสมาชิกแล้ว');
+    } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); }
+  }
+
+  if (wentTo) {
+    return <div style={{ maxWidth: 620 }}>
+      <h1>แก้อีเมลแล้ว · แต่บัตรถูกส่งไปแล้ว</h1>
+      <div className="alert warn" role="alert">
+        <div className="ic" aria-hidden="true">!</div>
+        <div><b>บัตรสมาชิกใบนี้ถูกส่งไปที่ {wentTo} เรียบร้อยแล้วก่อนหน้านี้</b>
+          <span>บัตรคือรูป QR ที่ใช้เข้ายิมแทนตัวลูกค้า ใครถือก็เข้าได้ ·
+            ถ้าอีเมลเดิมเป็นของคนอื่น <b>ต้องออกบัตรใหม่</b> เพื่อให้ใบเก่าใช้ไม่ได้ทันที
+            ถ้าเป็นอีเมลเก่าของลูกค้าเองที่เขายังเปิดได้ ไม่ต้องทำอะไรเพิ่ม</span></div>
+      </div>
+      <div className="btn-row" style={{ marginTop: 'var(--sp-5)' }}>
+        <button className="btn danger" onClick={onReissue}>ออกบัตรใหม่ · ฆ่าบัตรใบเดิม</button>
+        <button className="btn ghost" onClick={() => onSaved(null, 'บันทึกข้อมูลสมาชิกแล้ว')}>
+          ไม่ต้องออกบัตรใหม่</button>
+      </div>
+      <p className="note">เลือกอย่างใดอย่างหนึ่งแล้วกลับไปหน้าบัตรได้ · ส่งบัตรไปที่อีเมลใหม่ได้จากปุ่มบนหน้าบัตร</p>
+    </div>;
+  }
+
+  return <div style={{ maxWidth: 620 }}>
+    <button className="btn auto ghost" style={{ marginBottom: 'var(--sp-4)' }} onClick={onCancel}>← กลับหน้าบัตร</button>
+    <h1>แก้ไขข้อมูลสมาชิก</h1>
+    <p className="sub">{member.member_code} · ทุกการแก้ไขถูกบันทึกไว้ว่าใครแก้และแก้เมื่อไหร่</p>
+    <div className="block">
+      <ProfileFields value={value} setValue={setValue} includeEmail errors={error?.fields}/>
+      <Notice error={error}/>
+      <div className="btn-row" style={{ marginTop: 'var(--sp-4)' }}>
+        <button className="btn ghost" onClick={onCancel} disabled={busy}>ยกเลิก</button>
+        <button className="btn primary" onClick={save} disabled={busy || !value.name.trim() || !value.phone.trim()}>
+          {busy ? 'กำลังบันทึก…' : 'บันทึกการแก้ไข'}</button>
+      </div>
+    </div>
+    <p className="note">แก้อีเมลแล้วบัตรใบเดิมยังใช้ได้ตามปกติ QR ไม่เปลี่ยน ·
+      ถ้าเคยส่งบัตรไปที่อีเมลเดิมแล้ว ระบบจะถามว่าจะออกบัตรใหม่หรือไม่</p>
+  </div>;
+}
+
+/**
  * The card, on the screen of whoever is going to send it.
  *
  * Two ways of getting it to a member, kept apart by behaviour rather than only
@@ -412,6 +486,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   const [reason, setReason] = useState('ลูกค้าแจ้งว่าบัตรหลุดไปถึงคนอื่น');
   const [stamp, setStamp] = useState(member.photo_updated_at ?? 0), [preview, setPreview] = useState(null);
   const [photoFailure, setPhotoFailure] = useState(null);
+  const [editing, setEditing] = useState(false);
   // A new query string whenever anything drawn on the card changes, so a
   // reissued card is not the browser's copy of the cancelled one.
   // The readability goes in the key too: when a stored photograph turns out to
@@ -514,12 +589,34 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     </div>;
   }
 
+  if (editing) {
+    return <MemberEdit member={data?.member ?? member} onAuthError={onAuthError}
+      onCancel={() => setEditing(false)}
+      onReissue={() => { setEditing(false); setConfirm(true); }}
+      onSaved={(saved, message) => {
+        setEditing(false);
+        onChanged(message);
+        reload().catch(() => {});
+        if (saved) setStamp(Date.now());
+      }}/>;
+  }
+
   return <>
     <button className="btn auto ghost" style={{ marginBottom: 'var(--sp-4)' }} onClick={onBack}>← กลับรายชื่อสมาชิก</button>
     <h1>บัตรสมาชิก</h1>
     <p className="sub">{member.name} · <span className="num">{member.member_code}</span></p>
     <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
     {busy ? <Loading label="กำลังสร้างบัตร…" rows={2} avatar={false}/> : !error && <>
+      {/* QA-04: the wizard posts the card letter without waiting for it, so a
+          mail server having a bad minute was completely silent -- the only
+          sign was a button that still said "ส่งบัตรทางอีเมล" instead of
+          "…อีกครั้ง", which nobody notices. Said out loud instead. */}
+      {data.member?.email && !data.member?.welcome_sent_at && <div className="banner bad" role="status">
+        <div className="ic" aria-hidden="true">!</div>
+        <div><b>ยังไม่ได้ส่งบัตรทางอีเมล</b>
+          <span>ลูกค้ายังไม่ได้รับบัตรที่ {data.member.email} · กดปุ่ม “ส่งบัตรทางอีเมล” ด้านขวาเพื่อส่ง
+            ถ้ากดแล้วยังไม่ออก แปลว่ายิมยังไม่ได้ตั้งค่าอีเมล บอกเจ้าของยิมได้</span></div>
+      </div>}
       {brokenPhoto
         ? <div className="banner bad" role="alert"><div className="ic" aria-hidden="true">!</div>
             <div><b>รูปถ่ายของสมาชิกรายนี้ใช้ไม่ได้ กรุณาถ่ายใหม่</b>
@@ -562,6 +659,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
           {emailed && <div className="banner ok" role="status">
             <div className="ic" aria-hidden="true">✓</div><div><b>{emailed}</b></div></div>}
           <button className="btn ghost" disabled={working} onClick={resend}>ส่งบัตรซ้ำ (ลิงก์ 7 วัน)</button>
+          <button className="btn ghost" onClick={() => setEditing(true)}>แก้ไขข้อมูลสมาชิก</button>
           {link && <div className="soft">
             <b>ลิงก์ดาวน์โหลดบัตรใบเดิม</b>
             <p className="note" style={{ margin: '6px 0' }}>

@@ -83,19 +83,22 @@ test('anonymous callers reach nothing, and staff reach only what the counter nee
   const { login, call } = fixture(t); const admin = await login('admin@example.test', 'admin');
   const target = await call('post', '/members', admin, member()).expect(201);
   const staff = await login('staff@example.test', 'staff');
-  // Nobody signed in reaches any of it. Staff sign people up and read them --
-  // that is counter work now -- but editing, suspending and the audit trail
-  // stay with the owner.
+  // Nobody signed in reaches any of it.
   for (const [method, path, body] of [['get', '/members'], ['get', `/members/${target.body.id}`],
     ['post', '/members', member(2)], ['put', `/members/${target.body.id}`, { ...member(), version: 1 }],
     ['delete', `/members/${target.body.id}`, { version: 1 }], ['get', `/members/${target.body.id}/audit`]]) {
     await call(method, path, null, body).expect(401);
   }
-  for (const [method, path, body] of [['put', `/members/${target.body.id}`, { ...member(), version: 1 }],
-    ['delete', `/members/${target.body.id}`, { version: 1 }], ['get', `/members/${target.body.id}/audit`]]) {
+  // Staff sign people up, read them, AND correct what was typed -- QA-01:
+  // an address mistyped at the desk sends the member's card to a stranger,
+  // and that has to be fixable while the member is still standing there.
+  // What stays with the owner is the decision (suspending) and the history.
+  for (const [method, path, body] of [['delete', `/members/${target.body.id}`, { version: 1 }],
+    ['get', `/members/${target.body.id}/audit`]]) {
     await call(method, path, staff, body).expect(403);
   }
   await call('get', '/members', staff).expect(200);
+  await call('put', `/members/${target.body.id}`, staff, { ...member(), version: 1 }).expect(200);
 });
 test('suspending a member and changing their address leaves the record intact', async t => {
   const { login, call, db } = fixture(t); const admin = await login('admin@example.test', 'admin');

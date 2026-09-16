@@ -173,7 +173,16 @@ test('the menu opens the staff guide', async ({ page }) => {
   ]);
   // Served out of the repository, so the manual on the machine is the manual
   // for the version on the machine.
+  //
+  // QA-05: `manual.url()` is empty on Chrome Headless Shell 153 for a popup
+  // opened with `noopener`, so reading it straight away threw "Invalid URL".
+  // Waiting for the address is the fix -- and the request confirms the file
+  // is really there rather than only that a tab opened.
+  await manual.waitForURL(/manual\.pdf/);
   expect(new URL(manual.url()).pathname).toBe('/manual.pdf');
+  const served = await page.request.get('/manual.pdf');
+  expect(served.status()).toBe(200);
+  expect(served.headers()['content-type']).toContain('application/pdf');
   await manual.close();
 });
 

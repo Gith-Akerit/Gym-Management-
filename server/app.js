@@ -693,12 +693,29 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
           db.prepare('UPDATE members SET user_id=? WHERE id=?').run(userId, before.id);
         }
       }
+      // QA-01: the card is a QR that opens the door, and it was emailed to
+      // whatever address was typed. If that address was wrong, the card is in
+      // a stranger's inbox -- so changing it has to say so, and offer the only
+      // thing that actually fixes it: a new card, which kills the old QR.
+      const cardWentTo = (values.email !== before.email && before.welcome_sent_at)
+        ? before.email : null;
+      if (values.email !== before.email) {
+        // The new address has not been sent anything. Clearing this is what
+        // puts the "ยังไม่ได้ส่งบัตรทางอีเมล" bar back on the card screen.
+        db.prepare('UPDATE members SET welcome_sent_at=NULL,portal_invited_at=NULL WHERE id=?').run(before.id);
+      }
       const after = getMember(db, before.id);
       audit(db, req.user.id, deactivate ? 'member.deactivate' : 'member.update', before.id, before, after, now());
-      return publicMember(after);
+      return { ...publicMember(after), ...(cardWentTo && { card_went_to: cardWentTo }) };
     });
   }
-  app.put('/api/members/:id', admin, (req, res) => res.json(update(req)));
+  // QA-01: staff, not only the owner. Fixing an address typed wrong at the
+  // counter has to finish at the counter -- with the member still standing
+  // there -- or the card stays in a stranger's inbox until the owner next
+  // signs in. Every edit is audited, which is what makes opening it up safe.
+  app.put('/api/members/:id', counter, (req, res) => res.json(update(req)));
+  // Deactivating stays with the owner: it is not a correction, it is a
+  // decision about whether somebody is still a member.
   app.delete('/api/members/:id', admin, (req, res) => res.json(update(req, true)));
   app.get('/api/members/:id/audit', admin, (req, res) => {
     const rows = db.prepare('SELECT * FROM audit_logs WHERE entity_id=? ORDER BY created_at DESC,id LIMIT 100').all(req.params.id);

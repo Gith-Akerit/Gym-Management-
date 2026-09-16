@@ -168,3 +168,65 @@ test('the camera help names the machine in front of the person reading it', asyn
   expect(help.ipad, 'ต้องมีวิธีของ iPad').toBe(true);
   expect(help.padlockOnly, 'คำแนะนำเดิมที่อ้างกุญแจข้าง URL อย่างเดียวต้องไม่เหลือ').toBe(false);
 });
+
+test('an address typed wrong at the desk is fixed at the desk, by whoever is on shift', async ({ page }) => {
+  // QA-01: there was no screen for this. One character wrong in an address
+  // meant the member's card -- a QR that opens the door -- had been emailed to
+  // a stranger, and nothing in the app could change it.
+  await signIn(page, 'hotfix-staff@example.test');
+  await go(page, 'สมัครสมาชิก');
+  await page.getByLabel('เลือกรูปจากเครื่องแทน')
+    .setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: PNG_PIXEL });
+  await page.getByRole('button', { name: 'ถัดไป · ชื่อและเบอร์' }).click();
+  await page.getByLabel('ชื่อ–นามสกุล').fill('QA-TEST พิมพ์ผิด');
+  await page.getByLabel('เบอร์มือถือ').fill('0899000654');
+  await page.getByLabel('อีเมล (ไม่บังคับ)').fill('wrogn@example.test');
+  await page.getByRole('button', { name: 'ถัดไป · แพ็กเกจและเงิน' }).click();
+  await page.getByRole('button', { name: 'บันทึกและออกบัตร' }).click();
+  await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+  // QA-04: the wizard posts the card without waiting, so a mail server having
+  // a bad minute was completely silent. Said out loud on the card screen.
+  await expect.poll(async () => {
+    const box = await (await page.request.get('/__test/outbox?to=wrogn@example.test')).json();
+    return box.items.length;
+  }).toBeGreaterThan(0);
+
+  // A member of staff -- not the owner -- opens the correction.
+  await page.getByRole('button', { name: 'แก้ไขข้อมูลสมาชิก' }).click();
+  await expect(page.getByRole('heading', { name: 'แก้ไขข้อมูลสมาชิก' })).toBeVisible();
+  await expect(page.getByText(/ทุกการแก้ไขถูกบันทึกไว้/)).toBeVisible();
+  await page.getByLabel('อีเมล (ไม่บังคับ)').fill('right@example.test');
+  await page.getByRole('button', { name: 'บันทึกการแก้ไข' }).click();
+
+  // The card already went to the old address, so the screen says where, and
+  // offers the only thing that actually fixes it.
+  await expect(page.getByRole('heading', { name: /แก้อีเมลแล้ว/ })).toBeVisible();
+  await expect(page.getByText(/wrogn@example\.test/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ออกบัตรใหม่ · ฆ่าบัตรใบเดิม' })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/qa01-email-changed-1280.png', fullPage: true });
+
+  await page.getByRole('button', { name: 'ไม่ต้องออกบัตรใหม่' }).click();
+  await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+  // QA-04 again: the new address has had nothing, and the card screen says so
+  // rather than leaving a button nobody reads as the only signal.
+  await expect(page.getByText('ยังไม่ได้ส่งบัตรทางอีเมล')).toBeVisible();
+  await expect(page.getByText(/right@example\.test/)).toBeVisible();
+  await page.screenshot({ path: 'artifacts/qa04-card-not-sent-1280.png', fullPage: true });
+});
+
+test('the way back in on the front screen is big enough to hit', async ({ page }) => {
+  // QA-03: 26px. The one way back in on the front screen, pressed by somebody
+  // who is already in a hurry, and the only control in the system under 44.
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const box = await page.getByRole('button', { name: 'ลืมรหัสผ่าน' }).boundingBox();
+    expect(box.height, `ปุ่มลืมรหัสผ่านที่ ${width}px สูง ${box.height}px`).toBeGreaterThanOrEqual(44);
+  }
+  // QA-07: every other screen formats the number; these two printed it raw.
+  const shown = await page.locator('.authfoot').innerText();
+  if (/\d/.test(shown)) expect(shown, 'เบอร์บนหน้าแรกต้องจัดรูปแบบเหมือนหน้าอื่น').toMatch(/\d{2,3}-\d{3}-\d{3,4}/);
+  await page.setViewportSize({ width: 1280, height: 900 });
+});

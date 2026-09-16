@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, Field } from './shared.jsx';
+import { api, Field, formatPhone } from './shared.jsx';
 
 /**
  * Everything that happens before somebody is signed in.
@@ -39,7 +39,7 @@ const Stage = ({ brand, branding, title, children, help = true }) =>
       </div>
       <div className="authcard">{children}</div>
       {help && branding?.phone && <p className="authhelp">
-        ติดปัญหา โทรหายิมได้ที่ <b>{branding.phone}</b></p>}
+        ติดปัญหา โทรหายิมได้ที่ <b>{formatPhone(branding.phone)}</b></p>}
     </div>
   </div>;
 
@@ -113,7 +113,7 @@ export function AuthScreens({ brand, branding, onLogin, initialPanel = 'login' }
         <p className="note">เมื่ออนุมัติแล้วจะมีอีเมลแจ้ง แล้วเข้าสู่ระบบด้วยรหัสผ่านเดิมได้ทันที</p>
       </Result>
       {branding?.phone && <a className="btn primary xl" href={`tel:${branding.phone}`}>
-        โทรหายิม {branding.phone}</a>}
+        โทรหายิม {formatPhone(branding.phone)}</a>}
       <button className="btn" style={{ marginTop: 'var(--sp-3)' }}
         onClick={() => show('login')}>กลับไปหน้าเข้าสู่ระบบ</button>
     </Stage>;
@@ -128,7 +128,7 @@ export function AuthScreens({ brand, branding, onLogin, initialPanel = 'login' }
         <p className="note">ถ้าคิดว่าเป็นความเข้าใจผิด ติดต่อเจ้าของยิมได้โดยตรง</p>
       </Result>
       {branding?.phone && <a className="btn primary xl" href={`tel:${branding.phone}`}>
-        โทรหายิม {branding.phone}</a>}
+        โทรหายิม {formatPhone(branding.phone)}</a>}
       <button className="btn" style={{ marginTop: 'var(--sp-3)' }}
         onClick={() => show('login')}>กลับไปหน้าเข้าสู่ระบบ</button>
     </Stage>;
@@ -198,8 +198,13 @@ function LoginPanel({ open, phone, mailReady, onLogin, onForgot, onSignup, onPen
           onChange={event => setPassword(event.target.value)}/>
         {error && <p className="err" id="password-error" role="alert">✕ {error.message}</p>}
       </div>
+      {/* QA-03: this was 26px tall -- the one way back in on the front
+          screen, pressed by somebody who is already in a hurry, and the only
+          control in the system under the 44px target. */}
       <button className="authlink" type="button" onClick={onForgot}
-        style={{ background: 'none', border: 0, cursor: 'pointer', marginLeft: 'auto' }}>ลืมรหัสผ่าน</button>
+        style={{ background: 'none', border: 0, cursor: 'pointer', marginLeft: 'auto',
+          minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 4px' }}>
+        ลืมรหัสผ่าน</button>
       <button className="btn primary xl" disabled={busy} aria-disabled={busy || undefined}>
         {busy ? <><span className="spin"/>กำลังเข้าสู่ระบบ…</> : 'เข้าสู่ระบบ'}</button>
     </form>
@@ -233,7 +238,7 @@ function LoginPanel({ open, phone, mailReady, onLogin, onForgot, onSignup, onPen
         The gap has to be filled with the answer, not left silent. */}
     {!open && <div className="authfoot">
       บัญชีพนักงานออกให้โดยเจ้าของยิมเท่านั้น
-      {phone && <> · ต้องการบัญชีใหม่ โทร <b>{phone}</b></>}
+      {phone && <> · ต้องการบัญชีใหม่ โทร <b>{formatPhone(phone)}</b></>}
       {/* Until the gym fills in its mailbox, "ลืมรหัสผ่าน" posts nothing --
           so the way back in is named here rather than discovered by waiting
           for a letter that never arrives (QA). */}
@@ -320,7 +325,7 @@ function ForgotPanel({ mailReady, phone, onSent, onCancel }) {
       <div className="ic" aria-hidden="true">!</div>
       <div><b>ยิมนี้ยังไม่ได้ตั้งค่าการส่งอีเมล</b>
         <span>กดส่งได้ตามปกติ แต่ตอนนี้จะยังไม่มีจดหมายออก — ให้ติดต่อเจ้าของยิม
-          {phone ? ` ที่ ${phone} ` : ' '}เพื่อขอลิงก์ตั้งรหัสผ่าน เจ้าของยิมสร้างให้ได้จากหน้า “ผู้ใช้และสิทธิ์”</span></div>
+          {phone ? ` ที่ ${formatPhone(phone)} ` : ' '}เพื่อขอลิงก์ตั้งรหัสผ่าน เจ้าของยิมสร้างให้ได้จากหน้า “ผู้ใช้และสิทธิ์”</span></div>
     </div>}
     <Field label="อีเมล" name="forgot-email" type="email" value={email} onChange={setEmail}
       required autoComplete="username" disabled={busy} error={failure?.fields?.email}/>
