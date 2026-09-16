@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
         'value, then clears PILOT_MODE and restarts.' \
         'Preserve existing CARD_SIGNING_SECRET, credentials and volume on rerun.' \
         'Build app; allow only TCP 22/80/443 on a dedicated host; start Caddy/app.' \
-        'Install daily consistent backup and monthly prune; check HTTPS health.'
+        'Install daily backup, daily report prune, monthly slip prune; check health.'
       return 0 ;;
     --pilot) pilot=1; shift ;;
     --revision)
@@ -118,11 +118,17 @@ admin_email=$(sed -n "s/^ADMIN_EMAIL='\(.*\)'\$/\1/p" .env | head -n1)
 python3 deploy/bootstrap-env.py --clear-admin
 docker compose up -d --wait --wait-timeout 120 app
 install -d -m 700 /var/backups/gym
+# Slips are pruned monthly because a year of them is the retention rule, and a
+# few extra days either side of the 1st changes nothing. Report screenshots are
+# pruned daily: they carry whatever was on the screen at the time -- a member's
+# name and photo -- so "180 days" should mean 180, not "180 plus up to a month".
+# Both take the same lock, so neither can run while the other is halfway done.
 cat > /etc/cron.d/gym-pilot <<'CRON'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 17 2 * * * root /bin/bash /srv/gym/deploy/backup.sh >> /var/log/gym-backup.log 2>&1
 17 3 1 * * root /usr/bin/flock -n /run/gym-maintenance.lock /bin/bash -c 'cd /srv/gym && docker compose exec -T app npm run slips:prune' >> /var/log/gym-prune.log 2>&1
+37 3 * * * root /usr/bin/flock -n /run/gym-maintenance.lock /bin/bash -c 'cd /srv/gym && docker compose exec -T app npm run reports:prune' >> /var/log/gym-prune.log 2>&1
 CRON
 chmod 644 /etc/cron.d/gym-pilot
 bash deploy/backup.sh
