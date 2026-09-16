@@ -41,7 +41,14 @@ export const updateSchema = z.object({
   version: z.number().int().positive(),
 }).strict();
 export class HttpError extends Error {
-  constructor(status, message, fields) { super(message); this.status = status; this.fields = fields; }
+  /**
+   * `fields` puts a message under a particular input. `detail` is for a refusal
+   * the screen has to ACT on rather than print -- an expired membership, where
+   * the answer is a different screen and not a red line under a box.
+   */
+  constructor(status, message, fields, detail) {
+    super(message); this.status = status; this.fields = fields; this.detail = detail;
+  }
 }
 const THAI = /[฀-๿]/;
 

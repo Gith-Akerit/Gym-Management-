@@ -107,6 +107,12 @@ export async function api(path, options = {}) {
   if (!response.ok) {
     const error = new Error(data.error || 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง');
     error.fields = data.fields; error.status = response.status; error.requestId = data.request_id;
+    // Whatever else the server put in the body. A refusal the screen has to
+    // ACT on -- which of three mail failures this was, or that a membership
+    // expired on the 3rd -- arrives here, and dropping it on the floor forces
+    // the screen to guess from the wording of a sentence.
+    const { error: _message, fields: _fields, request_id: _id, ...rest } = data ?? {};
+    Object.assign(error, rest);
     throw error;
   }
   return data;

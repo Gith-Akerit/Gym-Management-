@@ -13,12 +13,19 @@ const OWNER = 'mail-admin@example.test';
 
 test('the owner fills in the gym mailbox and proves it works by sending a letter', async ({ page }) => {
   await signIn(page, OWNER);
-  await go(page, 'ตั้งค่าอีเมล');
+  await go(page, 'ตั้งค่ายิม');
+  // A tab on the settings page, not an eighth entry in the menu -- and the dot
+  // on it says there is something unfinished behind it before it is opened.
+  await expect(page.locator('.settabs .dotwarn')).toBeVisible();
+  await page.getByRole('link', { name: /อีเมลของระบบ/ }).click();
 
   // Said plainly before anything is typed: nothing is broken, letters just do
-  // not go out, and here is what to do in the meantime.
-  await expect(page.getByText('ยังส่งอีเมลไม่ได้')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ส่งเมลทดสอบถึงตัวเอง' })).toBeDisabled();
+  // not go out, and here is what to do in the meantime -- as consequences,
+  // because "not configured yet" does not tell anybody their customers are
+  // not getting their cards.
+  await expect(page.getByText('ระบบยังส่งอีเมลไม่ได้')).toBeVisible();
+  await expect(page.getByText(/ไม่ได้รับ/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ส่งเมลทดสอบ' })).toBeDisabled();
   await page.screenshot({ path: 'artifacts/mail-settings-empty-1280.png', fullPage: true });
 
   // Office 365 out of the box, because that is what this gym has.
@@ -29,16 +36,21 @@ test('the owner fills in the gym mailbox and proves it works by sending a letter
   await page.getByLabel('อีเมลผู้ส่ง').fill('info@suklutai.co.th');
   await page.getByRole('button', { name: 'กรอกรหัสผ่าน' }).click();
   await page.getByLabel('รหัสผ่านของกล่องจดหมาย').fill('app-password-from-the-owner');
+  // "ดูรหัส" exists only while it is being typed. After it is saved there is
+  // no way to read it back, here or anywhere else.
+  await expect(page.getByRole('button', { name: 'ดูรหัส' })).toBeVisible();
   await page.getByRole('button', { name: 'บันทึกการตั้งค่าอีเมล' }).click();
 
-  await expect(page.getByText('ระบบส่งอีเมลได้แล้ว')).toBeVisible();
-  // The password is represented by a word, never by a box full of dots that
-  // would be a lie: there is no route in this system that returns it.
-  await expect(page.getByText('✓ ตั้งไว้แล้ว')).toBeVisible();
+  await expect(page.getByText('ระบบส่งอีเมลได้', { exact: false }).first()).toBeVisible();
+  // A label and a button, never an input holding fake dots -- an input with a
+  // value in it invites a save-over by accident.
+  await expect(page.getByText('✓ ตั้งค่าไว้แล้ว')).toBeVisible();
   await expect(page.getByLabel('รหัสผ่านของกล่องจดหมาย')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ดูรหัส' })).toHaveCount(0);
+  await expect(page.locator('.settabs .dotwarn')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'ส่งเมลทดสอบถึงตัวเอง' }).click();
-  await expect(page.getByText('ส่งสำเร็จ')).toBeVisible();
+  await page.getByRole('button', { name: 'ส่งเมลทดสอบ' }).click();
+  await expect(page.getByText('ส่งเมลทดสอบแล้ว')).toBeVisible();
   // To whoever pressed it, never to an address typed into a box.
   const letters = await (await page.request.get(`/__test/outbox?to=${OWNER}`)).json();
   expect(letters.items.length).toBeGreaterThan(0);
@@ -49,12 +61,24 @@ test('the owner fills in the gym mailbox and proves it works by sending a letter
   await expect(page.getByText(/Authenticated SMTP/).first()).toBeVisible();
 });
 
-test('staff never see this screen', async ({ page }) => {
+test('staff are told whether it works and are shown nothing else', async ({ page }) => {
   await signIn(page, 'mail-staff@example.test');
   await openUserMenu(page);
+  // Not an entry in the menu for anybody any more.
   await expect(page.getByRole('menuitem', { name: 'ตั้งค่าอีเมล' })).toHaveCount(0);
   // But they do get the one row everybody gets.
   await expect(page.getByRole('menuitem', { name: 'เปลี่ยนรหัสผ่าน' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await go(page, 'ตั้งค่ายิม');
+  await page.getByRole('link', { name: /อีเมลของระบบ/ }).click();
+  // One sentence, because "do customers get their card by email?" is a
+  // question staff get asked at the counter. No host, no username, and no
+  // hint about the mailbox the gym signs in with (Designer, screen 8).
+  await expect(page.getByText(/ระบบส่งอีเมลได้ตามปกติ|ระบบยังส่งอีเมลไม่ได้/)).toBeVisible();
+  await expect(page.getByLabel('ชื่อผู้ใช้ (อีเมลที่ใช้ล็อกอินกล่องนี้)')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ส่งเมลทดสอบ' })).toHaveCount(0);
+  await page.screenshot({ path: 'artifacts/mail-settings-staff-1280.png', fullPage: true });
 });
 
 test('the owner hands a new member of staff a link instead of a password', async ({ page }) => {
@@ -153,4 +177,70 @@ test('a member who gives an address gets their card, and the counter is told', a
   // what matters is that the button is there at all.)
   await expect(page.getByRole('button', { name: /ส่งบัตรทางอีเมล/ })).toBeVisible();
   await page.screenshot({ path: 'artifacts/member-card-email-1280.png', fullPage: true });
+});
+
+test('a mail server refusal is translated into steps the owner can follow', async ({ page }) => {
+  await signIn(page, 'diag-admin@example.test');
+  await go(page, 'ตั้งค่ายิม');
+  await page.getByRole('link', { name: /อีเมลของระบบ/ }).click();
+  await page.getByLabel('ชื่อผู้ใช้ (อีเมลที่ใช้ล็อกอินกล่องนี้)').fill('info@suklutai.co.th');
+  await page.getByLabel('อีเมลผู้ส่ง').fill('info@suklutai.co.th');
+  // The spec files share one server, so by now a mailbox may already be saved
+  // and the button reads "แทนที่รหัส" rather than "กรอกรหัสผ่าน".
+  await page.getByRole('button', { name: /กรอกรหัสผ่าน|แทนที่รหัส/ }).click();
+  await page.getByLabel('รหัสผ่านของกล่องจดหมาย').fill('whatever-they-typed');
+  await page.getByRole('button', { name: 'บันทึกการตั้งค่าอีเมล' }).click();
+  await expect(page.getByText('ระบบส่งอีเมลได้', { exact: false }).first()).toBeVisible();
+
+  // The one that costs an afternoon if it is read as a wrong password. The
+  // first sentence has to say so out loud.
+  await page.request.post('/__test/refuse-mail', {
+    headers: { 'X-Gym-Client': 'web' },
+    data: { reason: 'smtp_disabled', message: 'กล่องนี้ยังไม่ได้เปิดให้โปรแกรมส่งเมลแทน',
+      raw: '535 5.7.139 SmtpClientAuthentication is disabled for the Mailbox' },
+  });
+  await page.getByRole('button', { name: 'ส่งเมลทดสอบ' }).click();
+  await expect(page.getByText('กล่องนี้ยังไม่ได้เปิดให้โปรแกรมส่งเมลแทน').first()).toBeVisible();
+  await expect(page.getByText('นี่ไม่ใช่รหัสผ่านผิด')).toBeVisible();
+  // The step everybody skips, and the reason they conclude the system is broken.
+  await expect(page.getByText(/รอ 10–15 นาที/)).toBeVisible();
+  await expect(page.locator('.mpath span').filter({ hasText: 'Manage email apps' })).toBeVisible();
+  // The raw text exists, and it is folded away rather than thrown at them.
+  const raw = page.locator('details.raw');
+  await expect(raw).toBeVisible();
+  await expect(raw.locator('pre')).toBeHidden();
+  await expect(page.locator('.settabs .dotbad')).toBeVisible();
+  await page.screenshot({ path: 'artifacts/mail-diag-smtp-disabled-1280.png', fullPage: true });
+
+  // A different refusal gives different instructions, not the same red box.
+  await page.request.post('/__test/refuse-mail', {
+    headers: { 'X-Gym-Client': 'web' },
+    data: { reason: 'password', message: 'Microsoft ไม่รับรหัสผ่านนี้', raw: '535 5.7.3 Authentication unsuccessful' },
+  });
+  await page.getByRole('button', { name: 'ส่งเมลทดสอบ' }).click();
+  await expect(page.getByText('Microsoft ไม่รับรหัสผ่านนี้').first()).toBeVisible();
+  await expect(page.locator('.mpath span').filter({ hasText: 'myaccount.microsoft.com' })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/mail-diag-password-1280.png', fullPage: true });
+
+  // And one nobody anticipated still lands on a screen that says what to do.
+  await page.request.post('/__test/refuse-mail', {
+    headers: { 'X-Gym-Client': 'web' },
+    data: { reason: 'something-new', message: 'ส่งไม่สำเร็จ', raw: 'who knows' },
+  });
+  await page.getByRole('button', { name: 'ส่งเมลทดสอบ' }).click();
+  await expect(page.getByText('ส่งไม่สำเร็จ และยังไม่ทราบสาเหตุ').first()).toBeVisible();
+  await expect(page.getByText(/กดแจ้งปัญหา/).first()).toBeVisible();
+});
+
+test('the sender that Microsoft would refuse is caught before anything is sent', async ({ page }) => {
+  await signIn(page, 'diag-admin@example.test');
+  await go(page, 'ตั้งค่ายิม');
+  await page.getByRole('link', { name: /อีเมลของระบบ/ }).click();
+  await page.getByLabel('ชื่อผู้ใช้ (อีเมลที่ใช้ล็อกอินกล่องนี้)').fill('info@suklutai.co.th');
+  await page.getByLabel('อีเมลผู้ส่ง').fill('someone-else@suklutai.co.th');
+
+  // Microsoft answers this with a message that reads exactly like a wrong
+  // password, so the screen says it plainly before a letter is ever sent.
+  await expect(page.getByText('อีเมลผู้ส่งไม่ตรงกับชื่อผู้ใช้')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'บันทึกการตั้งค่าอีเมล' })).toBeDisabled();
 });

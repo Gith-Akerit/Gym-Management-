@@ -102,7 +102,8 @@
 .alert.warn{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
 .alert.err{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
 .alert.info{background:var(--brand-soft);border-color:var(--brand-line);color:var(--brand-ink)}
-.alert b{display:block}
+/* scope ไว้ที่หัวข้อเท่านั้น — ไม่งั้น <b> ที่ใช้เน้นคำกลางประโยคจะตกบรรทัด */
+.alert>div>b:first-child{display:block}
 .alert span{color:var(--ink-2);font-weight:400;display:block;margin-top:2px}
 .alert.warn span,.alert.err span{color:inherit;opacity:.9}
 
@@ -133,6 +134,9 @@
 .savebar .btn{width:auto;min-width:150px}
 
 /* โหมดพนักงาน = อ่านอย่างเดียว */
+/* A11Y-01 เหตุผลเดียวกับปุ่มที่กดไม่ได้: โหมดอ่านอย่างเดียวต้องยังอ่านออก */
+.readonly .sect input,.readonly .sect select,.readonly .sect button{pointer-events:none;
+  background:var(--canvas);border-color:var(--line-ctl);color:var(--ink-2);opacity:1}
 .readonly .savebar{display:none}
 
 @media (max-width:899px){
@@ -264,6 +268,148 @@
 .rep .btn{width:auto;min-height:48px;font-size:var(--fs-16)}
 .rep.unread{border-color:var(--brand-line);border-width:3px;padding:calc(var(--sp-4) - 1px)}
 
+
+
+
+/* ============================================ แท็บ "อีเมลของระบบ" =========
+   ยกจาก mail-settings.css ของ Designer · อยู่ในหน้าตั้งค่ายิม ไม่ใช่รายการที่ 9
+   ในเมนูข้าง เพราะเมนูที่ยาวขึ้นทุกครั้งที่มีของใหม่คือเมนูที่พังในอีกสามเดือน
+   คนอ่านหน้านี้คือเจ้าของยิม ไม่ใช่ผู้ดูแลระบบสายไอที ทุกคำที่ขึ้นบนจอจึงต้อง
+   แปลเป็น "แล้วผมต้องกดอะไรต่อ" ได้ทันที
+   ========================================================================== */
+
+/* ------------------------------------------------ แท็บย่อยในหน้าตั้งค่า -- */
+/* ไม่เพิ่มรายการที่ 9 ในเมนูข้าง — เมนูยาวขึ้นทุกครั้งที่มีของใหม่คือทางที่ผิด
+   อีเมลเป็นการตั้งค่าของยิมเหมือนโลโก้และสี จึงอยู่หน้าเดียวกันคนละแท็บ */
+.settabs{display:flex;gap:var(--sp-2);border-bottom:3px solid var(--line);
+  margin:0 0 var(--sp-5);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.settabs a{flex:none;display:flex;align-items:center;gap:8px;min-height:56px;padding:0 var(--sp-4);
+  font-size:var(--fs-18);font-weight:700;color:var(--ink-2);text-decoration:none;
+  border-bottom:4px solid transparent;margin-bottom:-3px;white-space:nowrap}
+.settabs a:hover{color:var(--ink)}
+.settabs a[aria-current]{color:var(--brand-ink);border-bottom-color:var(--brand-surface)}
+.settabs .dotwarn{width:11px;height:11px;border-radius:50%;background:var(--warn);flex:none}
+.settabs .dotbad{width:11px;height:11px;border-radius:50%;background:var(--bad);flex:none}
+
+/* ------------------------------------------------ แถบสถานะการส่งอีเมล --- */
+/* สถานะต้องอยู่บนสุดเสมอ เพราะคำถามแรกของเจ้าของยิมคือ "ตอนนี้ส่งได้ไหม"
+   ไม่ใช้แค่สีบอกสถานะ มีทั้งไอคอนและข้อความกำกับ (WCAG 1.4.1) */
+.mstat{display:flex;gap:var(--sp-4);align-items:flex-start;border-radius:var(--r-2);
+  border:3px solid;padding:var(--sp-5);margin-bottom:var(--sp-5)}
+.mstat .ic{width:56px;height:56px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-size:28px;font-weight:800}
+.mstat .tx{flex:1;min-width:0}
+.mstat .tx>b:first-child{display:block;font-size:var(--fs-24);font-weight:800;line-height:1.3;margin-bottom:4px}
+.mstat p{margin:0;font-size:var(--fs-16);line-height:1.65}
+.mstat .when{display:block;margin-top:6px;font-family:var(--font-num);font-size:var(--fs-14);font-weight:600}
+
+.mstat.off{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.mstat.off .ic{background:var(--warn);color:#FFFFFF}
+.mstat.on{border-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
+.mstat.on .ic{background:var(--ok);color:#FFFFFF}
+.mstat.err{border-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+.mstat.err .ic{background:var(--bad);color:#FFFFFF}
+.mstat.busy{border-color:var(--line-ctl);background:var(--canvas);color:var(--ink)}
+.mstat.busy .ic{background:var(--panel);color:var(--ink-2)}
+/* ข้อความรองในแถบสถานะใช้สีเดียวกับหัวข้อ ไม่ลด opacity
+   เพราะพื้นอ่อนของ warn/bad ทำให้ตัวอักษรจาง ๆ ตกต่ำกว่า 4.5:1 ทันที */
+
+/* วงกลมหมุนตอนกำลังส่ง */
+.mspin{width:28px;height:28px;border-radius:50%;border:4px solid var(--line);
+  border-top-color:var(--ink-2);animation:mspin .8s linear infinite}
+@keyframes mspin{to{transform:rotate(360deg)}}
+
+/* ------------------------------------------------ ช่องรหัสที่บันทึกแล้ว - */
+/* กติกา: บันทึกแล้วห้ามอ่านกลับ ไม่ว่ากรณีใด ช่องจึงกลายเป็นป้ายบอกสถานะ
+   ไม่ใช่ input ที่เติมค่าปลอมไว้ — input ที่มีค่าปลอมชวนให้กดบันทึกทับโดยไม่ตั้งใจ */
+.secret{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;
+  background:var(--canvas);border:2px solid var(--line-ctl);border-radius:var(--r-1);
+  min-height:var(--tap);padding:10px var(--sp-4)}
+.secret .dots{flex:1;min-width:120px;font-family:var(--font-num);font-size:var(--fs-20);
+  letter-spacing:.18em;color:var(--ink-2)}
+.secret .btn{width:auto;min-height:44px;font-size:var(--fs-16);padding:0 var(--sp-4);flex:none}
+
+/* ปุ่มดู/ซ่อนรหัส ใช้ได้เฉพาะตอนพิมพ์ครั้งแรกเท่านั้น */
+.pwwrap{position:relative}
+.pwwrap input{padding-right:104px}
+.pwwrap .peek{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  min-height:44px;padding:0 14px;border:2px solid var(--line-ctl);border-radius:10px;
+  background:var(--surface);font-size:var(--fs-14);font-weight:700;color:var(--ink);cursor:pointer}
+
+/* ------------------------------------------------ กล่องวินิจฉัยตอนล้มเหลว */
+/* เรียงบังคับ: เกิดอะไรขึ้น → แปลว่าอะไร → คุณต้องกดอะไร → (พับไว้) ข้อความดิบ
+   ถ้าขึ้นข้อความดิบก่อน เจ้าของยิมจะปิดหน้าแล้วโทรหาเรา */
+.diag{border:3px solid var(--bad);border-radius:var(--r-2);background:var(--surface);
+  overflow:hidden;margin-bottom:var(--sp-5)}
+.diag>.hd{background:var(--bad-soft);padding:var(--sp-4) var(--sp-5);
+  border-bottom:2px solid var(--bad)}
+.diag>.hd b{display:block;font-size:var(--fs-20);color:var(--bad)}
+.diag>.hd .code{font-family:var(--font-num);font-size:var(--fs-14);font-weight:700;color:var(--bad)}
+.diag>.bd{padding:var(--sp-5)}
+.diag .why{margin:0 0 var(--sp-4);font-size:var(--fs-18);line-height:1.65}
+.diag .lbl{font-size:var(--fs-14);font-weight:700;color:var(--ink-2);margin-bottom:8px}
+
+/* ขั้นตอนที่เจ้าของยิมทำเองได้ */
+.fixlist{list-style:none;margin:0;padding:0;counter-reset:fx;display:grid;gap:var(--sp-3)}
+.fixlist li{counter-increment:fx;display:flex;gap:var(--sp-4);align-items:flex-start;
+  background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-1);padding:var(--sp-4)}
+.fixlist li::before{content:counter(fx);flex:none;width:36px;height:36px;border-radius:50%;
+  background:var(--ink);color:var(--surface);display:grid;place-items:center;
+  font-family:var(--font-num);font-size:var(--fs-16);font-weight:800}
+.fixlist .fb{flex:1;min-width:0;font-size:var(--fs-16);line-height:1.65}
+.fixlist .fb>b:first-child{display:block;font-size:var(--fs-18);margin-bottom:4px}
+
+/* เส้นทางเมนูใน Microsoft 365 — ให้ตาไล่ตามได้ทีละขั้น */
+.mpath{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.mpath span{background:var(--panel);border-radius:8px;padding:5px 11px;
+  font-size:var(--fs-14);font-weight:700;color:var(--ink)}
+.mpath i{color:var(--ink-2);font-style:normal;font-weight:700}
+
+/* ข้อความดิบจากเซิร์ฟเวอร์ พับไว้ สำหรับคนที่ต้องส่งต่อให้ฝ่ายไอที */
+.raw{margin-top:var(--sp-4);border-top:2px solid var(--panel);padding-top:var(--sp-3)}
+.raw summary{cursor:pointer;font-size:var(--fs-16);font-weight:700;color:var(--ink-2);
+  min-height:44px;display:flex;align-items:center}
+.raw pre{margin:8px 0 0;background:var(--dark);color:#E7ECEA;border-radius:var(--r-1);
+  padding:var(--sp-4);overflow-x:auto;font-family:var(--font-num);font-size:var(--fs-14);
+  line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* ------------------------------------------------ กล่องช่วยเหลือ -------- */
+.helpbox{background:var(--brand-soft);border:2px solid var(--brand-line);
+  border-radius:var(--r-2);padding:var(--sp-5)}
+.helpbox h3{margin:0 0 var(--sp-2);font-size:var(--fs-20);color:var(--brand-ink)}
+.helpbox>p{margin:0 0 var(--sp-4);font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+.helpbox .qa{border-top:2px solid var(--brand-line);padding-top:var(--sp-4);margin-top:var(--sp-4)}
+.helpbox .qa:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.helpbox .qa>b:first-child{display:block;font-size:var(--fs-18);margin-bottom:4px}
+.helpbox .qa p{margin:0;font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+
+/* ------------------------------------------------ แถวส่งเมลทดสอบ -------- */
+/* ส่งถึงอีเมลผู้ส่งเองเสมอ ไม่มีช่องให้พิมพ์ปลายทาง —
+   ถ้าพิมพ์ปลายทางได้ หน้านี้จะกลายเป็นเครื่องยิงเมลให้ใครก็ได้ทันทีที่บัญชีหลุด */
+.testbox{background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-2);
+  padding:var(--sp-5);margin-bottom:var(--sp-4)}
+.testbox h3{margin:0 0 var(--sp-2);font-size:var(--fs-20)}
+.testbox .to{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;
+  background:var(--canvas);border-radius:var(--r-1);padding:12px var(--sp-4);margin:var(--sp-4) 0}
+.testbox .to .lb{font-size:var(--fs-14);font-weight:700;color:var(--ink-2)}
+.testbox .to .ad{font-family:var(--font-num);font-size:var(--fs-18);font-weight:700;overflow-wrap:anywhere}
+.testbox .btn{width:100%}
+
+/* สองช่องเรียงคู่ (เซิร์ฟเวอร์ · พอร์ต) */
+.pair{display:grid;grid-template-columns:1fr 150px;gap:var(--sp-3)}
+.pair .field{margin-bottom:0}
+
+@media (max-width:899px){
+  /* settings.css ดันคอลัมน์ขวาขึ้นก่อนบนมือถือ ซึ่งถูกสำหรับหน้าสี
+     (ต้องเห็นพรีวิวเปลี่ยนทันที) แต่ผิดสำหรับหน้านี้ — งานของเจ้าของยิมคือ
+     "กรอกแล้วกดส่งทดสอบ" ถ้าเจอกำแพงคำแนะนำ Microsoft ก่อน เขาจะเลิกก่อนถึงฟอร์ม */
+  .setgrid.formfirst .previewcol{order:0}
+  .pair{grid-template-columns:1fr}
+  .settabs a{font-size:var(--fs-16);padding:0 var(--sp-3)}
+  .mstat{padding:var(--sp-4)}
+  .mstat .ic{width:48px;height:48px;font-size:24px}
+}
+@media (prefers-reduced-motion:reduce){.mspin{animation:none}}
 
 /* ============================================ หน้า auth ==================
    ยกจาก auth.css ของ Designer · เวทีเดียวหลายแผง ทุกสถานะใช้โครงเดียวกัน

@@ -63,12 +63,21 @@
 
   // ---------- 4. สีตัวอักษรแบรนด์บนพื้นอ่อน/พื้นขาว ----------
   // วัดกับ --brand-soft ซึ่งเข้มกว่าขาว ผ่านตรงนี้แล้วบนขาวผ่านแน่นอน
-  function brandInk(brand) {
+  // BRAND-03 (Designer): ต้องวัดกับ "พื้นอ่อนที่เข้มที่สุดที่ตัวอักษรนี้จะไปอยู่"
+  //   ซึ่งมี 2 ตัว: --brand-soft (ผสมขาว 92%) และ --canvas #EFF2F4 พื้นหลังของแอป
+  // เดิมวัดกับ brand-soft อย่างเดียว พอ canvas เข้มกว่า brand-soft (เช่นส้ม #DD610B
+  // ได้ soft = #FCF2EB ซึ่งอ่อนกว่า canvas) ลิงก์สีแบรนด์บนพื้นแอปจะตกเหลือ 4.50
+  function inkRef(brand) {
     var soft = brandSoft(brand);
-    if (contrast(brand, soft) >= 4.5) return brand.toUpperCase();
+    return relLum(hexToRgb(soft)) <= relLum(hexToRgb(CANVAS)) ? soft : CANVAS;
+  }
+
+  function brandInk(brand) {
+    var ref = inkRef(brand);
+    if (contrast(brand, ref) >= 4.5) return brand.toUpperCase();
     for (var t = 0.02; t <= 1.0001; t += 0.02) {
       var c = mix(brand, INK, t);
-      if (contrast(c, soft) >= 4.5) return c;
+      if (contrast(c, ref) >= 4.5) return c;
     }
     return INK;
   }

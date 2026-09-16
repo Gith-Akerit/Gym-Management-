@@ -148,7 +148,17 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .btn.ghost{border-color:var(--line-ctl)}
 .btn.xl{min-height:var(--tap-lg);font-size:var(--fs-20)}
 .btn.auto{width:auto;min-height:48px;font-size:var(--fs-16);padding:0 var(--sp-4);white-space:nowrap}
-.btn[disabled],.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+/* A11Y-01 (Designer): ปุ่มที่กดไม่ได้ ตัดสีทิ้ง ไม่ใช่ลดความทึบ
+   opacity:.5 ทำให้ตัวอักษรบนปุ่มหลักเหลือ 2.4–3.5:1 อ่านไม่ออก และ
+   "อ่านไม่ออก" ไม่ใช่วิธีบอกว่ากดไม่ได้ — สีเทาทึบบอกได้ชัดกว่าและยังอ่านออก
+   ต้องระบุ .primary/.danger ด้วย เพราะ brand-extra.css โหลดทีหลังและทับสีกลับ
+   ทำให้ปุ่มที่กดไม่ได้ยังเป็นสีแบรนด์เต็ม ๆ และดูเหมือนกดได้ */
+.btn[disabled],.btn[aria-disabled="true"],
+.btn.primary[disabled],.btn.primary[aria-disabled="true"],
+.btn.danger[disabled],.btn.danger[aria-disabled="true"]{background:var(--panel);
+  border-color:var(--line-ctl);color:var(--ink-2);opacity:1;cursor:not-allowed}
+.btn[disabled]:hover,.btn[aria-disabled="true"]:hover,
+.btn.primary[disabled]:hover,.btn.primary[aria-disabled="true"]:hover{background:var(--panel)}
 .btn-row{display:flex;gap:var(--sp-3);flex-wrap:wrap}
 .btn-row>.btn{width:auto;flex:1 1 160px}
 

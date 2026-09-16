@@ -45,14 +45,19 @@ export function loadMailConfig(db) {
   };
 }
 
-export function registerMailSettingsRoutes({ app, db, now, admin, mailer, gymName }) {
+export function registerMailSettingsRoutes({ app, db, now, admin, counter, limit, mailer, gymName }) {
   /**
    * What the screen shows. The password is represented by a boolean and
    * nothing else -- there is no route in this system that returns it, so
    * there is no route to get it wrong.
    */
-  function view() {
+  function view(isOwner = true) {
     const row = mailSettingsRow(db) ?? {};
+    // Staff open the settings screen to read the gym's LINE ID out to a
+    // member, and the tab is there for them too -- but all they get is the one
+    // sentence that answers "is email working?". No fields, and above all no
+    // hint about the mailbox the gym signs in with (Designer, screen 8).
+    if (!isOwner) return { staff: true, ready: loadMailConfig(db) !== null };
     return {
       // Without the key in .env there is nowhere safe to put the password, so
       // the form is shown disabled with the one command that fixes it rather
@@ -72,11 +77,16 @@ export function registerMailSettingsRoutes({ app, db, now, admin, mailer, gymNam
       tested_at: row.tested_at ?? null,
       test_ok: !!row.test_ok,
       test_detail: row.test_detail ?? '',
+      // Which of the three groups the last failure fell into, so a reload
+      // draws the right set of steps rather than only the moment it happened.
+      test_reason: row.test_reason ?? '',
+      // Folded away on screen, never the first thing shown.
+      test_raw: row.test_raw ?? '',
       version: row.version ?? 1,
     };
   }
 
-  app.get('/api/gym/mail-settings', admin, (req, res) => res.json(view()));
+  app.get('/api/gym/mail-settings', counter, (req, res) => res.json(view(req.user.role === 'admin')));
 
   app.put('/api/gym/mail-settings', admin, (req, res) => {
     const input = parse(mailSchema, req.body);
@@ -122,9 +132,21 @@ export function registerMailSettingsRoutes({ app, db, now, admin, mailer, gymNam
    * believing mail works.
    */
   app.post('/api/gym/mail-settings/test', admin, async (req, res) => {
+    // Five in ten minutes. Generous for somebody fixing a password and
+    // retrying, and not enough to be worth pointing at a mailbox -- this is
+    // the one button in the system that makes the gym's own domain send mail.
+    limit(`mailtest:${req.user.id}`, 5, 600000);
     const config = loadMailConfig(db);
     if (!config) {
       throw new HttpError(409, 'ยังกรอกไม่ครบ ต้องมีชื่อเซิร์ฟเวอร์ ชื่อผู้ใช้ รหัสผ่าน และอีเมลผู้ส่ง ก่อนส่งทดสอบ');
+    }
+    // Caught here as well as on the screen, because the screen can only check
+    // what it can see: Microsoft refuses this with a message that reads like a
+    // wrong password, and an owner who retypes the password ten times is an
+    // owner nobody helped.
+    if (config.from_email !== config.username) {
+      throw new HttpError(409, 'อีเมลผู้ส่งไม่ตรงกับชื่อผู้ใช้ที่ล็อกอิน — Microsoft จะปฏิเสธ '
+        + 'และขึ้นข้อความที่อ่านเหมือนรหัสผ่านผิด ให้ใช้กล่องเดียวกันทั้งสองช่อง');
     }
     const gym = gymName();
     const when = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' })
@@ -144,14 +166,17 @@ export function registerMailSettingsRoutes({ app, db, now, admin, mailer, gymNam
       ].join('\n'),
     });
     transaction(db, () => {
-      db.prepare('UPDATE mail_settings SET tested_at=?,test_ok=?,test_detail=? WHERE id=1')
-        .run(now(), outcome.sent ? 1 : 0, outcome.sent ? '' : (outcome.message ?? ''));
+      db.prepare('UPDATE mail_settings SET tested_at=?,test_ok=?,test_detail=?,test_reason=?,test_raw=? WHERE id=1')
+        .run(now(), outcome.sent ? 1 : 0, outcome.sent ? '' : (outcome.message ?? ''),
+          outcome.sent ? '' : (outcome.reason ?? 'unknown'),
+          outcome.sent ? '' : String(outcome.raw ?? '').slice(0, 4000));
     });
     if (!outcome.sent) {
       return res.status(502).json({
         sent: false,
         error: outcome.message ?? explainFailure({}).message,
-        reason: outcome.reason,
+        reason: outcome.reason ?? 'unknown',
+        raw: String(outcome.raw ?? '').slice(0, 4000),
       });
     }
     res.json({ sent: true, to: req.user.email, message: `ส่งแล้ว เปิดกล่องจดหมายของ ${req.user.email} เพื่อดู` });

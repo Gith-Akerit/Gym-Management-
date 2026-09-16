@@ -86,7 +86,7 @@ export function letter(key, values = {}) {
     all.role_detail = ROLE_DETAIL[all.role] ?? ROLE_DETAIL.staff;
   }
 
-  const missing = ['gym_phone', 'membership_line'].filter(field => !all[field]);
+  const missing = ['gym_phone', 'expires_at', 'setpw_url'].filter(field => !all[field]);
   return {
     subject: fill(template.subject, all),
     html: fill(dropEmptyHtml(template.html, missing), all),

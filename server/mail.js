@@ -28,31 +28,67 @@ export function mailSettingsRow(db) {
 /**
  * Turns whatever went wrong into something a gym owner can act on.
  *
- * Three answers, because there are only three things they can do about it:
- * fix the password (or get Authenticated SMTP turned on), fix the address, or
- * tell whoever runs the network. The provider's own English wording is kept in
- * `detail` for the log and for us, never shown as the whole answer.
+ * Three groups, because there are exactly three different things the owner
+ * has to go and do -- and telling them apart is the whole job of this
+ * function. The two that both arrive as "535 authentication unsuccessful" are
+ * the ones that matter: one means "Microsoft has this switched off for the
+ * mailbox" and the other means "the password is wrong". Reading them as one
+ * sends the owner off to retype a password that was never the problem
+ * (Designer).
+ *
+ * `raw` is what the server actually said. It is not the answer -- a gym owner
+ * who reads `SmtpClientAuthentication is disabled` closes the page and
+ * telephones us -- but it is what gets forwarded to whoever runs Microsoft
+ * 365, so the screen keeps it folded away rather than throwing it out.
  */
 export function explainFailure(error) {
   const code = error?.responseCode ?? error?.code ?? '';
   const text = `${error?.response ?? ''} ${error?.message ?? ''}`;
-  if (code === 535 || /5\.7\.139|535|authenticate/i.test(text)) {
+  const raw = [
+    error?.response,
+    error?.message && error.message !== error?.response ? error.message : null,
+    code ? `code: ${code}` : null,
+  ].filter(Boolean).join('\n');
+
+  // Microsoft's own switch, off by default on every mailbox they sell. Checked
+  // before the general 535 because it IS a 535, and it is not a wrong password.
+  if (/SmtpClientAuthentication|5\.7\.139|smtp_auth_disabled/i.test(text)) {
     return {
-      reason: 'auth',
-      message: 'รหัสผ่านไม่ถูกต้อง หรือกล่องนี้ยังไม่ได้เปิด Authenticated SMTP '
-        + '— ถ้ากล่องเปิดยืนยันตัวตนสองขั้น ต้องใช้ App password ไม่ใช่รหัสปกติ',
+      reason: 'smtp_disabled', raw,
+      message: 'กล่องนี้ยังไม่ได้เปิดให้โปรแกรมส่งเมลแทน — Microsoft ปิดไว้เป็นค่าเริ่มต้นทุกกล่อง '
+        + 'นี่ไม่ใช่รหัสผ่านผิด ต้องให้ผู้ดูแล Microsoft 365 ติ๊กเปิด Authenticated SMTP ให้กล่องนี้หนึ่งครั้ง',
     };
   }
+  if (code === 535 || /5\.7\.3|authentication unsuccessful|invalid credentials|auth.*fail/i.test(text)) {
+    return {
+      reason: 'password', raw,
+      message: 'Microsoft ไม่รับรหัสผ่านนี้ — ถ้ากล่องเปิดยืนยันตัวตนสองขั้น ต้องใช้ App password 16 ตัว '
+        + 'ไม่ใช่รหัสปกติ และอีเมลผู้ส่งต้องเป็นกล่องเดียวกับเจ้าของรหัสนั้น',
+    };
+  }
+  // Kept as its own answer rather than folded into "password": the fix is a
+  // different field on the same screen, and the message Microsoft returns is
+  // otherwise indistinguishable from a wrong password to somebody reading it.
   if (code === 550 || code === 553 || /5\.7\.60|SendAsDenied/i.test(text)) {
     return {
-      reason: 'sender',
+      reason: 'sender', raw,
       message: 'กล่องนี้ส่งในนามอีเมลผู้ส่งที่กรอกไว้ไม่ได้ — ให้อีเมลผู้ส่งตรงกับชื่อผู้ใช้ที่ล็อกอิน',
     };
   }
-  if (['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'ESOCKET', 'EDNS', 'ECONNECTION'].includes(code)) {
-    return { reason: 'network', message: 'เชื่อมต่อเซิร์ฟเวอร์อีเมลไม่ได้ — ตรวจชื่อเซิร์ฟเวอร์ พอร์ต และการเชื่อมต่อขาออกของเครื่อง' };
+  if (['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'ESOCKET', 'EDNS', 'ECONNECTION', 'EAI_AGAIN']
+    .includes(code) || /timed? ?out|getaddrinfo|socket/i.test(text)) {
+    return {
+      reason: 'network', raw,
+      message: 'ต่อเซิร์ฟเวอร์อีเมลไม่ได้ — ตรวจว่าชื่อเซิร์ฟเวอร์และพอร์ตถูกต้อง '
+        + '(Microsoft 365 ใช้ smtp.office365.com พอร์ต 587 เท่านั้น) หรือเครื่องถูกบล็อกพอร์ตขาออกไว้',
+    };
   }
-  return { reason: 'unknown', message: 'ส่งไม่สำเร็จ ยังไม่ทราบสาเหตุ — ดูรายละเอียดใน log ของเซิร์ฟเวอร์' };
+  // The fourth case exists so that an answer nobody anticipated still lands on
+  // a screen that says what to do next, instead of a blank red box.
+  return {
+    reason: 'unknown', raw,
+    message: 'ส่งไม่สำเร็จ และยังไม่ทราบสาเหตุ — กดแจ้งปัญหาพร้อมข้อความจากเซิร์ฟเวอร์ด้านล่าง ทีมดูแลตรวจให้ได้',
+  };
 }
 
 /**
@@ -119,7 +155,7 @@ export function createMailer({ load = () => null, transportFor = nodemailer.crea
       // does not echo the link.
       console.error(JSON.stringify({ event: 'mail_failed', to, subject, reason: failure.reason,
         detail: String(error?.response ?? error?.message ?? '').slice(0, 200) }));
-      return { sent: false, reason: failure.reason, message: failure.message };
+      return { sent: false, reason: failure.reason, message: failure.message, raw: failure.raw };
     }
   }
 

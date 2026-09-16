@@ -11,6 +11,7 @@ import { issueSetupToken, readSetupToken, setupPath, setupTokenHash, verifyPath 
 import { registerPaymentRoutes } from './payments.js';
 import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
 import { registerReportRoutes } from './reports-routes.js';
+import { registerMemberAuthRoutes, registerMemberPortalRoutes } from './member-routes.js';
 import { createMailer, ownerNotice } from './mail.js';
 import { loadMailConfig, registerMailSettingsRoutes } from './mail-settings.js';
 import { letter } from './letters.js';
@@ -402,6 +403,11 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     res.json(result);
   });
 
+  // Members sign in somewhere else entirely, and like every other sign-in this
+  // one is in front of the session guard.
+  registerMemberAuthRoutes({ app, db, now, digest, limit, production,
+    assertNotLockedOut, recordSignInFailure, clearSignInFailures });
+
   app.use('/api', (req, res, next) => {
     const cookie = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('gym_session='))?.slice(12);
     const bearer = req.get('Authorization');
@@ -472,7 +478,11 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   const { drawCard, membershipFor } = registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret });
   registerSettingsRoutes({ app, db, now, admin, counter, logoStore });
   registerReportRoutes({ app, db, now, admin, counter, reportStore });
-  registerMailSettingsRoutes({ app, db, now, admin, mailer, gymName: () => gymLetterContext().gym_name });
+  registerMailSettingsRoutes({ app, db, now, admin, counter, limit, mailer,
+    gymName: () => gymLetterContext().gym_name });
+  // The member portal. Its guards are handed back so the content routes in the
+  // next commit sit behind the same two rather than inventing their own.
+  registerMemberPortalRoutes({ app, db, now });
 
   // Check-in at the counter.
   registerCheckInRoutes({ app, db, now, admin, counter, secret, limit });
@@ -532,7 +542,10 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
           throw new HttpError(409, 'อีเมลหรือเบอร์โทรนี้มีอยู่ในระบบแล้ว');
         }
         userId = existing?.id ?? randomUUID();
-        if (!existing) db.prepare('INSERT INTO users(id,email,created_at) VALUES(?,?,?)').run(userId, input.email, now());
+        if (!existing) {
+          db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'member',?)")
+            .run(userId, input.email, now());
+        }
       }
       return createMember(db, userId, input, req.user.id, now());
     });
@@ -560,20 +573,26 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     limit(`welcome:${member.id}`, 5, 3600000);
     const png = await drawCard(member);
     const membership = membershipFor(member.id);
+    // Seven days, because it arrives while they are walking out of the gym and
+    // they will open it that evening at the earliest. Minted before the send
+    // and retired by the next one, so a member who asks the counter to send
+    // the letter again is not left holding two working links.
+    const { token } = issueSetupToken(db, { userId: member.user_id, now: now(),
+      issuedBy: req.user.id, purpose: 'member' });
     const outcome = await post('5-member-welcome', member.email, {
       name: member.name,
       member_code: member.member_code,
       // Dropped entirely rather than printed as a dash when somebody joined
       // without buying anything yet -- the same rule as the telephone line.
-      membership_line: membership.package
-        ? `แพ็กเกจ ${membership.package} · ใช้ได้ถึง ${membership.expires}`
-        : '',
+      expires_at: membership.expires ?? '',
+      setpw_url: `${origin}${setupPath(token)}`,
       attachments: [{ filename: `${member.member_code}.png`, content: png, contentType: 'image/png' }],
     });
     if (!outcome.sent) {
       throw new HttpError(502, outcome.message ?? 'ส่งอีเมลไม่สำเร็จ กรุณาลองใหม่');
     }
-    db.prepare('UPDATE members SET welcome_sent_at=? WHERE id=?').run(now(), member.id);
+    db.prepare('UPDATE members SET welcome_sent_at=?,portal_invited_at=? WHERE id=?')
+      .run(now(), now(), member.id);
     audit(db, req.user.id, 'member.card_emailed', member.id, null, { to: member.email }, now());
     res.json({ sent: true, to: member.email });
   });
@@ -611,7 +630,8 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
           db.prepare('DELETE FROM sessions WHERE user_id=?').run(before.user_id);
         } else if (values.email) {
           const userId = randomUUID();
-          db.prepare('INSERT INTO users(id,email,created_at) VALUES(?,?,?)').run(userId, values.email, now());
+          db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'member',?)")
+            .run(userId, values.email, now());
           db.prepare('UPDATE members SET user_id=? WHERE id=?').run(userId, before.id);
         }
       }
@@ -864,7 +884,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     res.json({ items: rows });
   });
 
-  app.get('/api/gym', (req, res) => res.json(req.user.role === 'admin' ? getGym(db) : publicGym(db)));
+  app.get('/api/gym', counter, (req, res) => res.json(req.user.role === 'admin' ? getGym(db) : publicGym(db)));
 
   app.put('/api/gym', admin, (req, res) => {
     const input = parse(gymSchema, req.body);
@@ -906,7 +926,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   // ----------------------------------------------------------------- packages
 
   // Members only ever see what is on sale; drafts and archived stay internal.
-  app.get('/api/packages', (req, res) => {
+  app.get('/api/packages', counter, (req, res) => {
     const rows = req.user.role === 'admin'
       ? db.prepare('SELECT * FROM packages ORDER BY sort_order, created_at').all()
       : db.prepare("SELECT * FROM packages WHERE status='active' ORDER BY sort_order, created_at").all();
@@ -969,7 +989,10 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   app.use('/api', (req, res, next) => next(new HttpError(404, 'ไม่พบรายการที่ต้องการ')));
   app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, ...(err.fields && { fields: err.fields }) });
+    if (err instanceof HttpError) {
+      return res.status(err.status).json({ error: err.message,
+        ...(err.fields && { fields: err.fields }), ...(err.detail ?? {}) });
+    }
     // Say which collision happened. Reporting every UNIQUE violation as a
     // duplicate email sent an admin hunting an email problem while the real one
     // was an entitlement row left over from a reversal (QA P2-BUG-02).

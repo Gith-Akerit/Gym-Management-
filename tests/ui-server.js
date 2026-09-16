@@ -36,7 +36,7 @@ const seedUsers = (role, addresses) => {
 seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test', 'forgot-twice@example.test', 'mail-staff@example.test', 'changepw-staff@example.test',
   ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
 seedUsers('admin', ['layout-admin@example.test', 'admin@example.test', 'contrast2-ui@example.test',
-  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test', 'forgot-admin@example.test', 'invite-admin@example.test', 'mail-admin@example.test',
+  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test', 'forgot-admin@example.test', 'invite-admin@example.test', 'mail-admin@example.test', 'diag-admin@example.test',
   ...Array.from({ length: 11 }, (_, i) => `admin${i + 2}@example.test`)]);
 // One account with no password at all: the state an owner leaves somebody in
 // when they add them before their first shift.
@@ -58,13 +58,26 @@ db.prepare("INSERT INTO users(id,email,role,created_at) VALUES(?,?,'admin',?)")
  * is the one step a browser cannot take on its own.
  */
 const outbox = [];
+// What the next letter should pretend the mail server said. The three failures
+// a real Office 365 hands back are the whole reason the settings screen has
+// three different sets of instructions on it, and a browser cannot provoke
+// them without a mailbox that is genuinely misconfigured.
+let refusal = null;
 const photoRoot = resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos');
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),
   photoStore: new SlipStore(photoRoot, { maxBytes: MAX_PHOTO_BYTES }),
   logoStore: new SlipStore(resolve(PILOT ? 'data/test-logo-pilot' : 'data/test-logo')),
   reportStore: new SlipStore(resolve(PILOT ? 'data/test-reports-pilot' : 'data/test-reports'), { maxBytes: 6e6 }),
-  mailer: { ready: true, send: async message => { outbox.push(message); return { sent: true }; } },
+  mailer: {
+    ready: true,
+    send: async message => {
+      outbox.push(message);
+      if (!refusal) return { sent: true };
+      const answer = refusal; refusal = null;   // one letter, then back to normal
+      return { sent: false, ...answer };
+    },
+  },
   // Exactly what a pilot deployment has: no merchant account at all.
   promptPayId: PILOT ? null : '0899999999',
   selfSignup: SELF_SIGNUP,
@@ -99,6 +112,13 @@ app.post('/__test/break-photo', express.json(), (req, res) => {
 app.get('/__test/outbox', (req, res) => {
   const to = req.query.to;
   res.json({ items: [...outbox].reverse().filter(letter => !to || letter.to === to) });
+});
+// Test-only: the next letter is refused the way a misconfigured mailbox
+// refuses one. There is no equivalent in the real server.
+app.post('/__test/refuse-mail', express.json(), (req, res) => {
+  refusal = { reason: req.body?.reason ?? 'unknown', message: req.body?.message ?? 'ส่งไม่สำเร็จ',
+    raw: req.body?.raw ?? '535 5.7.139 SmtpClientAuthentication is disabled for the Mailbox' };
+  res.json({ armed: true });
 });
 app.post('/__test/setup-link', express.json(), (req, res) => {
   const user = db.prepare('SELECT id FROM users WHERE email=?').get(req.body?.email);

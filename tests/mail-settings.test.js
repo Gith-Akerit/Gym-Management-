@@ -103,11 +103,23 @@ test('the owner fills in the mailbox, and the password never comes back out', as
   await call('put', '/gym/mail-settings', owner, { ...MAILBOX, version: 1 }).expect(409);
 });
 
-test('only the owner touches the mailbox', async t => {
+test('staff are told whether mail works and nothing else about the mailbox', async t => {
   withKey(t);
   const { call, signIn } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const version = (await call('get', '/gym/mail-settings', owner).expect(200)).body.version;
+  await call('put', '/gym/mail-settings', owner, { ...MAILBOX, version }).expect(200);
+
+  // The tab is on their screen too, because "is email working?" is a question
+  // a member of staff gets asked at the counter. One sentence is the whole
+  // answer -- no host, no username, and above all no hint of the mailbox the
+  // gym signs in with (Designer, screen 8).
   const desk = await signIn('desk@example.test', 'staff');
-  await call('get', '/gym/mail-settings', desk).expect(403);
+  const seen = (await call('get', '/gym/mail-settings', desk).expect(200)).body;
+  assert.deepEqual(Object.keys(seen).sort(), ['ready', 'staff']);
+  assert.equal(seen.ready, true);
+
+  // Everything that changes or proves anything stays with the owner.
   await call('put', '/gym/mail-settings', desk, { ...MAILBOX, version: 1 }).expect(403);
   await call('post', '/gym/mail-settings/test', desk, {}).expect(403);
   await call('get', '/gym/mail-settings', null).expect(401);

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Brand from '../shared/brand.cjs';
+import { MailSettings } from './mail-settings.jsx';
 import { api, formatPhone, Loading, Mark, Notice, StateBox, upload, useResource } from './shared.jsx';
 
 /**
@@ -94,7 +95,37 @@ const BarPreview = ({ derived, branding, name, shortName, appbar }) => <div clas
   </div></header>
 </div>;
 
+/**
+ * The two halves of "ตั้งค่ายิม", as tabs rather than two entries in the menu.
+ *
+ * The side menu already carries seven destinations. Adding one every time
+ * something new arrives is the road to a menu nobody can scan, and email is a
+ * setting of this gym in exactly the way its logo and its colours are
+ * (Designer).
+ *
+ * The dot is the point of doing it this way: the owner sees from the tab that
+ * something is unfinished behind it without opening it. It carries a label as
+ * well as a colour, because a coloured dot on its own says nothing to somebody
+ * who cannot tell yellow from red.
+ */
+const SettingsTabs = ({ tab, setTab, dot }) => <div className="settabs">
+  <a href="#brand" aria-current={tab === 'brand' ? 'page' : undefined}
+    onClick={event => { event.preventDefault(); setTab('brand'); }}>ยิมและแบรนด์</a>
+  <a href="#mail" aria-current={tab === 'mail' ? 'page' : undefined}
+    onClick={event => { event.preventDefault(); setTab('mail'); }}>
+    อีเมลของระบบ
+    {dot === 'bad' && <span className="dotbad" role="img" aria-label="ส่งเมลทดสอบไม่สำเร็จ"/>}
+    {dot === 'warn' && <span className="dotwarn" role="img" aria-label="ยังไม่ได้ตั้งค่าอีเมล"/>}
+  </a>
+</div>;
+
 export function GymBranding({ role, onAuthError, onSaved }) {
+  const [tab, setTab] = useState('brand');
+  // Read out here rather than inside the tab, because the dot has to be right
+  // before anybody opens it -- which is the entire reason the dot exists.
+  const mail = useResource('/gym/mail-settings');
+  const dot = !mail.data ? null
+    : (!mail.data.ready ? 'warn' : (mail.data.test_reason ? 'bad' : null));
   const { data, error, busy, reload } = useResource('/gym/settings');
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false), [failure, setFailure] = useState(null);
@@ -112,6 +143,22 @@ export function GymBranding({ role, onAuthError, onSaved }) {
       appbar_style: data.theme.appbar,
     });
   }, [data]);
+
+  // The mail tab does not need the branding form, so it is answered before the
+  // screen waits for one. One column rather than the colour page's form-beside-
+  // preview: this tab's job is "fill it in and press send", and on a phone a
+  // wall of Microsoft instructions above the form is how somebody gives up
+  // before reaching it (Designer).
+  if (tab === 'mail') {
+    return <div className={canEdit ? '' : 'readonly'}>
+      <h1>ตั้งค่ายิม</h1>
+      <p className="sub">กล่องจดหมายที่ระบบใช้ส่งออก · ใช้ส่งบัตรสมาชิกให้ลูกค้า และลิงก์ลืมรหัสผ่านของพนักงาน</p>
+      <SettingsTabs tab={tab} setTab={setTab} dot={dot}/>
+      <MailSettings onAuthError={onAuthError}
+        onSaved={message => { onSaved?.(message); mail.reload().catch(() => {}); }}
+        onStatus={() => mail.reload().catch(() => {})}/>
+    </div>;
+  }
 
   if (busy || !form) return <><h1>ตั้งค่ายิม</h1><p className="sub">กำลังโหลด…</p>
     <Loading label="กำลังโหลดการตั้งค่า…" rows={3}/></>;
@@ -195,6 +242,7 @@ export function GymBranding({ role, onAuthError, onSaved }) {
     return <div className="readonly">
       <h1>ตั้งค่ายิม</h1>
       <p className="sub">ดูได้อย่างเดียว · เฉพาะเจ้าของยิมที่แก้ไขได้</p>
+      <SettingsTabs tab={tab} setTab={setTab} dot={dot}/>
       <div className="alert info" style={{ marginBottom: 'var(--sp-5)' }}><span className="ic">i</span>
         <div><b>คุณเข้าใช้งานในฐานะพนักงาน</b>
           <span>ถ้าต้องแก้ชื่อ โลโก้ หรือสี ให้แจ้งเจ้าของยิม · หน้านี้เปิดไว้เพื่อให้คุณตอบลูกค้าได้ว่าเบอร์โทรและ LINE
@@ -219,6 +267,7 @@ export function GymBranding({ role, onAuthError, onSaved }) {
   return <>
     <h1>ตั้งค่ายิม</h1>
     <p className="sub">ชื่อ โลโก้ และสีของยิม · มีผลกับหัวแอป ปุ่ม หน้าเข้าสู่ระบบ และบัตรสมาชิก</p>
+    <SettingsTabs tab={tab} setTab={setTab} dot={dot}/>
     <div className="setgrid">
       <div>
         <div className="sect">

@@ -18,7 +18,16 @@ export const SETUP_TTL_MS = 24 * 3600000;
 export const RESET_TTL_MS = 30 * 60000;
 /** A day to prove an address, which somebody may only read that evening. */
 export const VERIFY_TTL_MS = 24 * 3600000;
-const TTL = { setup: SETUP_TTL_MS, reset: RESET_TTL_MS, verify: VERIFY_TTL_MS };
+/**
+ * A week for a member's first password.
+ *
+ * It arrives with their membership card while they are walking out of the gym,
+ * and a member who misses it has to come back to the counter to be sent
+ * another -- which is a trip they should not have to make because a link
+ * expired over a weekend.
+ */
+export const MEMBER_TTL_MS = 7 * 86400000;
+const TTL = { setup: SETUP_TTL_MS, reset: RESET_TTL_MS, verify: VERIFY_TTL_MS, member: MEMBER_TTL_MS };
 
 export const setupTokenHash = token => createHash('sha256').update(token).digest('hex');
 
@@ -41,7 +50,7 @@ export function issueSetupToken(db, { userId, now, issuedBy = null, purpose = 's
 }
 
 /** The account a live token belongs to, or null for every way of being invalid. */
-export function readSetupToken(db, token, now, purposes = ['setup', 'reset']) {
+export function readSetupToken(db, token, now, purposes = ['setup', 'reset', 'member']) {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   const row = db.prepare(`SELECT t.*, u.email, u.role, u.status, u.approval, u.name
     FROM password_setup_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=?`)

@@ -13,7 +13,6 @@ import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { UserMenu } from './usermenu.jsx';
 import { AuthResult, AuthScreens, AuthStage, VerifyEmail } from './auth.jsx';
 import { ChangePassword } from './account.jsx';
-import { MailSettings } from './mail-settings.jsx';
 import { PendingRequests } from './user-requests.jsx';
 import { PhotoCapture } from './camera.jsx';
 import { ProblemReports } from './reports.jsx';
@@ -1048,7 +1047,6 @@ const NAV = [
   ['users', 'ผู้ใช้และสิทธิ์', null],
   ['gym', 'ข้อมูลยิม', null],
   ['branding', 'ตั้งค่ายิม', null],
-  ['mail', 'ตั้งค่าอีเมล', null],
   ['checkin', 'ประวัติเช็คอิน', null],
   ['reports', 'เรื่องที่แจ้งไว้', null],
 ];
@@ -1056,7 +1054,7 @@ const NAV = [
 const EVERYDAY = ['scan', 'signup', 'members', 'payment'];
 const ICON_FOR = {
   gym: 'gym', branding: 'branding', packages: 'packages', users: 'users',
-  checkin: 'checkin', reports: 'report', mail: 'mail',
+  checkin: 'checkin', reports: 'report',
 };
 /** In the menu these sit under "ช่วยเหลือ" rather than with the gym's settings. */
 const HELP = ['reports'];
@@ -1142,7 +1140,7 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
   // reads problem reports -- the pictures in those have members on them.
   // Everyone reaches ตั้งค่ายิม: staff open it to answer "what is your LINE?",
   // and the screen itself refuses to let them change anything.
-  const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages', 'reports', 'mail'].includes(key) ? admin : true));
+  const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages', 'reports'].includes(key) ? admin : true));
   const [changingPassword, setChangingPassword] = useState(false);
 
   // null · { capturing: true } · { shot, screen, failed }
@@ -1249,7 +1247,6 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
       <CheckInLog/>
       <div className="block"><h2>สรุปรายวัน</h2><CheckInSummary/></div></>}
     {tab === 'reports' && <ProblemReports onAuthError={onAuthError}/>}
-    {tab === 'mail' && <MailSettings onAuthError={onAuthError} onSaved={setNotice}/>}
   </Shell>;
 }
 

@@ -220,8 +220,19 @@ test('the mailer keeps the flow alive when the gym has not filled in its mailbox
   });
   const failure = await refused.send({ to: 'a@b.test', subject: 'x', text: 'y' });
   assert.equal(failure.sent, false);
-  assert.equal(failure.reason, 'auth');
+  // The two refusals that both arrive as "535 authentication unsuccessful" are
+  // told apart, because one means "Microsoft has this switched off" and the
+  // other means "the password is wrong" -- and reading them as one sends the
+  // owner off to retype a password that was never the problem.
+  assert.equal(failure.reason, 'smtp_disabled');
   assert.match(failure.message, /Authenticated SMTP/);
+  assert.match(failure.raw, /5\.7\.139/, 'ข้อความดิบต้องถูกเก็บไว้ให้ส่งต่อฝ่ายไอทีได้');
+
+  const wrongPassword = createMailer({
+    load: () => settings,
+    transportFor: () => ({ sendMail: async () => { const error = new Error('535 5.7.3 Authentication unsuccessful'); error.responseCode = 535; throw error; } }),
+  });
+  assert.equal((await wrongPassword.send({ to: 'a@b.test', subject: 'x', text: 'y' })).reason, 'password');
 
   const offline = createMailer({
     load: () => settings,
