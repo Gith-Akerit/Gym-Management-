@@ -12,18 +12,27 @@ import { registerPaymentRoutes } from './payments.js';
 import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
 import { registerReportRoutes } from './reports-routes.js';
 import { createMailer, ownerNotice } from './mail.js';
+import { loadMailConfig, registerMailSettingsRoutes } from './mail-settings.js';
 import { letter } from './letters.js';
 import { resolveTheme } from './theme.js';
 import { settingsRow } from './settings-routes.js';
 import { audit, createMember, expireStaleOrders, getGym, getMember, getPackage, memberSelect, publicGym, publicMember, publicPackage, transaction } from './db.js';
-import { approveRequestSchema, forgotSchema, gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, rejectRequestSchema, roleSchema, setPasswordSchema, signupSchema, updateSchema, userSchema } from './validation.js';
+import { approveRequestSchema, changePasswordSchema, forgotSchema, gymSchema, hoursSchema, HttpError, loginSchema, memberSchema, packageSchema, packageUpdateSchema, parse, passwordSchema, rejectRequestSchema, roleSchema, setPasswordSchema, signupSchema, updateSchema, userSchema } from './validation.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 /** Dead check-in tokens are kept a week, then deleted. */
 export const CHECK_IN_TOKEN_RETENTION_MS = 7 * 86400000;
 export function createApp({ db, secret, origin = 'http://localhost:5173', production = false,
   now = Date.now, trustProxy = 1, slipStore, photoStore, logoStore, reportStore, promptPayId, pilotMode = false,
-  mailer = createMailer() }) {
+  // Off unless a gym turns it on. This gym's front door is for the four people
+  // who work here, and the owner said so plainly after seeing it: a public form
+  // that puts strangers in an approval queue is a thing to decide to have, not
+  // a thing to have by default. None of the code behind it was deleted -- the
+  // flag turns the door back on, and the tests open it themselves.
+  selfSignup = false,
+  // Reads the gym's own mailbox settings out of the database on every letter,
+  // because that is where the owner types them (server/mail-settings.js).
+  mailer = createMailer({ load: () => loadMailConfig(db) }) }) {
   if (!secret || secret.length < 32) throw new Error('CARD_SIGNING_SECRET must have at least 32 characters');
   if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
   const app = express();
@@ -138,8 +147,9 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   /** Builds one of the Designer's letters and hands it to the mailer. */
   function post(key, to, values = {}) {
     const context = gymLetterContext();
-    const built = letter(key, { ...context, email: to, ...values });
-    return mailer.send({ to, senderName: context.gym_name, ...built });
+    const { attachments, ...fields } = values;
+    const built = letter(key, { ...context, email: to, ...fields });
+    return mailer.send({ to, senderName: context.gym_name, attachments, ...built });
   }
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
@@ -174,7 +184,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   app.get('/api/public/gym', (req, res) => res.json(publicGym(db)));
   // The gym's own colours and logo, for the screens drawn before anybody has
   // signed in. Nothing in it is private: it is what is painted on the door.
-  registerPublicThemeRoutes({ app, db, logoStore });
+  registerPublicThemeRoutes({ app, db, logoStore, selfSignup });
   app.get('/api/public/packages', (req, res) => res.json({
     items: db.prepare("SELECT * FROM packages WHERE status='active' ORDER BY sort_order, created_at")
       .all().map(publicPackage),
@@ -247,6 +257,10 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
    * Nothing is decided here. The account exists, opens nothing, and waits.
    */
   app.post('/api/auth/signup', async (req, res) => {
+    // 404 rather than 403 when the gym has it off: "this does not exist here"
+    // is the truth, and it is also the answer that tells somebody scanning for
+    // open sign-up forms the least.
+    if (!selfSignup) throw new HttpError(404, 'ยิมนี้ไม่ได้เปิดให้สมัครบัญชีเอง กรุณาติดต่อเจ้าของยิม');
     // Ten an hour from one address. A person filling in a form for themselves
     // does it once; anything doing it sixty times is not that person.
     limit(`signup-ip:${req.ip}`, 10, 3600000);
@@ -408,6 +422,40 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     res.sendStatus(204);
   });
   app.get('/api/me', (req, res) => res.json(me(req.user)));
+
+  /**
+   * Changing your own password, from the menu, while signed in.
+   *
+   * The old one is required. Without it, a tablet left unlocked at the counter
+   * for two minutes is a permanent account takeover: whoever walks past sets a
+   * password of their own and the person whose account it is never finds out.
+   *
+   * Every OTHER session ends; this one does not. The usual reason to be on
+   * this screen is that somebody else may know the old password, and leaving
+   * their copy signed in would defeat the whole exercise -- but signing the
+   * person out of the tablet they are holding, mid-shift, to reward them for
+   * doing the right thing, is its own kind of wrong.
+   */
+  app.post('/api/auth/change-password', (req, res) => {
+    limit(`changepw:${req.user.id}`, 10, 900000);
+    const input = parse(changePasswordSchema, req.body);
+    if (!verifyPassword(input.current_password, req.user.password_hash)) {
+      throw new HttpError(403, 'รหัสผ่านเดิมไม่ถูกต้อง');
+    }
+    if (input.current_password === input.password) {
+      throw new HttpError(400, 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม');
+    }
+    const result = transaction(db, () => {
+      db.prepare('UPDATE users SET password_hash=?,password_set_at=? WHERE id=?')
+        .run(hashPassword(input.password), now(), req.user.id);
+      const closed = db.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?')
+        .run(req.user.id, req.user.token_hash).changes;
+      db.prepare('DELETE FROM otp_lockouts WHERE email=?').run(req.user.email);
+      audit(db, req.user.id, 'user.password_changed', req.user.id, null, { other_sessions_closed: closed }, now());
+      return { changed: true, other_sessions_closed: closed };
+    });
+    res.json(result);
+  });
   const admin = (req, res, next) => req.user.role === 'admin' ? next() : next(new HttpError(403, 'เฉพาะผู้ดูแลระบบเท่านั้น'));
   /** Signing people up and scanning them in is counter work, not owner work. */
   const counter = (req, res, next) => (['staff', 'admin'].includes(req.user.role)
@@ -421,9 +469,10 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   }
 
   // The photograph and the card it goes on.
-  registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret });
+  const { drawCard, membershipFor } = registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret });
   registerSettingsRoutes({ app, db, now, admin, counter, logoStore });
   registerReportRoutes({ app, db, now, admin, counter, reportStore });
+  registerMailSettingsRoutes({ app, db, now, admin, mailer, gymName: () => gymLetterContext().gym_name });
 
   // Check-in at the counter.
   registerCheckInRoutes({ app, db, now, admin, counter, secret, limit });
@@ -489,6 +538,46 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     });
     res.status(201).json(withMembership(result));
   });
+  /**
+   * Sending a member their own card.
+   *
+   * A separate press rather than part of signing up, because at the moment the
+   * member row is created there is no photograph on it yet and no package --
+   * the wizard takes three requests. A card posted then would be a card with a
+   * silhouette and no expiry date, which is worse than no card.
+   *
+   * The counter calls this at the end of the wizard and ignores the answer; a
+   * member whose address is added weeks later gets the same letter from the
+   * button on their card screen, which does report what happened.
+   */
+  app.post('/api/members/:id/welcome', counter, async (req, res) => {
+    const member = getMember(db, req.params.id);
+    if (!member) throw new HttpError(404, 'ไม่พบสมาชิก');
+    if (!member.email) throw new HttpError(409, 'สมาชิกรายนี้ยังไม่ได้กรอกอีเมล');
+    if (!mailer.ready) {
+      throw new HttpError(409, 'ยังส่งอีเมลไม่ได้ ผู้ดูแลระบบต้องกรอกกล่องจดหมายของยิมที่หน้า “ตั้งค่าอีเมล” ก่อน');
+    }
+    limit(`welcome:${member.id}`, 5, 3600000);
+    const png = await drawCard(member);
+    const membership = membershipFor(member.id);
+    const outcome = await post('5-member-welcome', member.email, {
+      name: member.name,
+      member_code: member.member_code,
+      // Dropped entirely rather than printed as a dash when somebody joined
+      // without buying anything yet -- the same rule as the telephone line.
+      membership_line: membership.package
+        ? `แพ็กเกจ ${membership.package} · ใช้ได้ถึง ${membership.expires}`
+        : '',
+      attachments: [{ filename: `${member.member_code}.png`, content: png, contentType: 'image/png' }],
+    });
+    if (!outcome.sent) {
+      throw new HttpError(502, outcome.message ?? 'ส่งอีเมลไม่สำเร็จ กรุณาลองใหม่');
+    }
+    db.prepare('UPDATE members SET welcome_sent_at=? WHERE id=?').run(now(), member.id);
+    audit(db, req.user.id, 'member.card_emailed', member.id, null, { to: member.email }, now());
+    res.json({ sent: true, to: member.email });
+  });
+
   app.get('/api/members/:id', counter, (req, res) => {
     const row = getMember(db, req.params.id);
     if (!row) throw new HttpError(404, 'ไม่พบสมาชิก');
@@ -715,6 +804,37 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
    * that account had ends, because the usual reason for changing a password is
    * that somebody else knows the old one.
    */
+  /**
+   * "Make me a link I can send them myself."
+   *
+   * The way back in when the gym has not filled in its mailbox settings yet,
+   * and the replacement for the button that used to set somebody else's
+   * password outright. The difference matters: a password the owner types has
+   * to be said out loud to be handed over, and out loud means a group chat. A
+   * link is handed over once and dies on use.
+   *
+   * Works for staff as well as administrators, which the terminal command
+   * deliberately does not -- the command runs where nobody is signed in, so it
+   * is limited to the one account that can dig the gym out. Here there is a
+   * signed-in owner taking responsibility for the press.
+   *
+   * The link is returned to THIS screen and nowhere else. The public "forgot
+   * my password" page never shows one, whoever asks.
+   */
+  app.post('/api/users/:id/password-link', admin, (req, res) => {
+    const row = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
+    if (!row) throw new HttpError(404, 'ไม่พบบัญชีนี้');
+    if (!['admin', 'staff'].includes(row.role)) throw new HttpError(409, 'บัญชีนี้ไม่ได้ใช้เข้าสู่ระบบ');
+    if (row.status === 'suspended') throw new HttpError(409, 'บัญชีนี้ถูกระงับ คืนสิทธิ์ก่อนจึงออกลิงก์ได้');
+    if (row.approval === 'pending' || row.approval === 'rejected') {
+      throw new HttpError(409, 'คำขอของบัญชีนี้ยังไม่ได้รับอนุมัติ');
+    }
+    limit(`pwlink:${row.id}`, 10, 3600000);
+    const { token, expiresAt } = issueSetupToken(db, { userId: row.id, now: now(), issuedBy: req.user.id });
+    audit(db, req.user.id, 'user.password_link_issued', row.id, null, { email: row.email }, now());
+    res.json({ email: row.email, url: `${origin}${setupPath(token)}`, expires_at: expiresAt });
+  });
+
   app.put('/api/users/:id/password', admin, (req, res) => {
     const input = parse(passwordSchema, req.body);
     const result = transaction(db, () => {

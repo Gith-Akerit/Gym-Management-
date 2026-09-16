@@ -23,14 +23,21 @@ export { jpegBuffer, PHOTO_JPEG, PNG_PIXEL } from './fixtures.js';
 
 /**
  * @param {object} t node:test context
- * @param {{now?: number, promptPayId?: string|null, pilotMode?: boolean}} [options]
+ * @param {{now?: number, promptPayId?: string|null, pilotMode?: boolean,
+ *   selfSignup?: boolean}} [options]
  */
 export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00+07:00'),
-  promptPayId = '0899999999', pilotMode = false } = {}) {
+  promptPayId = '0899999999', pilotMode = false,
+  // The gym runs with the public sign-up form off. The tests that cover it
+  // open it themselves, so what every other test meets is the front door the
+  // gym actually has.
+  selfSignup = false } = {}) {
   // Every letter the app tries to send, kept rather than posted. The links in
   // them are the only way a test can walk the journey a person walks, and
   // "nothing was sent at all" is itself something several tests have to prove.
   const outbox = [];
+  let refusal = null;
+  let mailWorks = true;
   const db = openDatabase(); migrate(db);
   const root = mkdtempSync(join(tmpdir(), 'gym-counter-'));
   let time = start;
@@ -40,8 +47,17 @@ export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00
     photoStore: new SlipStore(join(root, 'photos')),
     logoStore: new SlipStore(join(root, 'logo')),
     reportStore: new SlipStore(join(root, 'reports'), { maxBytes: 6e6 }),
-    promptPayId, pilotMode,
-    mailer: { ready: true, send: async message => { outbox.push(message); return { sent: true }; } },
+    promptPayId, pilotMode, selfSignup,
+    // A mailbox that always accepts, until a test says otherwise. `refuseMail`
+    // is how the failures a real Office 365 hands back -- a wrong password, a
+    // blocked port -- get exercised without one.
+    mailer: {
+      get ready() { return mailWorks !== false; },
+      send: async message => {
+        outbox.push(message);
+        return refusal ? { sent: false, ...refusal } : { sent: true };
+      },
+    },
   });
   t.after(() => {
     app.locals.stopSweeper?.();
@@ -85,6 +101,10 @@ export function counterFixture(t, { now: start = Date.parse('2026-09-15T09:00:00
 
   return {
     db, app, http, call, signIn, addMember, root, outbox,
+    /** The next letter is refused, the way a mailbox with a wrong password is. */
+    refuseMail: (reason = { reason: 'auth', message: 'รหัสผ่านไม่ถูกต้อง' }) => { refusal = reason; },
+    /** The gym has not filled in its mailbox at all. */
+    noMailbox: () => { mailWorks = false; },
     verifyToken: () => linkFrom(/[?&]verify=([A-Za-z0-9_-]{43})/),
     resetToken: () => linkFrom(/[?&]setpw=([A-Za-z0-9_-]{43})/),
     tick: ms => { time += ms; }, at: () => time,

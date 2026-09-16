@@ -12,6 +12,8 @@ import { GymBranding } from './settings.jsx';
 import { CheckInLog, CheckInSummary, StaffScanner } from './checkin.jsx';
 import { UserMenu } from './usermenu.jsx';
 import { AuthResult, AuthScreens, AuthStage, VerifyEmail } from './auth.jsx';
+import { ChangePassword } from './account.jsx';
+import { MailSettings } from './mail-settings.jsx';
 import { PendingRequests } from './user-requests.jsx';
 import { PhotoCapture } from './camera.jsx';
 import { ProblemReports } from './reports.jsx';
@@ -41,7 +43,8 @@ function ProfileFields({ value, setValue, errors = {}, includeEmail = false }) {
       placeholder: '08X-XXX-XXXX', hint: 'ใช้โทรหาลูกค้าเมื่อแพ็กเกจใกล้หมด' })}
     {/* Optional: a walk-in has nothing to sign in to, and inventing an address
         to get past a required field is inventing data. */}
-    {includeEmail && field('email', 'อีเมล (ไม่บังคับ)', { type: 'email', autoComplete: 'email' })}
+    {includeEmail && field('email', 'อีเมล (ไม่บังคับ)', { type: 'email', autoComplete: 'email',
+      hint: 'กรอกแล้วระบบส่งบัตรสมาชิกไปให้เขาทางอีเมลเลย · ไม่มีอีเมลก็สมัครและใช้บัตรได้ตามปกติ' })}
     <details><summary>ข้อมูลเพิ่มเติม (ไม่บังคับ)</summary>
       {field('date_of_birth', 'วันเกิด (ค.ศ.)', { type: 'date', min: '1900-01-01', max: new Date().toISOString().slice(0, 10) })}
       {field('emergency_contact', 'ผู้ติดต่อฉุกเฉินและเบอร์โทร', { maxLength: 200 })}
@@ -258,7 +261,14 @@ function SignUp({ packages, onDone, onCancel, onAuthError }) {
         await upload(`/members/${id}/grant`, sale);
         setSaleSaved(true);
       }
-      onDone(id, 'ออกบัตรให้สมาชิกใหม่แล้ว');
+      // Fire and forget, deliberately. The member is standing at the counter
+      // and the card is already made; whether the gym's mail server answers in
+      // the next two seconds is not something they should be made to wait for,
+      // and the card screen has a button that reports properly.
+      if (value.email) api(`/members/${id}/welcome`, { method: 'POST', body: {} }).catch(() => {});
+      onDone(id, value.email
+        ? 'ออกบัตรให้สมาชิกใหม่แล้ว · ถ้าตั้งค่าอีเมลไว้ ระบบส่งบัตรไปให้เขาแล้ว'
+        : 'ออกบัตรให้สมาชิกใหม่แล้ว');
     // Nothing typed is cleared: the counter has a customer standing there.
     } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); }
   }
@@ -395,6 +405,8 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   const brokenPhoto = data?.photo_readable === false;
 
   /** Replaces the photograph from this screen, which is where the news lands. */
+  const [emailed, setEmailed] = useState('');
+
   async function savePhoto(file) {
     setWorking(true); setPhotoFailure(null);
     const form = new FormData();
@@ -412,6 +424,23 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     setWorking(true); setFailure(null);
     try { setLink(await api(`/members/${member.id}/card/link`, { method: 'POST', body: {} })); }
     catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
+  }
+
+  /**
+   * Posting the card to the member's own address.
+   *
+   * Reports what actually happened, unlike the same call at the end of the
+   * sign-up wizard, which is fire-and-forget: there, a member is standing at
+   * the counter and a mail server having a bad minute must not become their
+   * problem. Here somebody pressed a button and is owed an answer.
+   */
+  async function emailCard() {
+    setWorking(true); setFailure(null); setEmailed('');
+    try {
+      const result = await api(`/members/${member.id}/welcome`, { method: 'POST', body: {} });
+      setEmailed(`ส่งบัตรไปที่ ${result.to} แล้ว`);
+      await reload().catch(() => {});
+    } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
   async function share() {
@@ -506,6 +535,12 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
         <div className="stack">
           <a className="btn primary xl" href={src} download={`${member.member_code}.png`}>บันทึกรูปบัตร</a>
           <button className="btn xl" onClick={share}>ส่งบัตรให้ลูกค้า</button>
+          {/* Only offered when there is somewhere to send it. A member who
+              gave no address is not a member with a broken button. */}
+          {data.member?.email && <button className="btn xl" disabled={working} onClick={emailCard}>
+            {data.member.welcome_sent_at ? 'ส่งบัตรทางอีเมลอีกครั้ง' : 'ส่งบัตรทางอีเมล'}</button>}
+          {emailed && <div className="banner ok" role="status">
+            <div className="ic" aria-hidden="true">✓</div><div><b>{emailed}</b></div></div>}
           <button className="btn ghost" disabled={working} onClick={resend}>ส่งบัตรซ้ำ (ลิงก์ 7 วัน)</button>
           {link && <div className="soft">
             <b>ลิงก์ดาวน์โหลดบัตรใบเดิม</b>
@@ -766,6 +801,17 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
   const requests = useResource('/users/requests');
   const [email, setEmail] = useState(''), [role, setRole] = useState('staff'), [secret, setSecret] = useState('');
   const [working, setWorking] = useState(false), [actionError, setActionError] = useState(null), [notice, setNotice] = useState('');
+  // { email, url, expires_at } for the one link on screen. One at a time on
+  // purpose: a list of live links is a list of ways into other people's
+  // accounts, sitting on a shared counter tablet.
+  const [link, setLink] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  async function makeLink(user) {
+    setWorking(true); setActionError(null); setNotice(''); setCopied(false);
+    try { setLink(await api(`/users/${user.id}/password-link`, { method: 'POST', body: {} })); }
+    catch (e) { setActionError(e); onAuthError(e); } finally { setWorking(false); }
+  }
 
   async function act(path, options, message, farewell) {
     setWorking(true); setActionError(null); setNotice('');
@@ -821,6 +867,26 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
         {working ? 'กำลังบันทึก…' : 'สร้างบัญชี'}</button>
     </div>
 
+    {link && <div className="block" style={{ borderColor: 'var(--warn)', marginBottom: 'var(--sp-5)' }}>
+      <h2>ลิงก์ตั้งรหัสผ่านของ {link.email}</h2>
+      <p className="note">ส่งลิงก์นี้ให้เจ้าตัวโดยตรง · <b>ใช้ได้ครั้งเดียว</b> และหมดอายุ
+        {' '}{formatDateTime(link.expires_at)} · คนที่ถือลิงก์นี้ตั้งรหัสผ่านของบัญชีนั้นได้ อย่าโพสต์ลงกลุ่ม</p>
+      <div className="field">
+        <label htmlFor="pwlink">ลิงก์</label>
+        {/* Readable and selectable rather than hidden behind a copy button
+            alone: on a counter tablet the copy button is the fast path, but
+            somebody reading it out over the telephone needs to see it. */}
+        <input id="pwlink" readOnly value={link.url} onFocus={e => e.target.select()}
+          style={{ fontFamily: 'var(--font-num)' }}/>
+      </div>
+      <div className="btn-row">
+        <button className="btn primary" onClick={() => {
+          navigator.clipboard?.writeText(link.url).then(() => setCopied(true)).catch(() => setCopied(false));
+        }}>{copied ? '✓ คัดลอกแล้ว' : 'คัดลอกลิงก์'}</button>
+        <button className="btn ghost" onClick={() => { setLink(null); setCopied(false); }}>ปิด</button>
+      </div>
+    </div>}
+
     <h2>บัญชีที่มีอยู่ {data && <span className="chip neutral" style={{ marginLeft: 8 }}>
       ผู้ดูแลระบบที่ใช้งานได้ {data.admins} คน</span>}</h2>
     <div className="searchbig" style={{ marginTop: 'var(--sp-4)' }}>
@@ -850,13 +916,16 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
                 {user.has_password ? '✓ ตั้งแล้ว' : '✕ ยังไม่ได้ตั้ง'}</span>}</td>
             <td data-label="สถานะ"><span className={`chip ${user.status === 'suspended' ? 'bad' : 'ok'}`}>
               {user.status === 'suspended' ? '✕ ถูกระงับ' : '✓ ใช้งานได้'}</span></td>
-            {/* No "ตั้งรหัสใหม่" here any more. A password somebody else chooses
-                has to be said out loud to be handed over, and it was said in a
-                group chat more than once. Everyone sets their own now, from the
-                link in the letter "ลืมรหัสผ่าน" sends. The terminal command
-                `npm run admin:set-password-link` stays as the way back in when
-                nobody can receive mail at all. */}
+            {/* A link, never a password. The button that used to set somebody
+                else's password outright is gone: a password the owner types has
+                to be said out loud to be handed over, and out loud turned into a
+                group chat more than once. A link is handed over once and dies on
+                use — and it is the way in while the gym's mailbox settings are
+                still empty. */}
             <td data-label="">
+              {user.role !== 'member' && <button className="btn ghost" disabled={working}
+                aria-label={`สร้างลิงก์ตั้งรหัสผ่านของ ${user.email}`}
+                onClick={() => makeLink(user)}>สร้างลิงก์ตั้งรหัสผ่าน</button>}
               <button className={user.status === 'suspended' ? 'btn ghost' : 'btn danger'} disabled={working}
                 aria-label={`${user.status === 'suspended' ? 'คืนสิทธิ์' : 'ระงับ'}บัญชี ${user.email}`}
                 onClick={() => act(`/users/${user.id}/${user.status === 'suspended' ? 'restore' : 'suspend'}`,
@@ -870,7 +939,8 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
         </table></div>)}
     <p className="note" style={{ marginTop: 'var(--sp-4)' }}>
       การเปลี่ยนสิทธิ์หรือระงับบัญชีจะเตะคนนั้นออกจากระบบทันที <b>บอกเขาก่อนกด</b> ถ้าเขากำลังยืนสแกนอยู่หน้าเคาน์เตอร์ ·
-      ระบบไม่ยอมให้เหลือผู้ดูแลระบบ 0 คน · การตั้งรหัสผ่านใหม่ก็เตะออกจากระบบเช่นกัน</p>
+      ระบบไม่ยอมให้เหลือผู้ดูแลระบบ 0 คน · การตั้งรหัสผ่านใหม่ก็เตะออกจากระบบเช่นกัน ·
+      ทุกคนเปลี่ยนรหัสผ่านของตัวเองได้จากเมนูมุมขวาบน</p>
   </>;
 }
 
@@ -978,6 +1048,7 @@ const NAV = [
   ['users', 'ผู้ใช้และสิทธิ์', null],
   ['gym', 'ข้อมูลยิม', null],
   ['branding', 'ตั้งค่ายิม', null],
+  ['mail', 'ตั้งค่าอีเมล', null],
   ['checkin', 'ประวัติเช็คอิน', null],
   ['reports', 'เรื่องที่แจ้งไว้', null],
 ];
@@ -985,7 +1056,7 @@ const NAV = [
 const EVERYDAY = ['scan', 'signup', 'members', 'payment'];
 const ICON_FOR = {
   gym: 'gym', branding: 'branding', packages: 'packages', users: 'users',
-  checkin: 'checkin', reports: 'report',
+  checkin: 'checkin', reports: 'report', mail: 'mail',
 };
 /** In the menu these sit under "ช่วยเหลือ" rather than with the gym's settings. */
 const HELP = ['reports'];
@@ -1013,7 +1084,14 @@ function menuGroups(tabs, { pending = 0 } = {}) {
       ...pick(key => HELP.includes(key)),
       { key: 'manual', label: 'คู่มือการใช้งาน', icon: 'manual', sub: 'เปิดไฟล์ PDF ในแท็บใหม่' },
     ] },
-    { items: [{ key: 'logout', label: 'ออกจากระบบ', icon: 'logout', danger: true }] },
+    // Everybody, not only the owner: the whole point of handing somebody a
+    // temporary password is that they can replace it themselves, and a
+    // member of staff who cannot is a member of staff whose password stays
+    // written in a chat.
+    { items: [
+      { key: 'changepw', label: 'เปลี่ยนรหัสผ่าน', icon: 'key' },
+      { key: 'logout', label: 'ออกจากระบบ', icon: 'logout', danger: true },
+    ] },
   ].filter(group => group.items.length);
 }
 
@@ -1064,7 +1142,8 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
   // reads problem reports -- the pictures in those have members on them.
   // Everyone reaches ตั้งค่ายิม: staff open it to answer "what is your LINE?",
   // and the screen itself refuses to let them change anything.
-  const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages', 'reports'].includes(key) ? admin : true));
+  const tabs = NAV.filter(([key]) => (['users', 'gym', 'packages', 'reports', 'mail'].includes(key) ? admin : true));
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // null · { capturing: true } · { shot, screen, failed }
   const [report, setReport] = useState(null);
@@ -1098,8 +1177,14 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
     if (item.key === 'logout') { onLogout(); return; }
     if (item.key === 'report') { startReport(); return; }
     if (item.key === 'manual') { window.open('/manual.pdf', '_blank', 'noopener'); return; }
+    if (item.key === 'changepw') { setChangingPassword(true); return; }
     setNotice(''); setOpen(null); setTab(item.key);
   };
+
+  /** The same in both places, because the menu that opens it is in both. */
+  const passwordUi = changingPassword && <ChangePassword user={user}
+    onClose={() => setChangingPassword(false)}
+    onDone={message => { setChangingPassword(false); setNotice(message); }}/>;
 
   /** Drawn over whatever screen is underneath, including the scan stage. */
   const reportUi = report && (report.capturing
@@ -1122,7 +1207,7 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
         menu={menuGroups(tabs, { pending })} onPick={pick}
         onOpenMember={member => { setOpen(member); setTab('members'); }}
         onLeave={() => setTab('members')}/>
-      {reportUi}
+      {reportUi}{passwordUi}
     </>;
   }
 
@@ -1132,7 +1217,7 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
   return <Shell brand={brand} branding={branding} user={user} tabs={tabs} tab={tab}
     setTab={key => { setTab(key); setNotice(''); setOpen(null); }}
     onLogout={onLogout} onPick={pick} pilot={pilot} wide={tab === 'branding'} pending={pending}>
-    {reportUi}
+    {reportUi}{passwordUi}
     {banner}
     {tab === 'signup' && <SignUp packages={sellable} onAuthError={onAuthError}
       onCancel={() => setTab('members')}
@@ -1164,6 +1249,7 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
       <CheckInLog/>
       <div className="block"><h2>สรุปรายวัน</h2><CheckInSummary/></div></>}
     {tab === 'reports' && <ProblemReports onAuthError={onAuthError}/>}
+    {tab === 'mail' && <MailSettings onAuthError={onAuthError} onSaved={setNotice}/>}
   </Shell>;
 }
 

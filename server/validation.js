@@ -319,6 +319,17 @@ export const signupSchema = z.object({
 /** "I forgot my password", which is one field and a great deal of restraint. */
 export const forgotSchema = z.object({ email }).strict();
 
+/**
+ * Changing your own password while signed in.
+ *
+ * The old one is part of the payload rather than assumed from the session,
+ * because the session is exactly what an unattended tablet hands to a stranger.
+ */
+export const changePasswordSchema = z.object({
+  current_password: z.string().min(1, 'กรุณากรอกรหัสผ่านเดิม').max(200),
+  password,
+}).strict();
+
 /** Approving a request, which is also where the role is decided. */
 export const approveRequestSchema = z.object({
   role: z.enum(['staff', 'admin'], { error: 'เลือกได้เฉพาะพนักงานหรือผู้ดูแลระบบ' }),

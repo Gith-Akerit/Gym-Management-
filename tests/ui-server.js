@@ -15,6 +15,11 @@ import { createApp } from '../server/app.js';
 import { UI_PORT } from './ports.js';
 const PORT = Number(process.env.UI_PORT || UI_PORT);
 const PILOT = process.env.PILOT_MODE === '1';
+const SELF_SIGNUP = process.env.SELF_SIGNUP === '1';
+// A throwaway key per run, so the mail settings screen behaves the way it does
+// on a machine that has been set up rather than the way it does on one that
+// has not. The "no key" path is covered in tests/mail-settings.test.js.
+process.env.SETTINGS_ENC_KEY = process.env.SETTINGS_ENC_KEY || randomBytes(32).toString('hex');
 
 /** Every browser journey signs in with this. It exists only here. */
 export const UI_PASSWORD = 'counter-test-password';
@@ -28,10 +33,10 @@ const seedUsers = (role, addresses) => {
       .run(randomUUID(), address, role, secret, Date.now(), Date.now());
   }
 };
-seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test', 'forgot-twice@example.test',
+seedUsers('staff', ['staff-ui@example.test', 'brand-staff@example.test', 'menu-staff@example.test', 'report-staff@example.test', 'forgot-twice@example.test', 'mail-staff@example.test', 'changepw-staff@example.test',
   ...Array.from({ length: 5 }, (_, i) => `staff${i + 2}-ui@example.test`)]);
 seedUsers('admin', ['layout-admin@example.test', 'admin@example.test', 'contrast2-ui@example.test',
-  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test', 'forgot-admin@example.test', 'invite-admin@example.test',
+  'brand-admin@example.test', 'menu-admin@example.test', 'report-admin@example.test', 'signup-admin@example.test', 'forgot-admin@example.test', 'invite-admin@example.test', 'mail-admin@example.test',
   ...Array.from({ length: 11 }, (_, i) => `admin${i + 2}@example.test`)]);
 // One account with no password at all: the state an owner leaves somebody in
 // when they add them before their first shift.
@@ -62,6 +67,7 @@ const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `ht
   mailer: { ready: true, send: async message => { outbox.push(message); return { sent: true }; } },
   // Exactly what a pilot deployment has: no merchant account at all.
   promptPayId: PILOT ? null : '0899999999',
+  selfSignup: SELF_SIGNUP,
   pilotMode: PILOT });
 // The real server allows 60 sign-ins per quarter of an hour from one address,
 // which is generous for a gym and far too little for a browser suite: every

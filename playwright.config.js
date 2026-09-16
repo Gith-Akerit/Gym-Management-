@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { UI_PILOT_PORT, UI_PORT } from './tests/ports.js';
+import { UI_OPEN_PORT, UI_PILOT_PORT, UI_PORT } from './tests/ports.js';
 export default defineConfig({
   testDir: './tests/ui', fullyParallel: false, workers: 1, timeout: 30000,
   use: { baseURL: `http://127.0.0.1:${UI_PORT}`, browserName: 'chromium',
@@ -18,5 +18,10 @@ export default defineConfig({
     // inside the first server.
     { command: 'node tests/ui-server.js', url: `http://127.0.0.1:${UI_PILOT_PORT}/api/health`, reuseExistingServer: false,
       env: { UI_PORT: String(UI_PILOT_PORT), PILOT_MODE: '1' } },
+    // And once more with the public sign-up form open, because the gym runs
+    // with it shut and the spec that proves the front door has only two
+    // buttons on it must be looking at the real front door.
+    { command: 'node tests/ui-server.js', url: `http://127.0.0.1:${UI_OPEN_PORT}/api/health`, reuseExistingServer: false,
+      env: { UI_PORT: String(UI_OPEN_PORT), SELF_SIGNUP: '1' } },
   ],
 });

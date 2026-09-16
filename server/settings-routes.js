@@ -85,8 +85,11 @@ const settingsSchema = z.object({
 /** What the second tablet is told, wherever it is the second tablet. */
 const STALE_SETTINGS = 'มีคนแก้ตั้งค่ายิมไปแล้วระหว่างที่คุณเปิดหน้านี้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง';
 
-export function registerPublicThemeRoutes({ app, db, logoStore }) {
-  app.get('/api/public/theme', (req, res) => res.json(publicTheme(db)));
+export function registerPublicThemeRoutes({ app, db, logoStore, selfSignup = false }) {
+  // The login screen draws itself from this. Whether the gym takes sign-ups is
+  // not a secret -- the form is a public URL when it is on -- and the screen
+  // has to know before anybody has signed in.
+  app.get('/api/public/theme', (req, res) => res.json({ ...publicTheme(db), self_signup: !!selfSignup }));
 
   /**
    * The logo bytes, to anybody who asks.

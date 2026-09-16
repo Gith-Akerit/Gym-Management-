@@ -31,7 +31,7 @@ async function signupAndVerify(fixture, values = {}) {
 }
 
 test('a request arrives, opens nothing, and is visible to the owner', async t => {
-  const { call, signIn, db, at } = counterFixture(t);
+  const { call, signIn, db, at } = counterFixture(t, { selfSignup: true });
   const owner = await signIn('owner@example.test');
 
   const sent = await signup(call).expect(202);
@@ -60,7 +60,7 @@ test('a request arrives, opens nothing, and is visible to the owner', async t =>
 });
 
 test('the form says the same thing about an address that already has an account', async t => {
-  const { call, signIn, db } = counterFixture(t);
+  const { call, signIn, db } = counterFixture(t, { selfSignup: true });
   await signIn('owner@example.test');
 
   const first = await signup(call).expect(202);
@@ -83,7 +83,7 @@ test('the form says the same thing about an address that already has an account'
 });
 
 test('the owner approves, chooses the role, and the person is in', async t => {
-  const fixture = counterFixture(t);
+  const fixture = counterFixture(t, { selfSignup: true });
   const { call, signIn, db } = fixture;
   const owner = await signIn('owner@example.test');
   await signupAndVerify(fixture);
@@ -108,7 +108,7 @@ test('the owner approves, chooses the role, and the person is in', async t => {
 });
 
 test('a refusal keeps the record, says why, and does not free the address', async t => {
-  const { call, signIn, db } = counterFixture(t);
+  const { call, signIn, db } = counterFixture(t, { selfSignup: true });
   const owner = await signIn('owner@example.test');
   await signup(call).expect(202);
   const request = (await call('get', '/users/requests', owner).expect(200)).body.items[0];
@@ -132,7 +132,7 @@ test('a refusal keeps the record, says why, and does not free the address', asyn
 });
 
 test('deciding belongs to the owner, and the form to nobody in particular', async t => {
-  const { call, signIn } = counterFixture(t);
+  const { call, signIn } = counterFixture(t, { selfSignup: true });
   const owner = await signIn('owner@example.test');
   const staff = await signIn('desk@example.test', 'staff');
   await signup(call).expect(202);
@@ -147,7 +147,7 @@ test('deciding belongs to the owner, and the form to nobody in particular', asyn
 });
 
 test('what the form refuses to accept', async t => {
-  const { call } = counterFixture(t);
+  const { call } = counterFixture(t, { selfSignup: true });
   for (const [what, values] of Object.entries({
     'อีเมลไม่ถูกต้อง': { email: 'not-an-email' },
     'ไม่มีชื่อ': { name: '   ' },
@@ -160,27 +160,34 @@ test('what the form refuses to accept', async t => {
 });
 
 test('one address cannot send sixty requests', async t => {
-  const { call } = counterFixture(t);
+  const { call } = counterFixture(t, { selfSignup: true });
   for (let n = 0; n < 10; n += 1) await signup(call, { email: `n${n}@example.test` }).expect(202);
   const stopped = await signup(call, { email: 'eleventh@example.test' }).expect(429);
   assert.match(stopped.body.error, /[ก-๙]/);
 });
 
-test('the mailer keeps the flow alive when there is no provider yet', async t => {
+test('the mailer keeps the flow alive when the gym has not filled in its mailbox', async t => {
   assert.ok(t);
   // Not configured: it says so and does not throw, which is what lets every
-  // screen above it be finished before the gym has an account anywhere.
-  const quiet = createMailer();
+  // screen above it be finished before the owner has typed a mailbox password.
+  const quiet = createMailer({ load: () => null });
   assert.equal(quiet.ready, false);
   assert.deepEqual(await quiet.send({ to: 'a@b.test', subject: 'x', text: 'y' }),
     { sent: false, reason: 'not_configured' });
+  // Half-filled counts as not configured. A host with no password is a form
+  // somebody abandoned, not a mailbox.
+  const half = createMailer({ load: () => ({ host: 'smtp.office365.com', port: 587, username: 'info@gym.test' }) });
+  assert.equal(half.ready, false);
 
-  // Configured: one HTTPS call carrying both halves of the letter, with the
+  // Configured: one SMTP message carrying both halves of the letter, with the
   // gym's own name as the sender rather than the word no-reply.
-  const calls = [];
+  const sent = [];
+  const settings = { host: 'smtp.office365.com', port: 587, starttls: true,
+    username: 'info@suklutai.co.th', password: 'app-password', from_email: 'info@suklutai.co.th', from_name: 'ยิม' };
+  let options = null;
   const live = createMailer({
-    apiKey: 'key', from: 'gym@example.test', fromName: 'ระบบจัดการยิม',
-    fetchImpl: async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { ok: true }; },
+    load: () => settings,
+    transportFor: config => { options = config; return { sendMail: async message => { sent.push(message); return { accepted: [message.to] }; } }; },
   });
   const built = letter('2-approved', {
     gym_name: 'สุขฤทัย ฟิตเนส', gym_phone: '038-541-029', email: 'nid@example.test',
@@ -188,22 +195,39 @@ test('the mailer keeps the flow alive when there is no provider yet', async t =>
     login_url: 'https://gym.example', signin_method: 'อีเมลและรหัสผ่านที่คุณตั้งไว้ตอนสมัคร',
   });
   assert.deepEqual(await live.send({ to: 'nid@example.test', senderName: 'สุขฤทัย ฟิตเนส', ...built }), { sent: true });
-  assert.equal(calls.length, 1);
-  assert.match(calls[0].url, /brevo/);
-  assert.equal(calls[0].body.sender.name, 'สุขฤทัย ฟิตเนส', 'ผู้รับต้องเห็นชื่อยิม ไม่ใช่คำว่า no-reply');
-  assert.ok(calls[0].body.textContent, 'ต้องมีฉบับข้อความล้วนเสมอ');
-  assert.ok(calls[0].body.htmlContent, 'และฉบับ HTML คู่กัน');
-  // Transactional mail: a newsletter header gets it filed as a newsletter.
-  assert.equal(JSON.stringify(calls[0].body).includes('List-Unsubscribe'), false);
 
-  // A provider that is down must never become a gym that cannot approve
-  // somebody: the decision is already written down.
-  const broken = createMailer({
-    apiKey: 'key', from: 'gym@example.test',
-    fetchImpl: async () => { throw new Error('ECONNRESET'); },
+  // 587 is STARTTLS. requireTLS is the part that matters: without it a server
+  // that fails to offer STARTTLS gets the mailbox password in the clear.
+  assert.equal(options.port, 587);
+  assert.equal(options.secure, false);
+  assert.equal(options.requireTLS, true);
+  assert.equal(options.auth.user, 'info@suklutai.co.th');
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].from.name, 'สุขฤทัย ฟิตเนส', 'ผู้รับต้องเห็นชื่อยิม ไม่ใช่คำว่า no-reply');
+  assert.equal(sent[0].from.address, 'info@suklutai.co.th');
+  assert.ok(sent[0].text, 'ต้องมีฉบับข้อความล้วนเสมอ');
+  assert.ok(sent[0].html, 'และฉบับ HTML คู่กัน');
+  // Transactional mail: a newsletter header gets it filed as a newsletter.
+  assert.equal(JSON.stringify(sent[0]).includes('List-Unsubscribe'), false);
+
+  // A mailbox that refuses the password must never become a gym that cannot
+  // approve somebody: the decision is already written down. And the answer has
+  // to be one the owner can act on, not the provider's English.
+  const refused = createMailer({
+    load: () => settings,
+    transportFor: () => ({ sendMail: async () => { const error = new Error('535 5.7.139 Authentication unsuccessful'); error.responseCode = 535; throw error; } }),
   });
-  assert.deepEqual(await broken.send({ to: 'a@b.test', subject: 'x', text: 'y' }),
-    { sent: false, reason: 'network' });
+  const failure = await refused.send({ to: 'a@b.test', subject: 'x', text: 'y' });
+  assert.equal(failure.sent, false);
+  assert.equal(failure.reason, 'auth');
+  assert.match(failure.message, /Authenticated SMTP/);
+
+  const offline = createMailer({
+    load: () => settings,
+    transportFor: () => ({ sendMail: async () => { const error = new Error('connect ECONNREFUSED'); error.code = 'ECONNREFUSED'; throw error; } }),
+  });
+  assert.equal((await offline.send({ to: 'a@b.test', subject: 'x', text: 'y' })).reason, 'network');
 });
 
 test('the four letters come out filled in, in Thai, with nothing left over', async t => {

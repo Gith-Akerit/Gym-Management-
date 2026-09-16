@@ -52,6 +52,13 @@ const Result = ({ tone = 'mail', icon, title, children, actions }) => <div class
 </div>;
 
 export function AuthScreens({ brand, branding, onLogin, initialPanel = 'login' }) {
+  // Whether this gym takes sign-ups from the front door at all. Off is the
+  // normal answer and the one this gym gave: the four people who work here
+  // were given accounts, and a public form that puts strangers in an approval
+  // queue is a thing to decide to have. Everything behind it still exists --
+  // the flag turns the door back on -- so a gym that wants it gets the whole
+  // journey, queue and letters included, without another release.
+  const open = branding?.self_signup !== false;
   const [panel, setPanel] = useState(initialPanel);
   const [sentTo, setSentTo] = useState('');
   const [rejectReason, setRejectReason] = useState('');
@@ -62,7 +69,7 @@ export function AuthScreens({ brand, branding, onLogin, initialPanel = 'login' }
     setPanel(next);
   };
 
-  if (panel === 'signup') {
+  if (panel === 'signup' && open) {
     return <Stage brand={brand} branding={branding} title="ขอบัญชีพนักงาน">
       <SignUpPanel branding={branding} onSent={email => show('verify-sent', { email })}
         onCancel={() => show('login')}/>
@@ -154,12 +161,12 @@ export function AuthScreens({ brand, branding, onLogin, initialPanel = 'login' }
   }
 
   return <Stage brand={brand} branding={branding} title="สำหรับพนักงานและเจ้าของยิมเท่านั้น">
-    <LoginPanel onLogin={onLogin} onForgot={() => show('forgot')} onSignup={() => show('signup')}
+    <LoginPanel open={open} phone={branding?.phone} onLogin={onLogin} onForgot={() => show('forgot')} onSignup={() => show('signup')}
       onPending={() => show('pending')} onRejected={reason => show('rejected', { reason })}/>
   </Stage>;
 }
 
-function LoginPanel({ onLogin, onForgot, onSignup, onPending, onRejected }) {
+function LoginPanel({ open, phone, onLogin, onForgot, onSignup, onPending, onRejected }) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(null);
 
@@ -196,6 +203,11 @@ function LoginPanel({ onLogin, onForgot, onSignup, onPending, onRejected }) {
         {busy ? <><span className="spin"/>กำลังเข้าสู่ระบบ…</> : 'เข้าสู่ระบบ'}</button>
     </form>
 
+    {/* Everything below this line belongs to the sign-up door. With it shut,
+        the card holds exactly two things -- the form and the way back in when
+        a password is forgotten -- rather than two dead buttons explaining
+        themselves. */}
+    {!open ? null : <>
     <div className="orline">หรือ</div>
     {/* "ดำเนินการต่อ" rather than "เข้าสู่ระบบ": somebody with no account will
         press this too, and they should land on the waiting panel rather than
@@ -213,6 +225,15 @@ function LoginPanel({ onLogin, onForgot, onSignup, onPending, onRejected }) {
         style={{ background: 'none', border: 0, cursor: 'pointer', font: 'inherit', color: 'var(--brand-ink)', fontWeight: 700 }}>
         ขอบัญชีพนักงาน</button>
     </div>
+    </>}
+
+    {/* Designer: with the sign-up door shut, somebody who opens this page
+        without an account hunts for a button that is not there and gives up.
+        The gap has to be filled with the answer, not left silent. */}
+    {!open && <div className="authfoot">
+      บัญชีพนักงานออกให้โดยเจ้าของยิมเท่านั้น
+      {phone && <> · ต้องการบัญชีใหม่ โทร <b>{phone}</b></>}
+    </div>}
   </>;
 }
 

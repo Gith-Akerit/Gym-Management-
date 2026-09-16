@@ -1,4 +1,4 @@
-// The four letters, filled in.
+// The five letters, filled in.
 //
 // The wording, the markup and the plain-text twin all come out of the
 // Designer's `server/emails/mkmail.cjs` -- this file only puts values into the
@@ -29,7 +29,8 @@ const load = key => ({
 });
 
 const TEMPLATES = Object.fromEntries(
-  ['1-verify-email', '2-approved', '3-rejected', '4-reset-password'].map(key => [key, load(key)]));
+  ['1-verify-email', '2-approved', '3-rejected', '4-reset-password', '5-member-welcome']
+    .map(key => [key, load(key)]));
 
 /** What an administrator can do, in the words the app itself uses. */
 const ROLE_DETAIL = {
@@ -61,7 +62,7 @@ const fill = (template, values) =>
   template.replace(/\{\{([a-z_]+)\}\}/g, (whole, key) => (key in values ? String(values[key]) : whole));
 
 /**
- * @param {'1-verify-email'|'2-approved'|'3-rejected'|'4-reset-password'} key
+ * @param {'1-verify-email'|'2-approved'|'3-rejected'|'4-reset-password'|'5-member-welcome'} key
  * @param {object} values gym name, colours and whatever that letter needs
  * @returns {{subject: string, html: string, text: string}}
  */
@@ -85,7 +86,7 @@ export function letter(key, values = {}) {
     all.role_detail = ROLE_DETAIL[all.role] ?? ROLE_DETAIL.staff;
   }
 
-  const missing = ['gym_phone'].filter(field => !all[field]);
+  const missing = ['gym_phone', 'membership_line'].filter(field => !all[field]);
   return {
     subject: fill(template.subject, all),
     html: fill(dropEmptyHtml(template.html, missing), all),
@@ -93,7 +94,7 @@ export function letter(key, values = {}) {
   };
 }
 
-/** Every variable the four templates ask for, for the test that checks coverage. */
+/** Every variable the templates ask for, for the test that checks coverage. */
 export function variablesUsed() {
   const found = new Set();
   for (const template of Object.values(TEMPLATES)) {

@@ -18,7 +18,7 @@ const APPLICANT = {
 const signup = (call, values = {}) => call('post', '/auth/signup', null, { ...APPLICANT, ...values });
 
 test('the address has to answer before the owner can approve', async t => {
-  const fixture = counterFixture(t);
+  const fixture = counterFixture(t, { selfSignup: true });
   const { call, signIn, db } = fixture;
   const owner = await signIn('owner@example.test');
   await signup(call).expect(202);
@@ -44,7 +44,7 @@ test('the address has to answer before the owner can approve', async t => {
 });
 
 test('forgetting a password: one sentence, whoever asks, and silence for a stranger', async t => {
-  const fixture = counterFixture(t);
+  const fixture = counterFixture(t, { selfSignup: true });
   const { call, signIn, outbox } = fixture;
   await signIn('owner@example.test');
 
@@ -62,7 +62,7 @@ test('forgetting a password: one sentence, whoever asks, and silence for a stran
 });
 
 test('the reset link works once, and closes every session that was open', async t => {
-  const fixture = counterFixture(t);
+  const fixture = counterFixture(t, { selfSignup: true });
   const { call, signIn, db, tick } = fixture;
   const owner = await signIn('owner@example.test');
   // Two places signed in, the way a counter tablet and a phone would be.
@@ -95,7 +95,7 @@ test('the reset link works once, and closes every session that was open', async 
 });
 
 test('one token does one thing', async t => {
-  const fixture = counterFixture(t);
+  const fixture = counterFixture(t, { selfSignup: true });
   const { call, signIn } = fixture;
   await signIn('owner@example.test');
   await signup(call).expect(202);
@@ -111,7 +111,7 @@ test('one token does one thing', async t => {
 });
 
 test('asking over and over does not turn into a way to post mail at somebody', async t => {
-  const { call } = counterFixture(t);
+  const { call } = counterFixture(t, { selfSignup: true });
   for (let n = 0; n < 5; n += 1) {
     await call('post', '/auth/forgot', null, { email: 'owner@example.test' }).expect(200);
   }
@@ -124,7 +124,7 @@ test('asking over and over does not turn into a way to post mail at somebody', a
 });
 
 test('a gym that sets an invite code stops the queue being open to everybody', async t => {
-  const fixture = counterFixture(t);
+  const fixture = counterFixture(t, { selfSignup: true });
   const { call, signIn, db } = fixture;
   const owner = await signIn('owner@example.test');
   const version = (await call('get', '/gym/settings', owner).expect(200)).body.version;

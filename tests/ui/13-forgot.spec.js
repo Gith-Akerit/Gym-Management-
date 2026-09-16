@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { go, PASSWORD, signIn } from './counter.js';
+import { PASSWORD, signIn } from './counter.js';
 
-// Forgetting a password, and the gym's invite code.
+// Forgetting a password.
 //
 // Until now the way back in was to telephone the owner and be read a password
 // out loud, which is how a password ends up in a group chat. This is the
@@ -101,38 +101,4 @@ test('a link that has been used already says so without blaming anybody', async 
   await page.screenshot({ path: 'artifacts/reset-expired-1280.png', fullPage: true });
   await page.getByRole('button', { name: 'ขอลิงก์ใหม่' }).click();
   await expect(page.getByRole('button', { name: 'เข้าสู่ระบบ' })).toBeVisible();
-});
-
-test('the owner can close the sign-up form with a code, and the form never says so', async ({ page }) => {
-  await signIn(page, 'invite-admin@example.test');
-  await go(page, 'ตั้งค่ายิม');
-  await page.getByLabel('รหัสเชิญ').fill('SUKLUTAI-2026');
-  await page.getByRole('button', { name: 'บันทึกการตั้งค่า' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'บันทึกการตั้งค่ายิมแล้ว' })).toBeVisible();
-  await page.screenshot({ path: 'artifacts/invite-code-1280.png', fullPage: true });
-
-  // The form now asks for it -- and asks nothing else about it.
-  await page.context().clearCookies();
-  await page.goto('/');
-  await page.getByRole('button', { name: 'ขอบัญชีพนักงาน' }).click();
-  await expect(page.getByLabel('รหัสเชิญของยิม')).toBeVisible();
-  await page.getByLabel('ชื่อ–นามสกุล').fill('คนนอก ไม่รู้รหัส');
-  await page.getByLabel('อีเมล', { exact: true }).fill('outsider@example.test');
-  await page.getByLabel('เบอร์มือถือ').fill('0899000111');
-  await page.getByLabel('ตั้งรหัสผ่าน').fill(PASSWORD);
-  await page.getByLabel('รหัสเชิญของยิม').fill('GUESS');
-  await page.getByRole('button', { name: 'ส่งคำขอ' }).click();
-
-  // A wrong code is answered exactly like a duplicate address. Saying "wrong
-  // code" would turn this form into a way to find out whether a gym uses one.
-  await expect(page.getByRole('heading', { name: 'ส่งอีเมลยืนยันแล้ว' })).toBeVisible();
-  const sent = await (await page.request.get('/__test/outbox?to=outsider@example.test')).json();
-  expect(sent.items, 'รหัสเชิญผิดต้องไม่สร้างบัญชีและไม่ส่งเมล').toHaveLength(0);
-
-  // Put it back, so the specs after this one meet the form every gym starts with.
-  await signIn(page, 'invite-admin@example.test');
-  await go(page, 'ตั้งค่ายิม');
-  await page.getByLabel('รหัสเชิญ').fill('');
-  await page.getByRole('button', { name: 'บันทึกการตั้งค่า' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'บันทึกการตั้งค่ายิมแล้ว' })).toBeVisible();
 });

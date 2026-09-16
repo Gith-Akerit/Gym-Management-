@@ -93,6 +93,13 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
     });
   }
 
+  /**
+   * Handed back to createApp so the member's welcome letter can attach the
+   * same picture the counter sees, drawn by the same code with the same
+   * colours. A second renderer would be a second card.
+   */
+  const handles = { drawCard: draw, membershipFor };
+
   function sendCard(res, member, png) {
     res.set('Content-Type', 'image/png');
     // The name the browser suggests when staff save it to send on: a folder of
@@ -265,4 +272,6 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
     });
     res.json({ member: publicMember(result), qr: cardQrFor(secret, result) });
   });
+
+  return handles;
 }

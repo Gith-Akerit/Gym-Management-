@@ -11,3 +11,4 @@ mobile/.expo/
 mobile/android/
 mobile/ios/
 artifacts/
+__pycache__/

@@ -16,7 +16,21 @@ test('the login screen is for staff, and says so', async ({ page }) => {
   // The way back in is on the screen rather than a sentence telling somebody
   // to telephone the owner and be read a password out loud.
   await expect(page.getByRole('button', { name: 'ลืมรหัสผ่าน' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ขอบัญชีพนักงาน' })).toBeVisible();
+
+  // And that is the whole card. This gym's front door is for the four people
+  // who work here, so there is no sign-up form and no Google button -- not
+  // greyed out, not explaining themselves, absent. The journey behind them
+  // still exists and is still tested, on the server started with
+  // SELF_SIGNUP=1 (tests/ui/12-signup.spec.js).
+  await expect(page.getByRole('button', { name: 'ขอบัญชีพนักงาน' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ดำเนินการต่อด้วย Google' })).toHaveCount(0);
+  await expect(page.getByText('หรือ', { exact: true })).toHaveCount(0);
+  expect(await page.locator('.authcard button').count(),
+    'หน้าแรกต้องมีแค่ปุ่มเข้าสู่ระบบกับลิงก์ลืมรหัสผ่าน').toBe(2);
+  // And the silence where the sign-up button used to be is filled with the
+  // answer, or somebody without an account hunts for a button until they give
+  // up (Designer).
+  await expect(page.getByText('บัญชีพนักงานออกให้โดยเจ้าของยิมเท่านั้น')).toBeVisible();
 });
 
 test('a wrong password is refused, and says how many tries are left', async ({ page }) => {

@@ -118,6 +118,16 @@ def configure(root, clear_admin=False, pilot=False):
                       DATABASE_PATH='/data/gym.sqlite', SLIP_STORAGE_PATH='/data/slips',
                       PHOTO_STORAGE_PATH='/data/photos',
                       SLIP_RETENTION_DAYS='365', CARD_SIGNING_SECRET=secrets.token_hex(32),
+                      # Seals the gym's mailbox password in the database. Made
+                      # here rather than asked for: nobody has to invent one,
+                      # and an install without it would leave the owner unable
+                      # to turn email on from the screen.
+                      SETTINGS_ENC_KEY=secrets.token_hex(32),
+                      # The front door is for the people who work here. An
+                      # explicit empty value rather than nothing at all, so the
+                      # file says what the answer is instead of leaving the
+                      # reader to work out that absent means off.
+                      SELF_SIGNUP='',
                       ADMIN_EMAIL=admin, ADMIN_PASSWORD=admin_password,
                       ALLOW_DESTRUCTIVE_ROLLBACK='')
         # A pilot has no merchant account yet. The key is written empty rather
