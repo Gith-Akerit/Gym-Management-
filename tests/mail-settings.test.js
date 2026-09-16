@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { counterFixture } from './counter.js';
 import { newKey, open, readKey, seal } from '../server/secret-box.js';
 
@@ -176,4 +177,39 @@ test('a refusal from the mail server is written down in words the owner can act 
   // the mailbox is, and clearing it would make the owner type it again for
   // nothing.
   assert.equal(after.has_password, true);
+});
+
+test('every failure the server can name has an answer on the screen', async t => {
+  assert.ok(t);
+  // The bug this exists for: `no_tls` was added to explainFailure and the
+  // screen's DIAGNOSIS table was not touched, so a real answer fell through
+  // to "cause unknown" -- the exact thing the fourth branch was added to
+  // stop. Nothing on the API side could see it, because the API side was
+  // right; the two halves had simply drifted.
+  //
+  // Read from the source rather than exercised through fixtures, the same way
+  // tests/deploy-paths.test.js reads the server for storage paths: a branch
+  // added next month is covered the day it is added, without anybody
+  // remembering to write an error that triggers it.
+  const mailSource = readFileSync(new URL('../server/mail.js', import.meta.url), 'utf8');
+  const screenSource = readFileSync(new URL('../web/mail-settings.jsx', import.meta.url), 'utf8');
+
+  const reasons = [...mailSource.matchAll(/reason:\s*'([a-z_]+)'/g)].map(found => found[1]);
+  // Failures the mailer reports without the screen ever drawing a panel for
+  // them: "nothing was filled in" and "half a form" are states the settings
+  // screen already shows in its own words, above the diagnosis box.
+  const notDiagnosed = new Set(['not_configured', 'incomplete']);
+  const named = [...new Set(reasons)].filter(reason => !notDiagnosed.has(reason));
+  assert.ok(named.length >= 5, `เจอ reason แค่ ${named.length} ตัว — regex อาจอ่านไฟล์ไม่เจอแล้ว`);
+
+  const table = screenSource.slice(screenSource.indexOf('const DIAGNOSIS = {'));
+  for (const reason of named) {
+    assert.ok(new RegExp(String.raw`^  ${reason}:\s*\{`, 'm').test(table),
+      `explainFailure คืน "${reason}" ได้ แต่ DIAGNOSIS ของหน้าจอไม่มี entry นี้ — `
+      + 'เจ้าของยิมจะเห็นว่า "ยังไม่ทราบสาเหตุ" ทั้งที่ระบบรู้');
+  }
+
+  // And the one the screen falls back to has to exist, or an answer nobody
+  // anticipated lands on a blank red box.
+  assert.ok(/^  unknown:\s*\{/m.test(table));
 });

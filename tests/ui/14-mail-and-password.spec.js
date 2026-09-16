@@ -222,6 +222,27 @@ test('a mail server refusal is translated into steps the owner can follow', asyn
   await expect(page.locator('.mpath span').filter({ hasText: 'myaccount.microsoft.com' })).toBeVisible();
   await page.screenshot({ path: 'artifacts/mail-diag-password-1280.png', fullPage: true });
 
+  // A server that will not encrypt. This one reached the server and not the
+  // screen: the branch was added to explainFailure and the screen's table was
+  // not touched, so a real answer fell through to "cause unknown" -- the exact
+  // thing the branch existed to stop. Nothing on the API side could see it,
+  // because the API side was right (QA).
+  await page.request.post('/__test/refuse-mail', {
+    headers: { 'X-Gym-Client': 'web' },
+    data: { reason: 'no_tls', message: 'เซิร์ฟเวอร์นี้ไม่รองรับการเข้ารหัส',
+      raw: '500 5.5.1 STARTTLS not supported' },
+  });
+  await page.getByRole('button', { name: 'ส่งเมลทดสอบ' }).click();
+  await expect(page.getByText('เซิร์ฟเวอร์นี้ไม่รองรับการเข้ารหัส').first()).toBeVisible();
+  // The two things the owner can actually check, and the reason the system
+  // refused rather than sending -- which is the part that stops them from
+  // "fixing" it by turning encryption off somewhere.
+  await expect(page.locator('.mpath span').filter({ hasText: 'smtp.office365.com' })).toBeVisible();
+  await expect(page.locator('.mpath span').filter({ hasText: 'พอร์ต 587' })).toBeVisible();
+  await expect(page.getByText(/ไม่ส่งรหัสผ่านของกล่องจดหมายออกไปเลย/)).toBeVisible();
+  await expect(page.getByText('ส่งไม่สำเร็จ และยังไม่ทราบสาเหตุ')).toHaveCount(0);
+  await page.screenshot({ path: 'artifacts/mail-diag-no-tls-1280.png', fullPage: true });
+
   // And one nobody anticipated still lands on a screen that says what to do.
   await page.request.post('/__test/refuse-mail', {
     headers: { 'X-Gym-Client': 'web' },
