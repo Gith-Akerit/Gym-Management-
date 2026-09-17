@@ -37,9 +37,12 @@ export const setupTokenHash = token => createHash('sha256').update(token).digest
  * Retiring matters: somebody who runs the command twice because the first
  * message did not send should not leave two working ways in.
  */
-export function issueSetupToken(db, { userId, now, issuedBy = null, purpose = 'setup' }) {
+export function issueSetupToken(db, { userId, now, issuedBy = null, purpose = 'setup', life: override }) {
   const token = randomBytes(32).toString('base64url');
-  const life = TTL[purpose] ?? SETUP_TTL_MS;
+  // The purpose decides the life, unless the caller has a reason to shorten
+  // it. One does: the link the counter hands over face to face is used within
+  // minutes, while the one posted with a card has to survive a weekend.
+  const life = override ?? TTL[purpose] ?? SETUP_TTL_MS;
   // Only links of the same kind are retired: asking for a password reset must
   // not quietly kill the verification link in the same person's inbox.
   db.prepare('UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND purpose=? AND used_at IS NULL')

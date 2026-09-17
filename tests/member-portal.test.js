@@ -220,3 +220,49 @@ test('a member session opens nothing at the counter', async t => {
   const refused = await call('get', '/m/me', desk).expect(403);
   assert.match(refused.body.error, /สมาชิก/);
 });
+
+test('the counter can hand a member a way into the portal, without the post', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn, db } = fixture;
+  const { member, desk } = await joinAndSetPassword(fixture);
+  const owner = await signIn('owner@example.test');
+
+  // The situation this exists for: the gym's mailbox is not filled in, so the
+  // welcome letter -- the only other way a member ever gets a password -- is
+  // refused. On the first day of every gym that is every member (QA smoke).
+  fixture.noMailbox();
+  await call('post', `/members/${member.id}/welcome`, desk, {}).expect(409);
+
+  // Staff, not only the owner: the customer is standing at the counter.
+  const issued = (await call('post', `/members/${member.id}/portal-link`, desk, {}).expect(200)).body;
+  assert.equal(issued.email, MEMBER.email);
+  assert.match(issued.url, /\/\?setpw=[A-Za-z0-9_-]{43}$/);
+  // A day, not the letter's week: this one is read out at the counter or sent
+  // over LINE, and a week of validity is a week of a live link in a chat log.
+  assert.equal(issued.expires_at - fixture.at(), 24 * 3600000);
+
+  // It really opens the door, and it opens it once.
+  const token = /setpw=([A-Za-z0-9_-]{43})/.exec(issued.url)[1];
+  await call('post', '/auth/set-password', null, { token, password: 'a-brand-new-password' }).expect(200);
+  // Used once and gone, the same as every other link this system hands out.
+  await call('post', '/auth/set-password', null, { token, password: 'again-with-the-same' }).expect(404);
+  const portal = (await call('post', '/auth/member/login', null,
+    { email: MEMBER.email, password: 'a-brand-new-password' }).expect(200)).body.token;
+  await call('get', '/m/me', portal).expect(200);
+
+  // Handing over a way into somebody's account is written down.
+  const logged = db.prepare("SELECT count(*) AS n FROM audit_logs WHERE action='member.portal_link_issued'").get();
+  assert.equal(logged.n, 1);
+
+  // A member with no address has no account to let anybody into, and the
+  // answer says what to do about it rather than failing blankly.
+  const walkIn = await fixture.addMember(desk, { name: 'ไม่มีอีเมล', phone: '0890000111' });
+  const refused = await call('post', `/members/${walkIn.id}/portal-link`, desk, {}).expect(409);
+  assert.match(refused.body.error, /อีเมล/);
+
+  // And it is the counter's, not a member's: a member session cannot mint one
+  // for anybody, including themselves.
+  await call('post', `/members/${member.id}/portal-link`, portal, {}).expect(403);
+  await call('post', `/members/${member.id}/portal-link`, null, {}).expect(401);
+  assert.ok(owner);
+});

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import './brand-extra.css';
@@ -18,6 +18,7 @@ import { PendingRequests } from './user-requests.jsx';
 import { PhotoCapture } from './camera.jsx';
 import { ProblemReports } from './reports.jsx';
 import { captureScreen, flushPendingReports, pendingReportCount, ReportDialog } from './report.jsx';
+import { setScanningPaused } from './capture.js';
 
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
 const blankPackage = { code: '', name_th: '', type: 'unlimited', duration_days: 30, session_limit: '', price_satang: '', description: '', status: 'draft', sort_order: 0 };
@@ -501,6 +502,9 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   /** Replaces the photograph from this screen, which is where the news lands. */
   const [emailed, setEmailed] = useState('');
+  // One live portal link on screen at a time, like the staff one: a list of
+  // them is a list of ways into customers' accounts on a counter tablet.
+  const [portal, setPortal] = useState(null), [portalCopied, setPortalCopied] = useState(false);
 
   async function savePhoto(file) {
     setWorking(true); setPhotoFailure(null);
@@ -518,6 +522,21 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   async function resend() {
     setWorking(true); setFailure(null);
     try { setLink(await api(`/members/${member.id}/card/link`, { method: 'POST', body: {} })); }
+    catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
+  }
+
+  /**
+   * A way into "ช่วยเล่น" handed over at the counter.
+   *
+   * The only other way a member ever gets a password is the letter with their
+   * card in it, and that letter cannot be sent until the gym's mailbox is
+   * filled in -- so on a gym's first day nobody could open the portal at all,
+   * and a member who forgot their password had a counter that could do nothing
+   * for them (QA smoke). Read it out, or send it over LINE.
+   */
+  async function portalLink() {
+    setWorking(true); setFailure(null); setPortal(null); setPortalCopied(false);
+    try { setPortal(await api(`/members/${member.id}/portal-link`, { method: 'POST', body: {} })); }
     catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
@@ -659,7 +678,27 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
           {emailed && <div className="banner ok" role="status">
             <div className="ic" aria-hidden="true">✓</div><div><b>{emailed}</b></div></div>}
           <button className="btn ghost" disabled={working} onClick={resend}>ส่งบัตรซ้ำ (ลิงก์ 7 วัน)</button>
+          {/* Offered only when there is an account to let them into. Without an
+              address there is no member account, and the button would be a
+              button that always fails. */}
+          {data.member?.email && <button className="btn ghost" disabled={working} onClick={portalLink}>
+            สร้างลิงก์เข้าช่วยเล่น</button>}
           <button className="btn ghost" onClick={() => setEditing(true)}>แก้ไขข้อมูลสมาชิก</button>
+          {portal && <div className="soft" style={{ borderColor: 'var(--warn)' }}>
+            <b>ลิงก์เข้าช่วยเล่นของ {portal.email}</b>
+            <p className="note" style={{ margin: '6px 0' }}>
+              อ่านให้ลูกค้าหรือส่งให้เจ้าตัวโดยตรง · <b>ใช้ได้ครั้งเดียว</b> หมดอายุ
+              {' '}{formatDateTime(portal.expires_at)} · คนที่ถือลิงก์นี้ตั้งรหัสผ่านของบัญชีนี้ได้ อย่าโพสต์ลงกลุ่ม</p>
+            <input readOnly className="num" aria-label="ลิงก์เข้าช่วยเล่น" value={portal.url}
+              onFocus={e => e.target.select()}/>
+            <div className="btn-row" style={{ marginTop: 'var(--sp-3)' }}>
+              <button className="btn primary" onClick={() => {
+                navigator.clipboard?.writeText(portal.url)
+                  .then(() => setPortalCopied(true)).catch(() => setPortalCopied(false));
+              }}>{portalCopied ? '✓ คัดลอกแล้ว' : 'คัดลอกลิงก์'}</button>
+              <button className="btn ghost" onClick={() => { setPortal(null); setPortalCopied(false); }}>ปิด</button>
+            </div>
+          </div>}
           {link && <div className="soft">
             <b>ลิงก์ดาวน์โหลดบัตรใบเดิม</b>
             <p className="note" style={{ margin: '6px 0' }}>
@@ -1268,6 +1307,8 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
 
   // null · { capturing: true } · { shot, screen, failed }
   const [report, setReport] = useState(null);
+  /** Which press the capture on screen belongs to. See cancelCapture. */
+  const captureRun = useRef(0);
   const [pending, setPending] = useState(() => pendingReportCount());
 
   // Anything this browser kept during an outage leaves as soon as it can.
@@ -1287,9 +1328,33 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
    */
   async function startReport() {
     const screen = NAV.find(([key]) => key === tab)?.[1] ?? '';
+    // Each press gets a number. A capture that was given up on must not be
+    // able to open a box eight seconds later, on top of whatever the person
+    // went on to do instead.
+    const mine = captureRun.current + 1;
+    captureRun.current = mine;
     setReport({ capturing: true });
-    try { setReport({ shot: await captureScreen(), screen }); }
-    catch { setReport({ shot: null, screen, failed: true }); }
+    try {
+      const shot = await captureScreen();
+      if (captureRun.current === mine) setReport({ shot, screen });
+    } catch {
+      if (captureRun.current === mine) setReport({ shot: null, screen, failed: true });
+    }
+  }
+
+  /**
+   * The way out of the wait.
+   *
+   * Belt to the timeout's braces: on the gym's machine the capture could hang
+   * with no error and no end, and the panel it hangs in covered every control
+   * underneath it -- so a reload was the only way back to work, on the screen
+   * staff spend the shift on (QA BUG-14). The capture itself is left to finish
+   * or time out on its own; its answer is dropped by the number above.
+   */
+  function cancelCapture() {
+    captureRun.current += 1;
+    setScanningPaused(false);
+    setReport(null);
   }
 
   // One handler for everything the corner menu can do, so the menu itself does
@@ -1314,6 +1379,9 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
           <span className="spin" style={{ width: 44, height: 44, margin: '0 auto var(--sp-4)' }}/>
           <b>กำลังจับภาพหน้าจอ…</b>
           <p className="note">ระบบจับภาพก่อนเปิดกล่อง ภาพที่ได้จึงเป็นหน้าที่คุณเห็นตอนกด</p>
+          {/* This panel covers everything under it, so without this button a
+              capture that goes wrong takes the whole screen with it. */}
+          <button className="btn" type="button" onClick={cancelCapture}>ยกเลิก</button>
         </div></div>
       </div>
     : <ReportDialog user={user} screen={report.screen} shot={report.shot} captureFailed={report.failed}

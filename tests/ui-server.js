@@ -69,6 +69,10 @@ const outbox = [];
 // three different sets of instructions on it, and a browser cannot provoke
 // them without a mailbox that is genuinely misconfigured.
 let refusal = null;
+// Whether this gym has filled in its mailbox at all -- a different state from
+// "the mail server refused this letter", and the one that decides whether the
+// portal can be opened by anybody without the counter's help.
+let mailboxFilled = true;
 const photoRoot = resolve(PILOT ? 'data/test-photos-pilot' : 'data/test-photos');
 const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `http://127.0.0.1:${PORT}`,
   slipStore: new SlipStore(resolve(PILOT ? 'data/test-slips-pilot' : 'data/test-slips')),
@@ -77,7 +81,7 @@ const app = createApp({ db, secret: randomBytes(32).toString('hex'), origin: `ht
   reportStore: new SlipStore(resolve(PILOT ? 'data/test-reports-pilot' : 'data/test-reports'), { maxBytes: 6e6 }),
   machineStore: new SlipStore(resolve(PILOT ? 'data/test-machines-pilot' : 'data/test-machines'), { maxBytes: 6e6 }),
   mailer: {
-    ready: true,
+    get ready() { return mailboxFilled; },
     send: async message => {
       outbox.push(message);
       if (!refusal) return { sent: true };
@@ -149,6 +153,11 @@ app.post('/__test/revoke-membership', express.json(), (req, res) => {
   const changed = db.prepare("UPDATE entitlements SET status='revoked',revoked_at=? WHERE member_id=?")
     .run(Date.now(), member.id).changes;
   res.json({ revoked: changed });
+});
+/** The gym before anybody types the mailbox in: no letter can go out at all. */
+app.post('/__test/mailbox', express.json(), (req, res) => {
+  mailboxFilled = req.body?.filled !== false;
+  res.json({ filled: mailboxFilled });
 });
 app.post('/__test/refuse-mail', express.json(), (req, res) => {
   refusal = { reason: req.body?.reason ?? 'unknown', message: req.body?.message ?? 'ส่งไม่สำเร็จ',

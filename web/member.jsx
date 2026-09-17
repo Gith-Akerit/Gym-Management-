@@ -262,6 +262,18 @@ function MemberLogin({ brand, branding, onSignedIn }) {
         {/* Says which address, so somebody who never gave one stops guessing
             (Designer): they cannot get in and the counter has to add it. */}
         <p className="lead">ใช้อีเมลที่ให้ไว้ตอนสมัครสมาชิกที่เคาน์เตอร์</p>
+        {/* While the gym's mailbox is unfilled no card letter goes out, so
+            nobody who has not already set a password can get in from here --
+            and this page has no "forgot password" to soften it. Saying so, and
+            naming the counter as the way in, beats letting somebody try
+            addresses until they give up (QA smoke, ข้อ 2). */}
+        {branding?.mail_ready === false && <div className="alert warn" role="status">
+          <div className="ic" aria-hidden="true">!</div>
+          <div><b>ยิมนี้ยังไม่ได้ตั้งค่าการส่งอีเมล</b>
+            <span>ตอนนี้ระบบยังส่งบัตรสมาชิกและลิงก์ตั้งรหัสผ่านทางอีเมลไม่ได้ ·
+              ติดต่อพนักงานที่เคาน์เตอร์{branding?.phone ? ` หรือโทร ${formatPhone(branding.phone)}` : ''}
+              {' '}เพื่อขอลิงก์เข้าช่วยเล่น พนักงานสร้างให้ได้ทันที</span></div>
+        </div>}
         <Field label="อีเมล" name="m-email" type="email" value={email} onChange={setEmail}
           required autoComplete="username" disabled={busy}/>
         <div className={`field${error ? ' invalid' : ''}`}>

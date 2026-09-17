@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { upload } from './shared.jsx';
+import { setScanningPaused, withTimeout } from './capture.js';
 
 /**
  * "ใช้ไม่ได้อย่างไร" — with a picture of it.
@@ -99,6 +100,9 @@ export const pendingReportCount = () => readQueue().length;
  * painted onto a canvas first and put back afterwards.
  */
 export async function captureScreen() {
+  // Before anything else: the QR loop stops decoding while this runs. It is
+  // the reason the capture could hang at all (see web/capture.js).
+  setScanningPaused(true);
   const { domToDataUrl } = await import('modern-screenshot');
   const swapped = [];
   for (const video of document.querySelectorAll('video')) {
@@ -116,9 +120,16 @@ export async function captureScreen() {
   }
   try {
     const scale = Math.min(1, CAPTURE_MAX / Math.max(document.documentElement.clientWidth, 1));
-    return await domToDataUrl(document.body, { scale, backgroundColor: '#EFF2F4', type: 'image/png' });
+    // The timeout is inside this function rather than around the call, because
+    // of the `finally` below: if the capture never settles, nothing puts the
+    // real <video> elements back and the screen is left showing frozen
+    // canvases. Giving up after eight seconds restores them and falls through
+    // to the "picture failed" path, which already exists and works.
+    return await withTimeout(
+      domToDataUrl(document.body, { scale, backgroundColor: '#EFF2F4', type: 'image/png' }));
   } finally {
     for (const [canvas, video] of swapped) canvas.replaceWith(video);
+    setScanningPaused(false);
   }
 }
 

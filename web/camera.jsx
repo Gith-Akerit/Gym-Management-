@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { scanningPaused } from './capture.js';
 
 /**
  * Reads a QR from the counter's camera.
@@ -67,6 +68,15 @@ export function CameraScanner({ onScan, active, onError }) {
 
       const tick = async () => {
         if (cancelled || !video.current || video.current.readyState < 2) {
+          frame = requestAnimationFrame(tick);
+          return;
+        }
+        // Something is photographing the screen. Reading a frame into a canvas
+        // and hunting it for a QR code, every frame, is what stopped that
+        // capture from ever finishing on the machine at the gym (QA BUG-14).
+        // The camera keeps running -- the picture has to show what was on
+        // screen -- but nothing is decoded until the capture is done.
+        if (scanningPaused()) {
           frame = requestAnimationFrame(tick);
           return;
         }

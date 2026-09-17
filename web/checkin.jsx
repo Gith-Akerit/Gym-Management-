@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Field, formatDateTime, Loading, Mark, StateBox, useResource } from './shared.jsx';
 import { CameraScanner } from './camera.jsx';
+import { onScanningPause, scanningPaused } from './capture.js';
 import { UserMenu } from './usermenu.jsx';
 
 const resultLabels = { allowed: 'เข้าใช้บริการได้', duplicate: 'เช็คอินไปแล้ว', denied: 'เข้าใช้บริการไม่ได้' };
@@ -29,6 +30,10 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
   const [typing, setTyping] = useState(false);
   const input = useRef(null);
 
+  // Mirrored into React state only so the attribute above can move; the loop
+  // itself reads the flag directly, every frame.
+  const [scanPaused, setScanPaused] = useState(scanningPaused());
+  useEffect(() => onScanningPause(setScanPaused), []);
   useEffect(() => { localStorage.setItem('gym.device', device); }, [device]);
   useEffect(() => { localStorage.setItem('gym.camera', camera ? 'on' : 'off'); }, [camera]);
   useEffect(() => { if (typing) input.current?.focus(); }, [typing, outcome]);
@@ -79,6 +84,11 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
     <div className={`scanbody${outcome && !busy ? ' hasresult' : ''}`}>
       <div>
         <div className={`cam${camera && !cameraError ? '' : ' off'}`}
+          /* Says out loud whether the lens is reading right now. It stops while
+             the screen is being photographed (QA BUG-14), and a flag that is
+             never cleared is a camera that silently never reads a card again --
+             so it is on the page where a test, and a person, can see it. */
+          data-scanning={scanPaused ? 'paused' : 'live'}
           style={cameraError ? { borderColor: 'var(--deny)' } : undefined}>
           {/* BUG-04 (QA): the loop kept reading the card that was still being
               held up while staff compared the photograph to the face -- which

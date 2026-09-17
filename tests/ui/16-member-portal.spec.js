@@ -275,3 +275,60 @@ test('a membership taken back says so, rather than showing a date next month', a
   await expect(call).toBeVisible();
   await expect(call).toHaveText(/\d{3}-\d{3}-\d{3,4}/);
 });
+
+test('the counter can let a member in when the gym has no mailbox yet', async ({ page }) => {
+  // The gym on its first day: nobody has typed the mailbox in, so no card
+  // letter can go out -- and the letter was the only thing that ever carried a
+  // member's first password. QA could not sign in to the portal on the real
+  // machine for exactly this reason (smoke, ข้อ 2).
+  await page.request.post('/__test/mailbox', {
+    headers: { 'X-Gym-Client': 'web' }, data: { filled: false },
+  });
+  try {
+    // The member's own front door says so, and names the way in rather than
+    // leaving somebody typing addresses at a form that cannot help them.
+    await page.context().clearCookies();
+    await page.goto('/m/login');
+    await expect(page.getByText('ยิมนี้ยังไม่ได้ตั้งค่าการส่งอีเมล')).toBeVisible();
+    await expect(page.getByText(/ติดต่อพนักงานที่เคาน์เตอร์/)).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: 'artifacts/portal-login-nomail-390.png', fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    // Staff, at the counter, with the customer standing there.
+    await signIn(page, 'portal-staff@example.test');
+    await go(page, 'สมาชิก');
+    await page.getByLabel('ค้นหาสมาชิก').fill(MEMBER.name);
+    await page.getByRole('button', { name: `เปิดสมาชิก ${MEMBER.name}` }).click();
+    await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+    // Emailing the card is refused in this state; handing a link over is not.
+    await page.getByRole('button', { name: 'สร้างลิงก์เข้าช่วยเล่น' }).click();
+    const field = page.getByLabel('ลิงก์เข้าช่วยเล่น');
+    await expect(field).toBeVisible();
+    await expect(page.getByText(/ใช้ได้ครั้งเดียว/)).toBeVisible();
+    await expect(page.getByText(/อย่าโพสต์ลงกลุ่ม/)).toBeVisible();
+
+    // It is a real way in: open it, set a password, sign in as the member.
+    const url = await field.inputValue();
+    expect(url).toMatch(/\/\?setpw=[A-Za-z0-9_-]{43}$/);
+    await page.context().clearCookies();
+    await page.goto(new URL(url).pathname + new URL(url).search);
+    await page.getByLabel('รหัสผ่านใหม่').fill('link-from-the-counter');
+    await page.getByLabel('พิมพ์รหัสผ่านอีกครั้ง').fill('link-from-the-counter');
+    await page.getByRole('button', { name: 'บันทึกรหัสผ่าน' }).click();
+    await expect(page.getByRole('heading', { name: 'ตั้งรหัสผ่านใหม่แล้ว' })).toBeVisible();
+
+    await page.goto('/m/login');
+    await page.getByLabel('อีเมล', { exact: true }).fill(MEMBER.email);
+    await page.getByLabel('รหัสผ่าน', { exact: true }).fill('link-from-the-counter');
+    await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+    // The membership was revoked by the spec above, so the screen behind the
+    // door is screen H -- which is still proof the door opened.
+    await expect(page.getByRole('heading', { name: /สิทธิ์ถูกยกเลิก|สวัสดี/ })).toBeVisible();
+  } finally {
+    await page.request.post('/__test/mailbox', {
+      headers: { 'X-Gym-Client': 'web' }, data: { filled: true },
+    });
+  }
+});

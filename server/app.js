@@ -655,6 +655,39 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     res.json({ sent: true, to: member.email });
   });
 
+  /**
+   * A way into "ช่วยเล่น" that does not go through the post.
+   *
+   * Until this existed a member's only way to a password was the letter with
+   * their card in it, and that letter is refused while the gym's mailbox is
+   * unfilled. So on a gym whose email is not set up yet -- which is every gym
+   * on its first day -- the portal could not be opened by anybody at all, and
+   * a member who forgot their password had a counter that could do nothing for
+   * them (QA smoke, ข้อ 2). Staff as well as the owner, for the same reason
+   * staff can fix an address: the customer is standing there.
+   *
+   * Twenty-four hours rather than the letter's seven days. This one is read
+   * out or sent over LINE while the member is at the counter, so a week of
+   * validity is a week of a working way into somebody's account sitting in a
+   * chat log.
+   */
+  app.post('/api/members/:id/portal-link', counter, (req, res) => {
+    const member = getMember(db, req.params.id);
+    if (!member) throw new HttpError(404, 'ไม่พบสมาชิก');
+    if (!member.email) {
+      throw new HttpError(409, 'สมาชิกรายนี้ยังไม่ได้กรอกอีเมล กด “แก้ไขข้อมูลสมาชิก” เพื่อเพิ่มก่อน');
+    }
+    if (!member.user_id) throw new HttpError(409, 'สมาชิกรายนี้ยังไม่มีบัญชีสำหรับเข้าช่วยเล่น');
+    limit(`portallink:${member.id}`, 10, 3600000);
+    const { token, expiresAt } = issueSetupToken(db, { userId: member.user_id, now: now(),
+      issuedBy: req.user.id, purpose: 'member', life: 24 * 3600000 });
+    // Written down because it is a way into a customer's account handed over
+    // by hand: who issued it, for whom, and when.
+    audit(db, req.user.id, 'member.portal_link_issued', member.id, null,
+      { to: member.email }, now(), 'member');
+    res.json({ email: member.email, url: `${origin}${setupPath(token)}`, expires_at: expiresAt });
+  });
+
   app.get('/api/members/:id', counter, (req, res) => {
     const row = getMember(db, req.params.id);
     if (!row) throw new HttpError(404, 'ไม่พบสมาชิก');
