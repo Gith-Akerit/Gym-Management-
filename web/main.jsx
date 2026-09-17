@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './style.css';
 import './brand-extra.css';
 import {
-  api, Empty, Field, formatDate, formatDateTime, formatPhone, formatPrice, labels, Loading,
+  api, Empty, Field, formatDate, formatDateTime, formatPhone, formatPrice, isMemberApp, labels, Loading,
   initials, Mark, Notice, orderStatusLabels, packageStatusLabels, PilotContext, StateBox, upload,
   useBranding, useResource, usePilot,
 } from './shared.jsx';
@@ -1449,6 +1449,5 @@ function App() {
  * page is rendered by the server, so the sticker on the side of a machine
  * costs one request and no JavaScript at all.
  */
-const path = window.location.pathname.replace(/\/+$/, '');
 createRoot(document.getElementById('root'))
-  .render(path === '/m/login' || path === '/m/portal' ? <MemberPortal/> : <App/>);
+  .render(isMemberApp() ? <MemberPortal/> : <App/>);

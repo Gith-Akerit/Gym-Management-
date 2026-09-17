@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { go, PNG_PIXEL, signIn } from './counter.js';
+import { contrastIn, go, PNG_PIXEL, signIn, tooFaint } from './counter.js';
 
 // The member's own app, walked the way a member walks it: a card arrives by
 // email, the link in it sets a password, and from then on the phone is the
@@ -107,6 +107,48 @@ test('a member signs in on their phone and follows a programme', async ({ page }
   await page.setViewportSize({ width: 1280, height: 900 });
 });
 
+test('the portal wears the gym own colour without anything disappearing into it', async ({ page }) => {
+  await signInAsMember(page);
+  await expect(page.getByRole('heading', { name: `สวัสดี ${MEMBER.name}` })).toBeVisible();
+
+  // The badge in the top bar is the gym's initials in a white box -- unless
+  // the gym has uploaded a logo, in which case it is the logo. Both states
+  // happen in this suite depending on what ran before, so the rule is measured
+  // rather than the instance: put a span where the initials go and ask what
+  // colour the cascade gives it. It gave white, inside a white box, on the
+  // first screen a member ever sees (BUG-10).
+  const badge = page.locator('.mtop .mk');
+  await expect(badge).toBeVisible();
+  const ratio = await page.evaluate(() => {
+    const box = document.querySelector('.mtop .mk');
+    const probe = document.createElement('span');
+    probe.textContent = 'สฟ';
+    box.append(probe);
+    const parse = value => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    const luminance = ([r, g, b]) => {
+      const channel = v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    const ink = luminance(parse(getComputedStyle(probe).color));
+    const behind = luminance(parse(getComputedStyle(box).backgroundColor));
+    probe.remove();
+    return Math.round(((Math.max(ink, behind) + 0.05) / (Math.min(ink, behind) + 0.05)) * 100) / 100;
+  });
+  expect(ratio, 'ตราย่อชื่อยิมบนแถบพอร์ทัล').toBeGreaterThanOrEqual(4.5);
+
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(tooFaint(await contrastIn(page)), `พอร์ทัลหน้าแรก ที่ ${width}px`).toEqual([]);
+  }
+
+  // And the same sweep on the two screens behind it, because the bar is on
+  // every one of them.
+  await page.getByRole('link', { name: 'วิธีใช้เครื่อง', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'วิธีใช้เครื่อง', level: 1 })).toBeVisible();
+  expect(tooFaint(await contrastIn(page)), 'พอร์ทัลหน้าเครื่อง').toEqual([]);
+  await page.setViewportSize({ width: 1280, height: 900 });
+});
+
 test('a member cannot reach the counter, and the counter cannot reach the portal', async ({ page }) => {
   await signInAsMember(page);
   await expect(page.getByRole('heading', { name: `สวัสดี ${MEMBER.name}` })).toBeVisible();
@@ -169,4 +211,67 @@ test('the owner prints one QR sheet for the whole gym', async ({ page }) => {
   await signIn(page, 'portal-staff@example.test');
   await expect(page.getByRole('button', { name: 'เมนู', exact: true })).toBeVisible();
   expect((await page.request.get('/api/machines/qr-sheet')).status()).toBe(403);
+});
+
+test('the member tab says what the member opened, and the number is dialable', async ({ page }) => {
+  // The spec before this one signs in at the counter; both front doors here
+  // are the signed-out ones.
+  await page.context().clearCookies();
+  await page.goto('/m/login');
+  await expect(page.getByRole('button', { name: 'เข้าสู่ระบบ' })).toBeVisible();
+  // It said "· จัดการยิม" -- the staff app's name -- on a screen only members
+  // reach, because both apps ship in one bundle and the title was written once
+  // for the counter (BUG-13).
+  await expect.poll(() => page.title()).toMatch(/ช่วยเล่น$/);
+  expect(await page.title()).not.toMatch(/จัดการยิม/);
+
+  // And the counter's own front door keeps its own name.
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'เข้าสู่ระบบ' })).toBeVisible();
+  await expect.poll(() => page.title()).toMatch(/จัดการยิม$/);
+});
+
+test('a sticker for a machine that is gone speaks Thai', async ({ page }) => {
+  await page.context().clearCookies();
+  const answer = await page.request.get('/m/M-99');
+  expect(answer.status()).toBe(404);
+
+  // Somebody standing at the machine with a phone got Express's own page:
+  // English, headed "Error", `Cannot GET /m/M-99` (BUG-11).
+  await page.goto('/m/M-99');
+  await expect(page.getByRole('heading', { name: 'ไม่พบเครื่องนี้' })).toBeVisible();
+  await expect(page.getByText(/ถามพนักงานที่เคาน์เตอร์/)).toBeVisible();
+  expect(await page.title()).toMatch(/ไม่พบเครื่องนี้/);
+  expect(await page.content()).not.toContain('Cannot GET');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'artifacts/machine-missing-390.png', fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+});
+
+test('a membership taken back says so, rather than showing a date next month', async ({ page }) => {
+  // The spec above ended this membership by its own date, so this one starts
+  // on the expiry screen -- which is exactly the comparison worth making: one
+  // member, one session, the two endings back to back.
+  await signInAsMember(page);
+  await expect(page.getByRole('heading', { name: 'สมาชิกหมดอายุแล้ว' })).toBeVisible();
+  await expect(page.locator('.wall .when')).toHaveCount(1, { timeout: 5000 });
+
+  // Now the owner reverses the approval -- a refund, or an approval made by
+  // mistake. A different fact about the same membership.
+  await page.request.post('/__test/revoke-membership', {
+    headers: { 'X-Gym-Client': 'web' }, data: { phone: MEMBER.phone },
+  });
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'สิทธิ์ถูกยกเลิก' })).toBeVisible();
+  await expect(page.getByText(/ติดต่อเคาน์เตอร์/)).toBeVisible();
+  // The date it WOULD have run to is not a fact about today, and printing it
+  // sent members to the counter with the screen held up as proof (BUG-12).
+  await expect(page.locator('.wall .when')).toHaveCount(0);
+  await expect(page.getByText(/หมดอายุ/)).toHaveCount(0);
+
+  // The gym's number is written the way every staff screen writes it.
+  const call = page.getByRole('link', { name: /โทรหายิม/ });
+  await expect(call).toBeVisible();
+  await expect(call).toHaveText(/\d{3}-\d{3}-\d{3,4}/);
 });

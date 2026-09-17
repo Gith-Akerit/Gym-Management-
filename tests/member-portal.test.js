@@ -108,19 +108,63 @@ test('a membership is checked on every request, not once at sign-in', async t =>
   // The membership ends while the phone in somebody's pocket still holds the
   // session it signed in with. Nothing about that session changes -- so if the
   // check happened at sign-in, this next request would still say "active".
-  db.prepare("UPDATE entitlements SET status='revoked',revoked_at=? WHERE member_id=?")
-    .run(fixture.at(), member.id);
+  //
+  // Ended by its own date, which is what "expired" means. Writing 'revoked'
+  // here and calling it expiry is how the two endings got the same sentence on
+  // screen without a test noticing (QA BUG-12); the reversal is its own test.
+  db.prepare("UPDATE entitlements SET expires_at=? WHERE member_id=?")
+    .run(fixture.at() - 1000, member.id);
   const after = (await call('get', '/m/me', portal).expect(200)).body;
   assert.equal(after.active, false, 'สิทธิ์หมดอายุแล้วต้องรู้ทันที ไม่ใช่รอ session หมดอายุ');
   // Still signed in, deliberately: the screen that says "your membership ended
   // on the 3rd, here is the gym's number" is only reachable from inside.
   assert.ok(after.expires_on, 'ต้องบอกวันที่หมดอายุ ไม่ใช่แค่บอกว่าหมด');
+  assert.equal(after.revoked, false, 'หมดอายุตามกำหนดไม่ใช่การถูกยกเลิก');
   assert.ok(after.package);
+  const refused = await call('get', '/m/home', portal).expect(402);
+  assert.match(refused.body.error, /หมดอายุ/);
+  assert.ok(refused.body.expired_on, 'หน้า H ต้องมีวันที่ไว้บอกว่าหมดเมื่อไหร่');
 
   // And somebody whose membership has lapsed can still sign in tomorrow, which
   // is the only way they can reach that screen at all.
   await call('post', '/auth/member/login', null,
     { email: MEMBER.email, password: PORTAL_PASSWORD }).expect(200);
+});
+
+test('a membership the gym took back is not told it has weeks left', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn } = fixture;
+  const { member } = await joinAndSetPassword(fixture);
+  const owner = await signIn('owner@example.test');
+  const portal = (await call('post', '/auth/member/login', null,
+    { email: MEMBER.email, password: PORTAL_PASSWORD }).expect(200)).body.token;
+  await call('get', '/m/home', portal).expect(200);
+
+  // The button the owner presses when an approval was a mistake or the money
+  // went back. Through the route rather than an UPDATE, so this meets the same
+  // rows a reversal really leaves behind.
+  const paid = (await call('get', '/admin/orders?status=paid', owner).expect(200)).body;
+  const order = paid.items.find(row => row.member_id === member.id);
+  assert.ok(order, 'การมอบแพ็กเกจต้องทิ้งคำสั่งซื้อที่อนุมัติแล้วไว้ให้ยกเลิกได้');
+  await call('post', `/admin/orders/${order.id}/reverse`, owner,
+    { version: order.version, reason: 'โอนเงินคืนแล้ว' }).expect(200);
+
+  // A membership that ran out and a membership that was taken back are
+  // different facts. Sending the date the second one WOULD have run to put
+  // "หมดอายุ 17 ตุลาคม" on the screen of somebody who had none left, a month
+  // early, and they rang the counter holding the screen up as proof (BUG-12).
+  const refused = await call('get', '/m/home', portal).expect(402);
+  assert.equal(refused.body.revoked, true);
+  assert.match(refused.body.error, /ยกเลิก/);
+  assert.equal(refused.body.expired_on, undefined, 'สิทธิ์ที่ถูกยกเลิกต้องไม่มีวันที่ในอนาคตติดไปด้วย');
+  assert.equal(refused.body.expired_at, undefined);
+
+  // The same answer whichever way the screen arrives at it: a 402 on the way
+  // in, or /m/me saying the membership is not live.
+  const me = (await call('get', '/m/me', portal).expect(200)).body;
+  assert.equal(me.active, false);
+  assert.equal(me.revoked, true);
+  assert.equal(me.expires_on, null, 'หน้าจอเดียวกันต้องไม่ได้วันที่มาจากอีกทาง');
 });
 
 test('a member session opens nothing at the counter', async t => {

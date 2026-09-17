@@ -11,6 +11,7 @@ import { MAX_PHOTO_BYTES } from '../server/cards-routes.js';
 import { hashPassword } from '../server/passwords.js';
 import { issueSetupToken } from '../server/password-setup.js';
 import { createApp } from '../server/app.js';
+import { registerMachineFallback } from '../server/content-routes.js';
 import { importContent } from '../server/content-import.js';
 // Two of these run side by side, on whichever pair of ports this run owns.
 import { UI_PORT } from './ports.js';
@@ -124,7 +125,25 @@ app.get('/__test/outbox', (req, res) => {
 // Test-only: ends a membership the way the counter does when somebody does not
 // renew. There is no button for this in the app -- memberships end by the
 // clock -- and a browser cannot wait a month.
+/**
+ * Ends a membership the way time ends one: the entitlement is still a good
+ * entitlement, its last day has simply gone by.
+ *
+ * It used to set status='revoked' and call that "expired", which is why the
+ * screen could print "หมดอายุ" over a date a month in the future for a
+ * membership the gym had taken back and nothing caught it (QA BUG-12). The
+ * two endings are different facts and the suite now asks for them separately.
+ */
 app.post('/__test/expire-membership', express.json(), (req, res) => {
+  const member = db.prepare('SELECT id FROM members WHERE phone=?').get(req.body?.phone ?? '');
+  if (!member) return res.status(404).json({ error: 'no such member' });
+  const yesterday = Date.now() - 86400000;
+  const changed = db.prepare("UPDATE entitlements SET expires_at=? WHERE member_id=? AND status='active'")
+    .run(yesterday, member.id).changes;
+  res.json({ expired: changed });
+});
+/** And the other ending: the gym took the entitlement back, before its date. */
+app.post('/__test/revoke-membership', express.json(), (req, res) => {
   const member = db.prepare('SELECT id FROM members WHERE phone=?').get(req.body?.phone ?? '');
   if (!member) return res.status(404).json({ error: 'no such member' });
   const changed = db.prepare("UPDATE entitlements SET status='revoked',revoked_at=? WHERE member_id=?")
@@ -148,5 +167,8 @@ app.post('/__test/setup-link', express.json(), (req, res) => {
  */
 app.get(['/m/login', '/m/portal'], (req, res) => res.sendFile(resolve('dist/index.html')));
 app.use(express.static(resolve('dist')));
+// The same last line as server/start.js, so the browser suite meets the page a
+// member would meet. tests/machine-page.test.js checks these two stay in step.
+registerMachineFallback({ app, db });
 const server = app.listen(PORT, '127.0.0.1');
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { db.close(); process.exit(0); }));

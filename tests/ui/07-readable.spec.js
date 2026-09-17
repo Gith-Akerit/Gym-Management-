@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { go, PASSWORD, scanReady, signIn } from './counter.js';
+import { contrastIn, go, PASSWORD, scanReady, signIn, tooFaint } from './counter.js';
 
 // Things a test with an accessible name in its hand cannot see.
 //
@@ -8,37 +8,6 @@ import { go, PASSWORD, scanReady, signIn } from './counter.js';
 // 1.0, and the owner opened the page to two unlabelled boxes (QA UI-01). These
 // measure what a person would actually see -- the colour of the pixels, and
 // how tall the thing they have to hit with a thumb is.
-
-/** Relative luminance, WCAG 2.x. */
-function contrastIn(page) {
-  return page.evaluate(() => {
-    const parse = value => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
-    const luminance = ([r, g, b]) => {
-      const channel = v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
-      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-    };
-    /** The first ancestor that actually paints something behind this element. */
-    const backdrop = element => {
-      for (let node = element; node; node = node.parentElement) {
-        const colour = getComputedStyle(node).backgroundColor;
-        if (colour && colour !== 'transparent' && !colour.startsWith('rgba(0, 0, 0, 0)')) return parse(colour);
-      }
-      return [255, 255, 255];
-    };
-    const out = [];
-    for (const label of document.querySelectorAll('label, .note, .hint, p, h1, h2, b')) {
-      const text = label.textContent?.trim();
-      if (!text || !label.getClientRects().length) continue;
-      if (label.querySelector('label, p, h1, h2, b')) continue;      // containers, not text
-      const style = getComputedStyle(label);
-      if (style.visibility === 'hidden' || Number(style.opacity) < 0.5) continue;
-      const [a, b] = [luminance(parse(style.color)), luminance(backdrop(label))];
-      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-      out.push({ text: text.slice(0, 40), ratio: Math.round(ratio * 100) / 100 });
-    }
-    return out;
-  });
-}
 
 /** Everything a finger has to land on, with the height it was given. */
 function tapTargets(page) {
@@ -68,7 +37,6 @@ const paint = (page, colour) => page.evaluate(async hex => {
   return response.status;
 }, colour);
 
-const tooFaint = found => found.filter(item => item.ratio < 4.5);
 const tooSmall = found => found.filter(item => item.height < 44);
 
 test('every label on the sign-in screen can actually be read', async ({ page }) => {

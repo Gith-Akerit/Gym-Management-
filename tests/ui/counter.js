@@ -145,3 +145,49 @@ export async function scan(page, qr, { device = null } = {}) {
   await page.getByLabel('รหัสจาก QR ของสมาชิก').fill(qr);
   await page.getByRole('button', { name: 'ตรวจสอบ' }).click();
 }
+
+/**
+ * What a person would actually see: the colour of the text against whatever is
+ * painted behind it, measured in the browser.
+ *
+ * Here rather than inside 07-readable.spec.js because the member's portal is a
+ * different product with the same rule, and a second copy of this would be a
+ * second answer to "is that readable". It moved the day a white badge on a
+ * white box shipped: 1:1, on the first screen a member sees, and the sweep
+ * that would have caught it only ran on the counter's screens (QA BUG-10).
+ */
+export function contrastIn(page) {
+  return page.evaluate(() => {
+    const parse = value => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    const luminance = ([r, g, b]) => {
+      const channel = v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    /** The first ancestor that actually paints something behind this element. */
+    const backdrop = element => {
+      for (let node = element; node; node = node.parentElement) {
+        const colour = getComputedStyle(node).backgroundColor;
+        if (colour && colour !== 'transparent' && !colour.startsWith('rgba(0, 0, 0, 0)')) return parse(colour);
+      }
+      return [255, 255, 255];
+    };
+    const out = [];
+    // `.mk span` is the gym's initials in the white badge on the top bar. It is
+    // a span, so it was invisible to a sweep of text elements -- which is how
+    // it stayed white on white through nine passes of this file.
+    for (const label of document.querySelectorAll('label, .note, .hint, p, h1, h2, b, .mk span')) {
+      const text = label.textContent?.trim();
+      if (!text || !label.getClientRects().length) continue;
+      if (label.querySelector('label, p, h1, h2, b')) continue;      // containers, not text
+      const style = getComputedStyle(label);
+      if (style.visibility === 'hidden' || Number(style.opacity) < 0.5) continue;
+      const [a, b] = [luminance(parse(style.color)), luminance(backdrop(label))];
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      out.push({ text: text.slice(0, 40), ratio: Math.round(ratio * 100) / 100 });
+    }
+    return out;
+  });
+}
+
+/** The ones that fall under WCAG AA for body text. */
+export const tooFaint = found => found.filter(item => item.ratio < 4.5);

@@ -17,8 +17,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { counterFixture } from './counter.js';
+import { createRequire } from 'node:module';
 import { importContent } from '../server/content-import.js';
-import { youTubeId } from '../server/content-routes.js';
+import { registerMachineFallback, youTubeId } from '../server/content-routes.js';
+import { seedConfiguration } from '../server/seed.js';
+
+const { formatPhone } = createRequire(import.meta.url)('../shared/phone.cjs');
 
 const CONTENT = JSON.parse(readFileSync(new URL('../docs/content/member-content.json', import.meta.url), 'utf8'));
 const MEMBER = { name: 'สมชาย ขยันมาก', phone: '0891234567', email: 'somchai@example.test' };
@@ -103,6 +107,63 @@ test('the machine page is public, and costs one request with no script', async t
 
   const api = await call('get', '/public/machines', null).expect(200);
   assert.equal(api.body.items.length, CONTENT.machines.length);
+
+  // The gym's number is written the way it is written everywhere else. Two of
+  // the screens a customer sees printed 038541029 while every staff screen
+  // printed 038-541-029, because the rule lived in web/ where the server could
+  // not reach it (QA BUG-13). It is in shared/ now, like the colour formula.
+  seedConfiguration(db);
+  const gym = db.prepare('SELECT phone_primary FROM gym_profile WHERE id=1').get();
+  assert.ok(gym?.phone_primary, 'ยิมตั้งต้นต้องมีเบอร์ ไม่งั้นเทสต์นี้ไม่ได้ตรวจอะไร');
+  const withPhone = await http.get(`/m/${code}`).expect(200);
+  assert.ok(withPhone.text.includes(formatPhone(gym.phone_primary)));
+  assert.equal(withPhone.text.includes(`โทร ${gym.phone_primary}<`), false, 'ต้องไม่ใช่เลขติดกันทั้งพวง');
+});
+
+test('a sticker for a machine that is gone answers in Thai, not in Express', async t => {
+  const fixture = counterFixture(t);
+  const { app, db, http } = fixture;
+  importContent(db, CONTENT, 1000);
+  // The last line of the real servers, added here the same way they add it.
+  registerMachineFallback({ app, db });
+
+  // Somebody is standing at a machine whose sticker was never peeled off after
+  // it was moved out. What they got was Express's finalhandler page: English,
+  // headed "Error", reading `Cannot GET /m/M-99` -- the first thing this gym
+  // had ever shown them (QA BUG-11).
+  const gone = await http.get('/m/M-99').expect(404);
+  assert.match(gone.headers['content-type'], /text\/html/);
+  assert.match(gone.text, /<html lang="th"/);
+  assert.match(gone.text, /ไม่พบเครื่องนี้/);
+  assert.match(gone.text, /เคาน์เตอร์/, 'ต้องบอกว่าให้ทำอะไรต่อ ไม่ใช่แค่บอกว่าไม่เจอ');
+  assert.equal(gone.text.includes('Cannot GET'), false);
+  assert.equal(/<script/.test(gone.text), false, 'หน้านี้เปิดสาธารณะเหมือนหน้าเครื่อง ไม่มีสคริปต์');
+
+  // Including the shapes somebody can type or paste at it. The escaping is the
+  // machine page's own, and this page reuses it.
+  for (const path of ['/m/', '/m/M-01%27', '/m/%3Cscript%3Ealert(1)%3C/script%3E', '/m/../../etc/passwd']) {
+    const answer = await http.get(path);
+    assert.equal(answer.status, 404, `${path} ตอบ ${answer.status}`);
+    assert.equal(/<script>alert/.test(answer.text ?? ''), false);
+  }
+
+  // And a machine that IS here still wins: the fallback is last, not first.
+  await http.get(`/m/${CONTENT.machines[0].code}`).expect(200);
+});
+
+test('both servers that listen register that fallback, and register it last', () => {
+  // It cannot live inside createApp: it has to come after the portal's two
+  // single-page routes and after express.static, which the two entry points
+  // own. That makes it the kind of line one of them can be written without --
+  // and then the browser suite proves a page the real server does not serve.
+  for (const file of ['server/start.js', 'tests/ui-server.js']) {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    const registers = source.indexOf('registerMachineFallback({');
+    assert.notEqual(registers, -1, `${file} never registers the /m fallback, `
+      + 'so a sticker for a machine that is gone answers in English there');
+    assert.ok(registers > source.indexOf('express.static('),
+      `${file} registers the /m fallback before express.static, which would swallow the portal's own files`);
+  }
 });
 
 test('a programme is for members whose membership is still live, checked every time', async t => {
@@ -128,9 +189,9 @@ test('a programme is for members whose membership is still live, checked every t
   // from the gym whether or not anybody meant it to.
   assert.equal(program.program.values_are_examples, true);
 
-  // The membership ends. Nothing about the session changes.
-  db.prepare("UPDATE entitlements SET status='revoked',revoked_at=? WHERE member_id=?")
-    .run(fixture.at(), member.id);
+  // The membership ends, by its own date. Nothing about the session changes.
+  db.prepare('UPDATE entitlements SET expires_at=? WHERE member_id=?')
+    .run(fixture.at() - 1000, member.id);
   const shut = await call('get', `/m/programs/${code}`, portal).expect(402);
   assert.equal(shut.body.expired, true);
   assert.ok(shut.body.expired_on, 'ต้องบอกวันที่หมดอายุ ไม่ใช่แค่ปฏิเสธ');

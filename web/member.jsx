@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, Field, Loading, StateBox, useBranding, useResource } from './shared.jsx';
+import { api, Field, formatPhone, Loading, StateBox, useBranding, useResource } from './shared.jsx';
 
 /**
  * The member portal, "ช่วยเล่น".
@@ -64,17 +64,31 @@ function Shell({ brand, branding, me, tab, setTab, onSignOut, children }) {
   </>;
 }
 
-/** Screen H: the membership ran out. Reachable only from inside the door. */
+/**
+ * Screen H: the membership is not live. Reachable only from inside the door.
+ *
+ * Two different things end a membership and they need two different sentences.
+ * One ran its course; the other was taken back by the gym, usually because a
+ * payment was reversed or approved by mistake. Printing "หมดอายุ 17 ตุลาคม"
+ * for the second one tells a member they have three weeks left on the screen
+ * while the counter tells them they have none -- and the member is reading the
+ * screen (QA BUG-12).
+ */
 function Expired({ detail, phone, onSignOut }) {
+  const revoked = !!detail?.revoked;
   return <div className="wall">
-    <div className="wi" aria-hidden="true">⏳</div>
-    <h1>สมาชิกหมดอายุแล้ว</h1>
-    {detail?.expired_on && <div className="when">หมดอายุ {detail.expired_on}</div>}
-    <p>ต่ออายุที่เคาน์เตอร์แล้วเข้าได้เลย <b>ด้วยรหัสผ่านเดิม ไม่ต้องตั้งใหม่</b></p>
+    <div className="wi" aria-hidden="true">{revoked ? '!' : '⏳'}</div>
+    <h1>{revoked ? 'สิทธิ์ถูกยกเลิก' : 'สมาชิกหมดอายุแล้ว'}</h1>
+    {/* No date on the revoked side, deliberately: the only date there is the
+        one the membership WOULD have run to, which is not a fact about now. */}
+    {!revoked && detail?.expired_on && <div className="when">หมดอายุ {detail.expired_on}</div>}
+    {revoked
+      ? <p>กรุณาติดต่อเคาน์เตอร์ พนักงานตรวจสอบให้ได้ทันที</p>
+      : <p>ต่ออายุที่เคาน์เตอร์แล้วเข้าได้เลย <b>ด้วยรหัสผ่านเดิม ไม่ต้องตั้งใหม่</b></p>}
     {/* Said out loud because a great many people assume an expired membership
         means the account is gone (Designer). */}
     <p className="note">บัญชีของคุณไม่ได้ถูกลบ ข้อมูลยังอยู่ครบ</p>
-    {phone && <a className="btn primary xl" href={`tel:${phone}`}>โทรหายิม {phone}</a>}
+    {phone && <a className="btn primary xl" href={`tel:${phone}`}>โทรหายิม {formatPhone(phone)}</a>}
     <button className="btn" style={{ marginTop: 'var(--sp-3)' }} onClick={onSignOut}>ออกจากระบบ</button>
   </div>;
 }

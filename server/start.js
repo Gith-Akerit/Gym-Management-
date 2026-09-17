@@ -3,6 +3,7 @@ import express from 'express';
 import { resolve } from 'node:path';
 import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
+import { registerMachineFallback } from './content-routes.js';
 import { SlipStore } from './slips.js';
 import { MAX_PHOTO_BYTES } from './cards-routes.js';
 import { MAX_LOGO_BYTES } from './theme.js';
@@ -79,6 +80,9 @@ const app = createApp({
  */
 app.get(['/m/login', '/m/portal'], (req, res) => res.sendFile(resolve('dist/index.html')));
 app.use(express.static(resolve('dist')));
+// Last in line under /m, so a sticker for a machine that is no longer here
+// gets a Thai page instead of Express's English one (QA BUG-11).
+registerMachineFallback({ app, db });
 const server = app.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => {
   console.log(JSON.stringify({ event: 'ready', port: Number(process.env.PORT || 3000), pilot_mode: pilotMode }));
 });

@@ -95,6 +95,17 @@ export function importContent(db, content, now = Date.now()) {
 /** Only when run as a command, so the function above stays testable. */
 if (import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`
   || process.argv[1]?.endsWith('content-import.js')) {
+  // Before anything reads process.env. Without it the command opened
+  // ./data/gym.sqlite instead of the DATABASE_PATH in .env, created that file,
+  // wrote the content into it and printed "เพิ่ม 6" for a database the app
+  // never opens -- the install looked done and every sticker led to a blank
+  // page (QA BUG-09).
+  //
+  // Here rather than at the top of the file like the other commands, because
+  // this one is also a library: tests/ui-server.js imports importContent, and
+  // a module that reads a developer's .env as a side effect of being imported
+  // would quietly hand the browser suite that developer's PILOT_MODE.
+  await import('./load-env.js');
   const file = resolve(process.argv[2] ?? DEFAULT_FILE);
   const db = openDatabase(process.env.DATABASE_PATH || './data/gym.sqlite');
   migrate(db);

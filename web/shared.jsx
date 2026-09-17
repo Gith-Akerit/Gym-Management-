@@ -1,4 +1,17 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import Phone from '../shared/phone.cjs';
+
+/**
+ * Which of the two apps in this bundle a page is, decided in one place.
+ *
+ * `main.jsx` uses it to pick the component and this file uses it to name the
+ * browser tab. Written twice it becomes possible for a page to render the
+ * member's portal while the tab says "จัดการยิม" -- which is what it did
+ * (QA BUG-13).
+ */
+export const MEMBER_PATHS = ['/m/login', '/m/portal'];
+export const isMemberApp = (pathname = window.location.pathname) =>
+  MEMBER_PATHS.includes(pathname.replace(/\/+$/, ''));
 
 /**
  * Whether the gym is running in pilot mode: no mail provider and no PromptPay
@@ -69,7 +82,11 @@ export function useBranding() {
     // top of the screen the old green, because both were baked into
     // index.html before this gym had a name or a colour. Both now come from
     // the same row everything else on screen comes from.
-    document.title = branding.brand ? `${branding.brand} · จัดการยิม` : 'ระบบจัดการยิม';
+    // The member's tab says what the member opened, not what the staff app is
+    // called: "สุขฤทัย ฟิตเนส · จัดการยิม" on a member's phone reads like they
+    // landed somewhere they should not be (QA BUG-13).
+    const product = isMemberApp() ? 'ช่วยเล่น' : 'จัดการยิม';
+    document.title = branding.brand ? `${branding.brand} · ${product}` : `ระบบ${product}`;
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', theme.brand_surface);
   }, [branding]);
@@ -95,7 +112,14 @@ export const formatDateTime = value => new Intl.DateTimeFormat('th-TH', { dateSt
 const baht = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 2 });
 /** A null price means the gym has not published one yet — never render it as ฿0. */
 export const formatPrice = value => (value === null || value === undefined ? null : baht.format(value));
-export const formatPhone = value => (value ? value.replace(/^(0\d{1,2})(\d{3})(\d{3,4})$/, '$1-$2-$3') : null);
+/**
+ * One rule, both products and the server-rendered machine page.
+ *
+ * Moved into shared/ the day two new customer-facing screens printed the
+ * gym's number as 038541029 while every staff screen printed 038-541-029
+ * (QA BUG-13): the helper was here, and the server had no way to reach it.
+ */
+export const formatPhone = Phone.formatPhone;
 
 export async function api(path, options = {}) {
   let response;

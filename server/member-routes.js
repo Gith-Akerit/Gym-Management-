@@ -140,6 +140,18 @@ export function registerMemberPortalRoutes({ app, db, now }) {
     const live = liveMembership(req.member.id);
     if (!live) {
       const last = lastMembership(req.member.id);
+      // A membership the gym took back is not a membership that ran out, and
+      // the date it would have run to is not a fact about today. Sending it
+      // anyway put "หมดอายุ 17 ตุลาคม" on the screen of somebody whose
+      // entitlement had been reversed a month early, and they rang the counter
+      // holding it up as proof (QA BUG-12).
+      if (last?.revoked_at) {
+        return next(new HttpError(402, 'สิทธิ์ถูกยกเลิก กรุณาติดต่อเคาน์เตอร์', undefined, {
+          expired: true,
+          revoked: true,
+          package: last.name_th ?? null,
+        }));
+      }
       return next(new HttpError(402, 'สมาชิกหมดอายุแล้ว', undefined, {
         expired: true,
         expired_at: last?.expires_at ?? null,
@@ -155,14 +167,20 @@ export function registerMemberPortalRoutes({ app, db, now }) {
   app.get('/api/m/me', member, (req, res) => {
     const live = liveMembership(req.member.id);
     const last = live ?? lastMembership(req.member.id);
+    const revoked = !live && !!last?.revoked_at;
     res.json({
       name: req.member.name,
       member_code: req.member.member_code,
       email: req.user.email,
       active: !!live,
-      // Both spellings: the screen prints one and compares the other.
-      expires_at: last?.expires_at ?? null,
-      expires_on: asDate(last?.expires_at),
+      // The screen can be reached two ways -- a 402 on the way in, or this
+      // route saying the membership is not live -- and both have to arrive at
+      // the same sentence, so both carry the same flag (QA BUG-12).
+      revoked,
+      // Both spellings: the screen prints one and compares the other. Withheld
+      // when the entitlement was taken back, for the reason in paidUp.
+      expires_at: revoked ? null : last?.expires_at ?? null,
+      expires_on: revoked ? null : asDate(last?.expires_at),
       package: last?.name_th ?? null,
     });
   });

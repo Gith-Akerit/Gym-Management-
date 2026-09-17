@@ -533,6 +533,11 @@
 .mtop .mk{width:40px;height:40px;border-radius:12px;background:#FFFFFF;
   display:grid;place-items:center;padding:5px;flex:none}
 .mtop .mk img{width:100%;height:100%;object-fit:contain;display:block}
+/* ตัวย่อชื่อยิมอยู่ในกล่องขาว จึงต้องเป็นหมึกของแบรนด์ ไม่ใช่สีตัวอักษรของ
+   แถบซึ่งเป็นสีขาว — ไม่มีบรรทัดนี้ ยิมที่ยังไม่อัปโหลดโลโก้จะเห็นกล่องขาว
+   ว่างเปล่าบนหน้าแรกของพอร์ทัล (ขาวบนขาว = 1:1, QA BUG-10) เหมือนกฎของ
+   .authtop .mk span ด้านบนทุกประการ */
+.mtop .mk span{color:var(--brand-ink);font-weight:800}
 .mtop .nm{font-size:var(--fs-18);font-weight:700;line-height:1.2;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mtop .nm span{display:block;font-size:var(--fs-14);font-weight:500}

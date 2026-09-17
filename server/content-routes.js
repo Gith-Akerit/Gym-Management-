@@ -15,11 +15,15 @@
 // up, on gym wifi. Shipping 400 KB of React to answer "how do I use this
 // machine" is the difference between an answer and a spinner.
 
+import { createRequire } from 'node:module';
 import { z } from 'zod';
 import { audit, transaction } from './db.js';
 import { resolveTheme } from './theme.js';
 import { brandShort, settingsRow } from './settings-routes.js';
 import { HttpError, parse } from './validation.js';
+
+/** The same rule the browser prints the gym's number with. See shared/phone.cjs. */
+const { formatPhone } = createRequire(import.meta.url)('../shared/phone.cjs');
 
 const list = value => { try { return JSON.parse(value ?? '[]'); } catch { return []; } };
 
@@ -242,11 +246,72 @@ footer{max-width:720px;margin:0 auto;padding:0 16px 40px;color:var(--ink2);font-
     ? `<section><h2>ก่อนใช้ครั้งแรก</h2><ul>${list(safety().machine_footer).map(item).join('')}</ul></section>`
     : ''}
 </main>
-<footer>${esc(name)}${gym.phone_primary ? ` · โทร ${esc(gym.phone_primary)}` : ''}</footer>
+<footer>${esc(name)}${gym.phone_primary ? ` · โทร ${esc(formatPhone(gym.phone_primary))}` : ''}</footer>
 ${machine.video?.youtube_id ? '<script src="/m/_play.js" defer></script>' : ''}
 </body></html>`);
   });
 
+}
+
+/**
+ * The answer for a sticker that no longer matches a machine.
+ *
+ * `/m/:code` hands an unknown code onward so the portal's own two screens can
+ * claim their paths, and whatever was left at the end of the line answered
+ * with Express's default page: `Cannot GET /m/M-99`, in English, under the
+ * heading "Error". The person reading it is standing next to the machine with
+ * a phone in one hand, and it is the first thing this gym has ever shown them
+ * (QA BUG-11).
+ *
+ * Registered by whoever owns the listening server, because it has to come
+ * after the single-page app's routes and after the static files -- so both
+ * `server/start.js` and the browser suite's server call this, and a test in
+ * tests/machine-page.test.js checks that neither one forgets.
+ */
+export function registerMachineFallback({ app, db }) {
+  app.use('/m', (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    let name = 'ยิม';
+    let theme = resolveTheme(null);
+    // A page whose whole job is to be the friendly end of the line must not be
+    // able to throw: it is registered after createApp's error handler, so an
+    // error here lands back on the English page it exists to replace.
+    try {
+      const gym = db.prepare('SELECT * FROM gym_profile WHERE id=1').get() ?? {};
+      name = gym.brand_name_th || gym.name || 'ยิม';
+      theme = resolveTheme(settingsRow(db));
+    } catch { /* fall back to the plain wording below */ }
+
+    res.status(404).type('html').send(`<!doctype html>
+<html lang="th"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="${esc(theme.brand_surface)}">
+<title>ไม่พบเครื่องนี้ · ${esc(name)}</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#EFF2F4;color:#0E1418;
+  font:16px/1.7 Tahoma,'Leelawadee UI','Sukhumvit Set',-apple-system,'Segoe UI',Roboto,sans-serif}
+header{background:${esc(theme.brand_surface)};color:${esc(theme.on_brand)};padding:18px 20px}
+header b{display:block;font-size:14px;font-weight:700;opacity:.95}
+header h1{margin:4px 0 0;font-size:24px;line-height:1.3}
+main{max-width:720px;margin:0 auto;padding:20px 16px 48px}
+section{background:#fff;border:2px solid #E4E9ED;border-radius:12px;padding:18px}
+p{margin:0 0 10px}
+p:last-child{margin:0;color:#3D4852;font-size:14px}
+</style>
+</head><body>
+<header>
+  <b>${esc(name)}</b>
+  <h1>ไม่พบเครื่องนี้</h1>
+</header>
+<main><section>
+  <p>สติกเกอร์นี้อาจเป็นของเครื่องที่ย้ายออกไปแล้ว หรือรหัสเปลี่ยนไป</p>
+  <p><b>ถามพนักงานที่เคาน์เตอร์ได้เลย</b> เขาเปิดวิธีใช้เครื่องนี้ให้ดูได้ทันที</p>
+  <p>ถ้าคุณเป็นสมาชิกและเข้าสู่ระบบอยู่แล้ว ดูวิธีใช้เครื่องทั้งหมดได้ในเมนู "เครื่อง" ของ "ช่วยเล่น"</p>
+</section></main>
+</body></html>`);
+  });
 }
 
 export function registerContentRoutes({ app, db, now, admin, member, paidUp, origin,
