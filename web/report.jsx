@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { upload } from './shared.jsx';
-import { setScanningPaused, withTimeout } from './capture.js';
+import { withScanningPaused, withTimeout } from './capture.js';
 
 /**
  * "ใช้ไม่ได้อย่างไร" — with a picture of it.
@@ -99,10 +99,14 @@ export const pendingReportCount = () => readQueue().length;
  * come back with an empty rectangle where the problem is. Each video is
  * painted onto a canvas first and put back afterwards.
  */
-export async function captureScreen() {
-  // Before anything else: the QR loop stops decoding while this runs. It is
-  // the reason the capture could hang at all (see web/capture.js).
-  setScanningPaused(true);
+export function captureScreen() {
+  // Everything below runs with the QR loop held -- including the import, which
+  // is the line that used to sit outside the guard (QA BUG-15). One wrapper,
+  // one release, no way to add a step that escapes it.
+  return withScanningPaused(captureNow);
+}
+
+async function captureNow() {
   const { domToDataUrl } = await import('modern-screenshot');
   const swapped = [];
   for (const video of document.querySelectorAll('video')) {
@@ -129,7 +133,6 @@ export async function captureScreen() {
       domToDataUrl(document.body, { scale, backgroundColor: '#EFF2F4', type: 'image/png' }));
   } finally {
     for (const [canvas, video] of swapped) canvas.replaceWith(video);
-    setScanningPaused(false);
   }
 }
 

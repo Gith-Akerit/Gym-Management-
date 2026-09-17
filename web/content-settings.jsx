@@ -189,11 +189,30 @@ function MachineEditor({ item, onSaved, onError }) {
   </>;
 }
 
+/**
+ * The six lines a member reads before the first station.
+ *
+ * Not in the table below with the sets and reps, because they are a different
+ * kind of claim: "เหมาะกับใคร" is the gym telling somebody this programme is
+ * for them. They were read-only until QA pointed out what that meant -- the
+ * owner could lock a row with "ตรวจแล้ว" but could not change a word of this
+ * part first, so wording nobody at the gym had agreed to became permanent.
+ */
+const ABOUT = [
+  ['goal', 'เป้าหมาย', 'คำเดียวหรือวลีสั้น ๆ เช่น "เริ่มต้น" "ลดน้ำหนัก"'],
+  ['level', 'ระดับ', 'เช่น "มือใหม่"'],
+  ['frequency_per_week', 'กี่วันต่อสัปดาห์', 'เช่น "2–3 วัน โดยเว้นอย่างน้อย 1 วันระหว่างรอบ"'],
+  ['minutes_per_session', 'ใช้เวลาต่อครั้ง', 'เช่น "30–40 นาที"'],
+  ['for_whom', 'เหมาะกับใคร', 'ประโยคเดียวที่สมาชิกอ่านแล้วรู้ว่าใช่ตัวเองหรือไม่', true],
+  ['next_program', 'จบแล้วไปต่อที่ไหน', 'บอกให้ชัดว่าให้ปรึกษาพนักงานก่อนหรือไม่', true],
+];
+
 function ProgramEditor({ item, onSaved, onError }) {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const reset = () => setForm({
     name_th: item.name_th,
+    ...Object.fromEntries(ABOUT.map(([key]) => [key, item[key] ?? ''])),
     stations: (item.stations ?? []).map(station => ({ ...station })),
     progression: item.progression ?? '', trainer_note: item.trainer_note ?? '',
   });
@@ -206,7 +225,9 @@ function ProgramEditor({ item, onSaved, onError }) {
     stations: current.stations.map((station, i) => (i === index ? { ...station, [key]: value } : station)),
   }));
   const dirty = JSON.stringify(form) !== JSON.stringify({
-    name_th: item.name_th, stations: item.stations ?? [],
+    name_th: item.name_th,
+    ...Object.fromEntries(ABOUT.map(([key]) => [key, item[key] ?? ''])),
+    stations: item.stations ?? [],
     progression: item.progression ?? '', trainer_note: item.trainer_note ?? '',
   });
 
@@ -215,6 +236,7 @@ function ProgramEditor({ item, onSaved, onError }) {
     try {
       await api(`/programs/${item.code}`, { method: 'PUT', body: {
         name_th: form.name_th.trim(),
+        ...Object.fromEntries(ABOUT.map(([key]) => [key, form[key]])),
         stations: form.stations.map(station => ({
           order: station.order, machine: station.machine, role: station.role ?? '',
           duration: station.duration || null, sets: station.sets || null,
@@ -238,6 +260,15 @@ function ProgramEditor({ item, onSaved, onError }) {
     </div>}
     <Field label="ชื่อโปรแกรม" name={`pname-${item.code}`} value={form.name_th}
       onChange={v => set('name_th', v)}/>
+
+    <h3 className="csub">โปรแกรมนี้คืออะไร</h3>
+    <p className="hint">หกบรรทัดนี้คือสิ่งที่สมาชิกอ่านเหนือรายการท่า
+      · ถ้าไม่ตรงกับที่ยิมแนะนำจริง แก้ตรงนี้ก่อนกด "ตรวจแล้ว"</p>
+    {ABOUT.map(([key, label, hint, long]) => <Field key={key} label={label}
+      name={`${key}-${item.code}`} value={form[key]} hint={hint}
+      onChange={v => set(key, v)}>
+      {long ? <textarea rows={2}/> : undefined}
+    </Field>)}
 
     <h3 className="csub">สถานีในโปรแกรม</h3>
     <table className="ctable">

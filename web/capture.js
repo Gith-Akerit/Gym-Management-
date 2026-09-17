@@ -37,6 +37,24 @@ export function onScanningPause(listener) {
   return () => listeners.delete(listener);
 }
 
+/**
+ * Runs `work` with the scan loop held, and lets it go again whatever happens.
+ *
+ * The whole guarantee lives in one place on purpose. The first version set the
+ * flag in `captureScreen` and cleared it in a `finally` that began AFTER
+ * `await import('modern-screenshot')` -- so a chunk that failed to load (a tab
+ * left open across a deploy, a tablet that drops the wifi at the wrong second)
+ * left the flag set, and the lens never read another card. The screen looked
+ * perfectly normal: live video, no error, members holding cards up to a camera
+ * that had quietly stopped looking (QA BUG-15).
+ *
+ * Nothing between here and the `finally` may sit outside it.
+ */
+export async function withScanningPaused(work) {
+  setScanningPaused(true);
+  try { return await work(); } finally { setScanningPaused(false); }
+}
+
 /** How long a picture of the screen is allowed to take before we give up. */
 export const CAPTURE_TIMEOUT_MS = 8000;
 

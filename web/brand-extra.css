@@ -522,6 +522,17 @@
   .qitem .acts .btn{flex:1 1 100%}
 }
 
+/* ------------------------------------------- พักการอ่านบัตรระหว่างจับภาพ -- */
+/* ตอนจับภาพหน้าจอ ลูปอ่าน QR หยุดถอดรหัสชั่วคราว (BUG-14) · ถ้าไม่บอก คนที่
+   ยื่นบัตรให้กล้องจะเห็นแค่ภาพสดที่ไม่มีอะไรเกิดขึ้น · กรอบหรี่ลงพร้อมป้าย
+   จึงเป็นทั้งคำอธิบายและสัญญาณว่าเดี๋ยวกลับมา */
+.cam[data-scanning="paused"] .frame{opacity:.35}
+.cam[data-scanning="paused"] .laser{display:none}
+.campause{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:3;
+  background:rgba(14,20,24,.88);color:#FFFFFF;border:2px solid var(--warn);
+  border-radius:999px;padding:6px 14px;font-size:var(--fs-14);font-weight:700;
+  white-space:nowrap;pointer-events:none}
+
 /* ------------------------------------ เครื่องและโปรแกรม (ฝั่งเจ้าของยิม) -- */
 /* หกเครื่องที่กางทุกช่องพร้อมกันคือหน้าที่หาอะไรไม่เจอ · แถวปิดบอกสองอย่าง
    คือชื่อกับ "มีใครตรวจหรือยัง" แล้วค่อยกางทีละแถว */

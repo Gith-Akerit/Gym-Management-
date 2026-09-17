@@ -114,6 +114,17 @@ const safetySchema = z.object({
 const programSchema = z.object({
   name_th: z.string().trim().min(1).max(120),
   stations: z.array(stationSchema).max(30),
+  // The six lines a member reads above the stations. They were readable and
+  // not writable: the screen showed them, the schema refused them, and pressing
+  // "ตรวจแล้ว" then locked the row against the next import -- so wording the
+  // gym had never agreed to was frozen in place with nobody able to change it
+  // (QA). Editable now, and still strict about everything else.
+  goal: z.string().trim().max(120).optional(),
+  for_whom: z.string().trim().max(400).optional(),
+  level: z.string().trim().max(60).optional(),
+  frequency_per_week: z.string().trim().max(120).optional(),
+  minutes_per_session: z.string().trim().max(60).optional(),
+  next_program: z.string().trim().max(400).optional(),
   progression: z.string().max(800).optional(),
   trainer_note: z.string().max(800).optional(),
   // The press that says a trainer has been through the numbers. Once it is
@@ -442,9 +453,15 @@ export function registerContentRoutes({ app, db, now, admin, member, paidUp, ori
       if (before.version !== input.version) {
         throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดหน้าใหม่ก่อนบันทึก');
       }
-      db.prepare(`UPDATE programs SET name_th=?,stations=?,progression=?,trainer_note=?,
+      db.prepare(`UPDATE programs SET name_th=?,stations=?,goal=?,for_whom=?,level=?,
+        frequency_per_week=?,minutes_per_session=?,next_program=?,progression=?,trainer_note=?,
         values_are_examples=?,reviewed_by=?,reviewed_at=?,version=version+1,updated_at=? WHERE code=?`)
-        .run(input.name_th, JSON.stringify(input.stations), input.progression ?? before.progression,
+        .run(input.name_th, JSON.stringify(input.stations),
+          input.goal ?? before.goal, input.for_whom ?? before.for_whom, input.level ?? before.level,
+          input.frequency_per_week ?? before.frequency_per_week,
+          input.minutes_per_session ?? before.minutes_per_session,
+          input.next_program ?? before.next_program,
+          input.progression ?? before.progression,
           input.trainer_note ?? before.trainer_note, input.values_are_examples ? 1 : 0,
           input.reviewed ? req.user.email : (input.reviewed === false ? null : before.reviewed_by),
           input.reviewed ? now() : (input.reviewed === false ? null : before.reviewed_at),

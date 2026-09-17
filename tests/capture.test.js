@@ -16,8 +16,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAPTURE_TIMEOUT_MS, onScanningPause, scanningPaused, setScanningPaused, withTimeout }
-  from '../web/capture.js';
+import { CAPTURE_TIMEOUT_MS, onScanningPause, scanningPaused, setScanningPaused,
+  withScanningPaused, withTimeout } from '../web/capture.js';
 
 test('a promise that never settles gives up on its own', async () => {
   const never = new Promise(() => {});
@@ -60,4 +60,35 @@ test('the scan loop is told to stop decoding, and told to start again', () => {
   setScanningPaused(true);
   assert.deepEqual(seen, [true, false], 'เลิกฟังแล้วต้องไม่ถูกเรียกอีก');
   setScanningPaused(false);
+});
+
+test('the loop is let go however the capture ends, including before it starts', async () => {
+  // BUG-15: the first version set the flag, then did `await import(...)`, and
+  // only then entered the try whose finally cleared it. A chunk that failed to
+  // load -- a tab left open across a deploy, a tablet off the wifi for a
+  // second -- left the flag set for good, and the lens never read another card
+  // on a screen that looked completely normal. The guard has to cover the
+  // first line of work, not the second.
+  assert.equal(scanningPaused(), false);
+
+  const answer = await withScanningPaused(async () => 'data:image/png;base64,x');
+  assert.equal(answer, 'data:image/png;base64,x');
+  assert.equal(scanningPaused(), false);
+
+  // The import itself failing, which is the case QA reproduced with an
+  // aborted request.
+  await assert.rejects(() => withScanningPaused(async () => {
+    throw new Error('Failed to fetch dynamically imported module');
+  }), /dynamically imported module/);
+  assert.equal(scanningPaused(), false, 'โหลดไฟล์จับภาพไม่สำเร็จแล้วกล้องต้องกลับมาอ่านบัตรได้');
+
+  // And a synchronous throw before any await, the other way in.
+  await assert.rejects(() => withScanningPaused(() => { throw new Error('ทันที'); }), /ทันที/);
+  assert.equal(scanningPaused(), false);
+
+  // The timeout path leaves it clear too, since that is a rejection like any
+  // other as far as the guard is concerned.
+  await assert.rejects(() => withScanningPaused(() => withTimeout(new Promise(() => {}), 20)),
+    /จับภาพหน้าจอไม่ทัน/);
+  assert.equal(scanningPaused(), false);
 });

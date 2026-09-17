@@ -82,6 +82,17 @@ test('pressing ตรวจแล้ว takes the example badge off the member s
   // tick: it stops the next import overwriting the row and it changes what a
   // member is told about the numbers.
   await expect(page.getByText(/ตัวเลขในโปรแกรมนี้ยังเป็นค่าตัวอย่าง/)).toBeVisible();
+
+  // The six lines above the stations: a member reads them, so the gym has to
+  // be able to change them. They were on screen and refused by the server, and
+  // "ตรวจแล้ว" locked the row against the import afterwards -- wording nobody
+  // at the gym had agreed to, frozen for good (QA).
+  await expect(body.getByLabel('เป้าหมาย')).toHaveValue(/.+/);
+  await body.getByLabel('กี่วันต่อสัปดาห์').fill('3–4 วัน เว้นวันระหว่างรอบ');
+  await body.getByLabel('ใช้เวลาต่อครั้ง').fill('45 นาที');
+  await body.getByLabel('เหมาะกับใคร').fill('สมาชิกที่เคยเล่นมาก่อนและอยากกลับมาเล่นสม่ำเสมอ');
+  await page.screenshot({ path: 'artifacts/content-program-form-1280.png', fullPage: true });
+
   await body.getByLabel('เซ็ตของสถานีที่ 2').fill('3 เซ็ต');
   await body.getByRole('button', { name: 'ตรวจแล้ว' }).click();
   await expect(page.getByText(/สมาชิกจะไม่เห็นป้ายค่าตัวอย่างอีก/)).toBeVisible();
@@ -89,6 +100,12 @@ test('pressing ตรวจแล้ว takes the example badge off the member s
   // The row now says who stands behind it.
   await expect(page.locator('.crow').filter({ hasText: 'P-START' })
     .locator('.cstate.done')).toContainText(OWNER);
+
+  // And the member reads exactly what the gym typed, six lines included.
+  const seen = await page.request.get('/api/programs');
+  const program = (await seen.json()).items.find(item => item.code === 'P-START');
+  expect(program.frequency_per_week).toBe('3–4 วัน เว้นวันระหว่างรอบ');
+  expect(program.minutes_per_session).toBe('45 นาที');
 });
 
 test('a photograph the owner uploads is the one on the public page', async ({ page }) => {

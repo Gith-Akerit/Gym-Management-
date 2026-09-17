@@ -63,8 +63,14 @@ test('the picture is taken while the lens is reading, and the lens comes back', 
   await page.getByRole('menuitem', { name: /^แจ้งปัญหา/ }).click();
 
   // The answer arrives. On the gym's machine it never did.
-  await expect(page.getByRole('dialog').getByRole('heading', { name: 'แจ้งปัญหา' })).toBeVisible();
-  await expect(page.getByRole('img', { name: /ภาพหน้าจอที่ระบบจับไว้/ })).toBeVisible();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'แจ้งปัญหา' }))
+    .toBeVisible({ timeout: 15000 });
+  // With a picture, or with the sentence that says there is none: the first
+  // capture on a cold page loads the screenshot library while the camera is
+  // running, and on a slow machine that can outlast the eight-second clock.
+  // Both endings are answers; the hang was not.
+  await expect(page.getByRole('img', { name: /ภาพหน้าจอที่ระบบจับไว้/ })
+    .or(page.getByText(/จับภาพหน้าจอไม่สำเร็จ/)).first()).toBeVisible();
 
   // And it was taken with the loop held: this is the fix at the cause, not the
   // timeout that catches it afterwards.
@@ -108,4 +114,68 @@ test('the wait has a way out, and what was cancelled stays cancelled', async ({ 
     await expect(dialog).toBeVisible();
   }
   await expect(page.locator('.scanstage')).toBeVisible();
+});
+
+test('a screenshot library that will not load hands the lens back', async ({ page }) => {
+  // BUG-15, QA's own reproduction: the chunk that draws the picture fails to
+  // load -- a tab left open across a deploy pointing at a hashed filename that
+  // no longer exists, or a tablet off the wifi for one second. The form must
+  // still open (it did), and the lens must start reading again (it did not:
+  // the flag was set before the import and released only after it, so a failed
+  // import left the camera live, the screen normal, and every card held up to
+  // it ignored until somebody reloaded the page).
+  await page.route('**/assets/dist-*.js', route => route.abort());
+  await scanningForReal(page);
+  await watchScanState(page);
+
+  await openUserMenu(page);
+  await page.getByRole('menuitem', { name: /^แจ้งปัญหา/ }).click();
+
+  // The form arrives, saying plainly that there is no picture with it.
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'แจ้งปัญหา' }))
+    .toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/จับภาพหน้าจอไม่สำเร็จ/)).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // The whole point: back to reading cards, not a camera that looks alive and
+  // sees nothing.
+  await expect(page.locator('.cam[data-scanning="live"]')).toBeVisible();
+  const states = await page.evaluate(() => window.__scanStates);
+  expect(states.at(-1), `ลำดับที่เห็น: ${states.join(' → ')}`).toBe('live');
+});
+
+test('the pause is something a person can see, not only a test', async ({ page }) => {
+  await scanningForReal(page);
+  // The badge is what somebody holding a card up to a camera that has stopped
+  // reading needs: an explanation, and a promise that it comes back. Recorded
+  // as it happens rather than looked for afterwards, because how long a
+  // capture takes depends on the machine.
+  await expect(page.locator('.campause')).toHaveCount(0);
+  await page.evaluate(() => {
+    window.__badge = [];
+    const box = document.querySelector('.cam');
+    new MutationObserver(() => {
+      const el = box.querySelector('.campause');
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      window.__badge.push({ text: el.textContent.trim(), w: Math.round(rect.width), h: Math.round(rect.height) });
+    }).observe(box, { childList: true, subtree: true });
+  });
+
+  await openUserMenu(page);
+  await page.getByRole('menuitem', { name: /^แจ้งปัญหา/ }).click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'แจ้งปัญหา' }))
+    .toBeVisible({ timeout: 15000 });
+
+  const seen = await page.evaluate(() => window.__badge);
+  expect(seen.length, 'ต้องมีป้ายบอกว่าพักการอ่านบัตรระหว่างจับภาพ').toBeGreaterThan(0);
+  expect(seen[0].text).toContain('พักการอ่านบัตรชั่วคราว');
+  // Drawn, not merely present: a zero-sized element explains nothing.
+  expect(seen[0].w).toBeGreaterThan(80);
+  expect(seen[0].h).toBeGreaterThan(20);
+
+  await page.keyboard.press('Escape');
+  // Gone again the moment the lens is back, or it becomes a sign nobody reads.
+  await expect(page.locator('.campause')).toHaveCount(0);
+  await expect(page.locator('.cam[data-scanning="live"]')).toBeVisible();
 });

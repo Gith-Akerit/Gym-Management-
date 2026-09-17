@@ -117,11 +117,25 @@ export function publicMember(row) {
   const { user_id, photo_stored_name, photo_content_type, ...member } = row;
   return { ...member, email: member.email ?? null, has_photo: !!photo_stored_name };
 }
+/**
+ * What gets written down, filtered only where there is something to filter.
+ *
+ * `publicMember` exists to keep the stored photograph's file name out of
+ * places it does not belong, so it is applied to the rows that carry one.
+ * Running it over everything else -- an order row, a `{ reason }` note, an
+ * already-public user -- stamped `"email":null,"has_photo":false` onto every
+ * row in the table whatever the action was (QA). Noise in an audit trail is
+ * not harmless: it is the table somebody reads when they need to know exactly
+ * what happened.
+ */
+const carriesPhotoPath = value => !!value && typeof value === 'object'
+  && ('photo_stored_name' in value || 'member_code' in value);
+
 export function audit(db, actor, action, id, before, after, now, entityType = 'member') {
+  const written = value => (value ? JSON.stringify(carriesPhotoPath(value) ? publicMember(value) : value) : null);
   db.prepare(`INSERT INTO audit_logs(id,actor_id,action,entity_id,before_json,after_json,created_at,entity_type)
     VALUES(?,?,?,?,?,?,?,?)`).run(
-    randomUUID(), actor, action, id, before ? JSON.stringify(publicMember(before)) : null,
-    after ? JSON.stringify(publicMember(after)) : null, now, entityType);
+    randomUUID(), actor, action, id, written(before), written(after), now, entityType);
 }
 export function createMember(db, userId, values, actor, now) {
   const id = randomUUID();

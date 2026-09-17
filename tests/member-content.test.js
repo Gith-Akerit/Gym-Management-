@@ -394,3 +394,91 @@ test('a photograph of a machine is saved and served to whoever scans the sticker
     .attach('photo', Buffer.from('not a picture at all, just text'), 'notes.txt').expect(400);
   assert.match(refused.body.error, /รูป/);
 });
+
+test('the six lines a member reads about a programme are the gym to change', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signInOwner(fixture);
+  const { portal } = await joinedMember(fixture);
+  const code = CONTENT.programs[0].code;
+
+  // The trap QA found: the screen showed these, the schema refused them, and
+  // "ตรวจแล้ว" then locked the row against the next import -- so wording the
+  // gym never agreed to would sit there forever with nobody able to edit it.
+  const before = (await call('get', '/programs', owner).expect(200)).body.items
+    .find(item => item.code === code);
+  for (const key of ['goal', 'for_whom', 'level', 'frequency_per_week', 'minutes_per_session', 'next_program']) {
+    assert.ok(before[key], `${key} ต้องมีค่ามาจากไฟล์เนื้อหา`);
+  }
+
+  // Only the fields the route accepts: the list read back carries `code` and
+  // `reviewed_by` too, and strict means strict.
+  const payload = {
+    name_th: before.name_th, stations: before.stations,
+    progression: before.progression, trainer_note: before.trainer_note,
+  };
+  const edited = (await call('put', `/programs/${code}`, owner, {
+    ...payload,
+    frequency_per_week: '3–4 วัน เว้นวันระหว่างรอบ',
+    minutes_per_session: '45 นาที',
+    for_whom: 'สมาชิกที่เคยเล่นมาก่อนและอยากกลับมาเล่นสม่ำเสมอ',
+    goal: 'กลับมาเล่นใหม่',
+    level: 'เคยเล่นมาบ้าง',
+    next_program: 'ครบ 4 สัปดาห์แล้วคุยกับพนักงานก่อนทุกครั้ง',
+    values_are_examples: false,
+    reviewed: true,
+    version: before.version,
+  }).expect(200)).body;
+  assert.equal(edited.frequency_per_week, '3–4 วัน เว้นวันระหว่างรอบ');
+
+  // What the member reads is what the gym typed -- the point of the whole thing.
+  const home = (await call('get', '/m/home', portal).expect(200)).body;
+  const seen = home.programs.find(program => program.code === code);
+  assert.equal(seen.frequency_per_week, '3–4 วัน เว้นวันระหว่างรอบ');
+  assert.equal(seen.minutes_per_session, '45 นาที');
+  assert.equal(seen.goal, 'กลับมาเล่นใหม่');
+  assert.equal(seen.values_are_examples, false);
+
+  // And the row is locked to the import exactly as it was before: the six new
+  // fields ride with `reviewed`, they do not weaken it.
+  assert.equal(importContent(db, CONTENT, 5000).programs
+    .find(row => row.code === code).action, 'kept');
+  assert.equal(db.prepare('SELECT frequency_per_week f FROM programs WHERE code=?').get(code).f,
+    '3–4 วัน เว้นวันระหว่างรอบ', 'การนำเข้ารอบถัดไปต้องไม่ทับค่าที่ยิมแก้เอง');
+
+  // Still strict: a field nobody defined is still refused rather than dropped.
+  const after = (await call('get', '/programs', owner).expect(200)).body.items
+    .find(item => item.code === code);
+  await call('put', `/programs/${code}`, owner,
+    { ...payload, values_are_examples: false, coach_note: 'x', version: after.version }).expect(400);
+  assert.equal(after.reviewed_by, 'owner@example.test', 'แถวนี้ถูกล็อกโดยคนที่กดตรวจแล้ว');
+});
+
+test('an audit row carries what happened, and nothing borrowed from a member', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signInOwner(fixture);
+
+  const safetyNow = (await call('get', '/safety', owner).expect(200)).body;
+  await call('put', '/safety', owner, { approved: true, version: safetyNow.version }).expect(200);
+  const safety = db.prepare("SELECT after_json FROM audit_logs WHERE action='content.safety_changed'").get();
+  // Every row in the table used to arrive with "email":null,"has_photo":false
+  // stamped on it, whatever the action was, because one serializer was applied
+  // to everything (QA). An audit trail is read when somebody needs to know
+  // exactly what happened; invented fields are the opposite of that.
+  assert.deepEqual(JSON.parse(safety.after_json), { approved: true });
+
+  // The filter still runs where it is for: a member row must never carry the
+  // stored file name of their photograph into the log.
+  const desk = await fixture.signIn('desk@example.test', 'staff');
+  const member = await fixture.addMember(desk, { name: 'ทดสอบ audit', phone: '0899990001' });
+  const created = db.prepare("SELECT after_json FROM audit_logs WHERE action='member.create'").get();
+  const row = JSON.parse(created.after_json);
+  assert.equal(row.name, 'ทดสอบ audit');
+  assert.equal('photo_stored_name' in row, false, 'ชื่อไฟล์รูปต้องไม่หลุดลง audit');
+  assert.equal('user_id' in row, false);
+  assert.equal(row.has_photo, false, 'แถวของสมาชิกยังบอกได้ว่ามีรูปหรือไม่');
+  assert.ok(member.id);
+});

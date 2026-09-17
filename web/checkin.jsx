@@ -104,6 +104,11 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
           {camera && !cameraError && outcome && <span className="camhint">
             หยุดสแกนไว้ก่อน · กด “สแกนคนถัดไป” เมื่อพร้อม</span>}
           {camera && !cameraError && !outcome && !busy && <><span className="frame"/><span className="laser"/></>}
+          {/* Visible, not only in the DOM: while the screen is being
+              photographed the lens stops reading, and somebody holding a card
+              up to it deserves to know why nothing is happening. */}
+          {scanPaused && camera && !cameraError && <span className="campause" role="status">
+            พักการอ่านบัตรชั่วคราว</span>}
         </div>
         <div className="darkbtns">
           {cameraError
