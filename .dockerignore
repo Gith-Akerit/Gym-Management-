@@ -1,0 +1,21 @@
+.git
+node_modules
+dist
+data
+mobile
+tests
+qa
+artifacts
+test-results
+playwright-report
+docs
+.env
+.env.*
+!.env.example
+*.sqlite*
+
+# docs is excluded above, but the staff guide is served by the app at
+# /manual.pdf, so the one directory the runtime image needs comes back in.
+# Without this the build fails on COPY docs/manual with "not found".
+!docs/manual
+!docs/content

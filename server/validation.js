@@ -14,7 +14,18 @@ export const profileFields = {
 };
 export const profileSchema = z.object(profileFields).strict();
 export const status = z.enum(['active', 'suspended', 'expired'], { error: 'กรุณาเลือกสถานะที่ถูกต้อง' });
-export const memberSchema = z.object({ ...profileFields, email, status: status.default('active') }).strict();
+/**
+ * A member's email address, which they no longer need. Nobody signs in as a
+ * member any more, so an address is a way to reach somebody and nothing else --
+ * and the person at the counter should not have to invent one to finish
+ * signing up a walk-in.
+ */
+export const optionalEmail = z.union([z.literal(''), z.null(), email]).optional()
+  .transform(value => value || null);
+
+export const memberSchema = z.object({
+  ...profileFields, email: optionalEmail, status: status.default('active'),
+}).strict();
 /**
  * Editing a member. date_of_birth and emergency_contact are optional *without*
  * a default: a client that omits them leaves the stored values alone. Giving
@@ -25,12 +36,19 @@ export const updateSchema = z.object({
   ...profileFields,
   date_of_birth: dob.optional(),
   emergency_contact: z.string().trim().max(200, 'ข้อมูลติดต่อฉุกเฉินยาวได้ไม่เกิน 200 ตัวอักษร').optional(),
-  email,
+  email: optionalEmail,
   status: status.default('active'),
   version: z.number().int().positive(),
 }).strict();
 export class HttpError extends Error {
-  constructor(status, message, fields) { super(message); this.status = status; this.fields = fields; }
+  /**
+   * `fields` puts a message under a particular input. `detail` is for a refusal
+   * the screen has to ACT on rather than print -- an expired membership, where
+   * the answer is a different screen and not a red line under a box.
+   */
+  constructor(status, message, fields, detail) {
+    super(message); this.status = status; this.fields = fields; this.detail = detail;
+  }
 }
 const THAI = /[฀-๿]/;
 
@@ -204,6 +222,79 @@ export const approveMismatchSchema = approveSchema.refine(
   input => input.note.length >= MISMATCH_NOTE_MIN,
   { message: `ยอดในสลิปไม่ตรงกับราคา กรุณาระบุเหตุผลอย่างน้อย ${MISMATCH_NOTE_MIN} ตัวอักษรก่อนอนุมัติ`, path: ['note'] });
 
+/**
+ * A package that costs nothing has no transfer to check, so the admin is not
+ * asked to swear one arrived. Nothing is dropped quietly either: sending
+ * checked_against_bank with a free order is refused rather than recorded,
+ * because the record would be an attestation about money that never moved.
+ */
+export const grantSchema = z.object({
+  version: z.coerce.number().int().positive(),
+  note: z.string().trim().max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร').default(''),
+}).strict();
+
+/**
+ * Selling a package across the counter.
+ *
+ * Arrives as multipart, because a slip photo may come with it, so every field
+ * is a string on the wire. A reason is only demanded when nobody paid: a
+ * membership given away is exactly the entry somebody asks about in six months,
+ * and "because the owner said so" is only useful written down at the time. A
+ * sale that was paid for explains itself.
+ */
+export const counterSaleSchema = z.object({
+  package_id: z.uuid('กรุณาเลือกแพ็กเกจ'),
+  payment_method: z.enum(['cash', 'transfer', 'none'], { error: 'กรุณาเลือกวิธีชำระเงิน' }).default('cash'),
+  note: z.string().trim().max(300, 'หมายเหตุยาวได้ไม่เกิน 300 ตัวอักษร').default(''),
+  reference_no: z.string().trim().max(40, 'เลขอ้างอิงยาวได้ไม่เกิน 40 ตัวอักษร').optional(),
+}).strict().refine(value => value.payment_method !== 'none' || value.note.length > 0, {
+  error: 'กรุณาระบุเหตุผลที่มอบแพ็กเกจโดยไม่เก็บเงิน',
+  path: ['note'],
+});
+
+export const ROLES = ['member', 'staff', 'admin'];
+
+/**
+ * Twelve characters, not eight with a digit and a capital.
+ *
+ * The staff of a gym share a counter tablet and will write whatever they choose
+ * on a sticky note beside it. Length is the only rule that buys real resistance
+ * to guessing and the only one a person can satisfy with a phrase they can
+ * actually remember; composition rules mostly produce Gym@2026.
+ */
+export const password = z.string()
+  .min(12, 'รหัสผ่านต้องยาวอย่างน้อย 12 ตัวอักษร')
+  .max(200, 'รหัสผ่านยาวได้ไม่เกิน 200 ตัวอักษร')
+  .refine(value => value.trim().length >= 12, 'รหัสผ่านต้องยาวอย่างน้อย 12 ตัวอักษร');
+
+export const loginSchema = z.object({
+  email,
+  password: z.string().min(1, 'กรุณากรอกรหัสผ่าน').max(200, 'รหัสผ่านยาวได้ไม่เกิน 200 ตัวอักษร'),
+}).strict();
+
+export const passwordSchema = z.object({ password }).strict();
+
+/** Setting a password from a one-time link, with nobody signed in. */
+export const setPasswordSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, "ลิงก์ไม่ถูกต้อง"),
+  password,
+}).strict();
+
+/**
+ * A staff or admin account, created by an admin rather than by signing up.
+ * The password is optional here so an owner can add the person now and hand
+ * them a password when they arrive; until then the account opens nothing.
+ */
+export const userSchema = z.object({
+  email,
+  role: z.enum(['staff', 'admin'], { error: 'เลือกได้เฉพาะพนักงานหรือผู้ดูแลระบบ' }),
+  password: password.optional(),
+}).strict();
+
+export const roleSchema = z.object({
+  role: z.enum(ROLES, { error: 'สิทธิ์ไม่ถูกต้อง' }),
+}).strict();
+
 export const rejectSchema = z.object({
   version: z.coerce.number().int().positive(),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ปฏิเสธ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
@@ -212,4 +303,47 @@ export const rejectSchema = z.object({
 export const reverseSchema = z.object({
   version: z.coerce.number().int().positive(),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลที่ยกเลิกการอนุมัติ').max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
+}).strict();
+
+/**
+ * Somebody asking for an account rather than being given one.
+ *
+ * The name and telephone number are here because the owner has to recognise
+ * who is asking before agreeing: an email address on its own is not enough to
+ * decide with, and until now staff accounts carried nothing else.
+ */
+export const signupSchema = z.object({
+  email,
+  name: z.string().trim().min(1, 'กรุณากรอกชื่อ–นามสกุล').max(120, 'ชื่อยาวได้ไม่เกิน 120 ตัวอักษร'),
+  phone,
+  password,
+  // The gym's own lock on a public form. Optional here because most gyms
+  // never set one; when one is set, a wrong code is answered exactly like a
+  // duplicate address -- same sentence, nothing written (Designer).
+  invite_code: z.string().trim().max(60).optional(),
+}).strict();
+
+/** "I forgot my password", which is one field and a great deal of restraint. */
+export const forgotSchema = z.object({ email }).strict();
+
+/**
+ * Changing your own password while signed in.
+ *
+ * The old one is part of the payload rather than assumed from the session,
+ * because the session is exactly what an unattended tablet hands to a stranger.
+ */
+export const changePasswordSchema = z.object({
+  current_password: z.string().min(1, 'กรุณากรอกรหัสผ่านเดิม').max(200),
+  password,
+}).strict();
+
+/** Approving a request, which is also where the role is decided. */
+export const approveRequestSchema = z.object({
+  role: z.enum(['staff', 'admin'], { error: 'เลือกได้เฉพาะพนักงานหรือผู้ดูแลระบบ' }),
+}).strict();
+
+/** Refusing one. The reason goes to the person, so it cannot be blank. */
+export const rejectRequestSchema = z.object({
+  reason: z.string().trim().min(1, 'กรุณาบอกเหตุผล เพราะข้อความนี้ถูกส่งให้ผู้สมัคร')
+    .max(300, 'เหตุผลยาวได้ไม่เกิน 300 ตัวอักษร'),
 }).strict();

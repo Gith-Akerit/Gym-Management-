@@ -1,166 +1,524 @@
-/* Design tokens come from the UI reference v0.1 by the Designer (KENC-20
-   attachment). The palette is explicitly temporary until the gym supplies its
-   real brand colours and logo. */
+/* ==========================================================================
+   สุขฤทัย ฟิตเนส — แอปพนักงาน/เจ้าของยิม
+   Design system "สแกนไว" · ยกไฟล์นี้ไปใช้แทน index.css ได้ทั้งก้อน
+   หลักการ: สแกน = มือถือ/แท็บเล็ตหน้าเคาน์เตอร์ · งานแอดมิน = คอม
+   ทุกคู่สีผ่าน WCAG 2.2 AA (ข้อความ >= 4.5:1, เส้นขอบ control >= 3:1)
+   ========================================================================== */
+
+/* -------------------------------------------------- 1. Design tokens ----- */
 :root{
-  --ink:#172B36;--primary:#175C50;--primary-dark:#0F4038;--accent:#975019;
-  --muted:#52616B;--line:#CCD5D8;--paper:#F3F6F5;--tint:#E8F1EE;--accent-tint:#FFF3E6;
-  --danger:#9B2C22;
-  font-family:"Noto Sans Thai","Leelawadee UI",Tahoma,sans-serif;
-  color:var(--ink);background:var(--paper);font-size:16px;line-height:1.65;font-synthesis:none;
+  /* พื้นผิว */
+  --canvas:#EFF2F4;      /* พื้นหลังหน้า */
+  --surface:#FFFFFF;     /* การ์ด/แผง */
+  --panel:#E4E9ED;       /* พื้นรอง เช่น skeleton, avatar */
+  --dark:#0D1512;        /* จอสแกน + หน้า login */
+  --dark-2:#16211C;      /* กรอบกล้องในจอมืด */
+
+  /* เส้น */
+  --line:#C6CDD3;        /* เส้นตกแต่ง (ขอบการ์ด/ตาราง) ไม่ใช่ขอบ control */
+  --line-ctl:#878B8F;    /* ขอบของสิ่งที่กดได้ 3.05:1 บน canvas ตาม WCAG 1.4.11 */
+  --line-strong:#0E1418; /* เส้นหลัก/ขอบ control */
+
+  /* ตัวอักษร */
+  --ink:#0E1418;         /* 16.5:1 บน canvas */
+  --ink-2:#3D4852;       /* 8.3:1 บน canvas */
+  --on-dark:#FFFFFF;     /* 18.5:1 บน --dark */
+  --on-dark-2:#B8BFBB;   /* 9.9:1 บน --dark */
+
+  /* สีของยิม — เจ้าของตั้งเองได้ที่หน้า "ตั้งค่ายิม" ทั้ง 8 ค่าคำนวณจาก
+     สีเดียวที่ shared/brand.cjs ซึ่งเป็นไฟล์เดียวกับที่หน้าเว็บใช้พรีวิว
+     ค่าข้างล่างคือค่าตั้งต้นก่อนธีมจะโหลดมา
+     --brand คือสีดิบตามที่เจ้าของเลือก **ห้ามเอาไปทาพื้นหรือทำตัวอักษรตรง ๆ**
+     ใช้ --brand-surface ซึ่งคือสีเดียวกันที่ปรับให้ตัวอักษรอ่านออกแล้ว */
+  --brand:#05603A;          --brand-surface:#05603A;  --on-brand:#FFFFFF;
+  --brand-ink:#05603A;      --brand-soft:#EBF2EF;     --brand-line:#05603A;
+  --brand-2:#074C31;        --on-brand-2:#FFFFFF;
+
+  /* สีที่แปลว่า "ผ่าน" ตรึงไว้ ไม่ผูกกับแบรนด์เด็ดขาด — ถ้ายิมเลือกสีแดงแล้ว
+     ป้าย "ใช้งานอยู่" กลายเป็นแดงตาม พนักงานจะอ่านผิดในวินาทีที่ผิดพลาดแล้ว
+     แพงที่สุด (Designer, ข้อ 3) */
+  --ok:#05603A;          --ok-soft:#DCEFE6;
+
+  /* สีสถานะ — ใช้คู่กับรูปทรงและคำเสมอ ห้ามสื่อด้วยสีอย่างเดียว */
+  --pass:#07784C;        /* พื้นแถบผลผ่าน ขาวบนพื้นนี้ = 5.53:1 */
+  --bad:#9B1C13;         --bad-soft:#FBE7E5;
+  --deny:#C62A1E;        /* พื้นแถบผลไม่ผ่าน ขาวบนพื้นนี้ = 5.60:1 */
+  /* BUG-03 (QA): "เช็คอินไปแล้ว" ใช้สีเดียวกับ "เข้าไม่ได้" ทั้งที่คนนี้เข้าได้
+     สีที่สาม บอกว่า "ไม่ใช่ผ่าน และไม่ใช่ปฏิเสธ" ขาวบนพื้นนี้ = 5.93:1 */
+  --again:#8A5A00;
+  --warn:#7A4A00;        --warn-soft:#FDF2DF;
+
+  /* รูปทรง */
+  --r-1:12px; --r-2:18px; --r-3:26px;
+
+  /* เป้าสัมผัส — ปุ่มหลัก 60px เพราะใช้ขณะยืนและรีบ */
+  --tap:60px; --tap-lg:72px;
+
+  /* ตัวอักษร: base 18px (ไม่ใช่ 16) เพื่อให้อ่านจากระยะเคาน์เตอร์ได้ */
+  --fs-14:14px; --fs-16:16px; --fs-18:18px; --fs-20:20px;
+  --fs-24:24px; --fs-28:28px; --fs-36:36px; --fs-48:48px; --fs-64:64px;
+
+  /* ระยะ 4pt grid */
+  --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px;
+
+  /* ฟอนต์ — Noto Sans Thai รองรับวรรณยุกต์ครบ, Plex ใช้กับตัวเลขให้เรียงตรงหลัก */
+  --font:"Noto Sans Thai","Leelawadee UI",Tahoma,sans-serif;
+  --font-num:"IBM Plex Sans","Noto Sans Thai",Arial,sans-serif;
+
+  --dur:180ms;
 }
+
+/* -------------------------------------------------- 2. Base ------------- */
 *{box-sizing:border-box}
-body{margin:0}
-button,input,select,textarea{font:inherit}
-button{cursor:pointer;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--primary);min-height:46px;padding:9px 18px;font-weight:600}
-button:hover:not(:disabled){background:var(--tint)}
-button:disabled{background:#E3E8E8;color:var(--muted);border-color:#B7C2C5;cursor:not-allowed}
-button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
-.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
-.primary:hover:not(:disabled){background:var(--primary-dark)}
-.danger{color:var(--danger);border-color:var(--danger)}
-.danger:hover:not(:disabled){background:#FBEDEB}
-.full{width:100%}
-h1,h2,h3,p{margin-top:0}
-h1{font-size:28px;line-height:1.4;margin-bottom:12px}
-h2{font-size:22px;margin-bottom:12px}
-h3{font-size:19px;margin-bottom:8px}
-.muted{color:var(--muted)}
-.fine{font-size:13px;color:var(--muted);margin-top:16px}
-.eyebrow{display:block;font:700 12px/1.6 Arial,sans-serif;letter-spacing:1.6px;text-transform:uppercase;color:var(--primary);margin-bottom:12px}
-.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:16px}
-.narrow{max-width:590px;margin:0 auto}
+html,body{margin:0;padding:0}
+body{
+  background:var(--canvas);color:var(--ink);
+  font-family:var(--font);font-size:var(--fs-18);line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--brand-line);outline-offset:3px}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.muted{color:var(--ink-2)}
+.note{font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+h1{margin:0 0 6px;font-size:var(--fs-28);font-weight:800;letter-spacing:-.01em}
+h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
+.sub{margin:0 0 var(--sp-5);color:var(--ink-2);font-size:var(--fs-16)}
 
-/* ------------------------------------------------------------- form controls */
-.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;font-size:15px}
-.field input,.field select,.field textarea{border:1px solid #71838C;border-radius:6px;padding:10px 11px;min-height:46px;background:#fff;color:var(--ink);width:100%}
-.field input[aria-invalid="true"]{border-color:var(--danger)}
-.field-error{color:var(--danger);font-size:13px}
-.row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.check-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
-.check-row input{width:20px;height:20px;flex:none;margin-top:4px}
-.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
-.secondary-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
+/* -------------------------------------------------- 3. App shell -------- */
+.appbar{background:var(--surface);border-bottom:2px solid var(--line-strong);position:sticky;top:0;z-index:20}
+.appbar-in{max-width:1080px;margin:0 auto;padding:10px var(--sp-5);display:flex;align-items:center;gap:var(--sp-4);min-height:68px}
+.mark{width:46px;height:46px;border-radius:var(--r-1);background:var(--brand-surface);color:var(--on-brand);
+  display:grid;place-items:center;font-size:var(--fs-16);font-weight:800;flex:none}
+/* A real logo sits on white and keeps its own shape: brand colours on top of a
+   brand colour is how a logo stops being recognisable. */
+.mark.haslogo{background:var(--surface);border:2px solid var(--line);padding:3px}
+.mark img{width:100%;height:100%;object-fit:contain}
+.scanbar .mark.haslogo{background:#fff;border-color:transparent}
+.brand{font-size:var(--fs-20);font-weight:700;line-height:1.25;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand small{display:block;font-size:var(--fs-14);color:var(--ink-2);font-weight:500;
+  overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+.wrap{max-width:1080px;margin:0 auto;padding:var(--sp-6) var(--sp-5) var(--sp-10)}
+.page{display:grid;grid-template-columns:224px 1fr;gap:var(--sp-6);align-items:start}
+.page>*{min-width:0}
 
-/* ------------------------------------------------------------------- notices */
-.notice{border-left:4px solid var(--primary);background:var(--tint);padding:12px 16px;border-radius:6px;margin:12px 0}
-.notice.error{border-left-color:var(--danger);background:#FBEDEB;color:#7A221A}
-.notice.warn{border-left-color:var(--accent);background:var(--accent-tint);color:#6F3A11}
-.empty{text-align:center;padding:34px 16px;color:var(--muted)}
+/* เมนูข้าง (คอม) — งานแอดมินอยู่บนคอมเป็นหลัก */
+.railnav{list-style:none;margin:0;padding:0;display:grid;gap:var(--sp-2);position:sticky;top:92px}
+.railnav a{display:flex;align-items:center;min-height:56px;padding:0 var(--sp-4);
+  border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface);
+  text-decoration:none;color:var(--ink);font-size:var(--fs-16);font-weight:600}
+.railnav a:hover{background:var(--panel)}
+.railnav a[aria-current]{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
 
-/* -------------------------------------------------------------------- chrome */
-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 20px;background:#fff;border-bottom:1px solid var(--line)}
-.brand{display:flex;align-items:center;gap:10px;font:700 16px/1.4 Arial,sans-serif}
-.brand-symbol{width:38px;height:38px;display:grid;place-items:center;border-radius:8px;background:var(--primary);color:#fff}
-.role-label{font:600 12px/1.6 Arial,sans-serif;letter-spacing:1px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
-main{max-width:1040px;margin:0 auto;padding:22px 20px 96px}
-footer{text-align:center;color:var(--muted);font-size:13px;padding:0 20px 26px}
-.page-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+/* เมนูล่าง (มือถือ) */
+.bottomnav{position:fixed;left:0;right:0;bottom:0;display:none;background:var(--surface);
+  border-top:2px solid var(--line-strong);z-index:30;padding-bottom:env(safe-area-inset-bottom)}
+.bottomnav ul{list-style:none;margin:0;padding:0;display:flex}
+.bottomnav li{flex:1;display:flex}
+.bottomnav a{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;
+  min-height:64px;text-decoration:none;font-size:var(--fs-14);font-weight:600;
+  color:var(--ink-2);border-top:4px solid transparent;text-align:center}
+.bottomnav a[aria-current]{color:var(--brand-ink);border-top-color:var(--brand-surface);background:var(--brand-soft)}
 
-/* Member shell follows the 390 px reference frame from the Designer. */
-.member-shell{max-width:390px;margin:0 auto}
-.app-nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 4px}
-.app-nav button{border:none;border-radius:0;background:none;color:var(--muted);font-weight:600;font-size:14px;min-height:52px;flex:1}
-.app-nav button[aria-current="page"]{color:var(--primary);border-bottom:3px solid var(--primary)}
-.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
-.tabs button{border-radius:999px;min-height:42px;padding:6px 18px}
-.tabs button[aria-current="page"]{background:var(--primary);color:#fff;border-color:var(--primary)}
+/* -------------------------------------------------- 4. Primitives ------- */
+/* The colour is not decoration: .block carries a white background, and it is
+   used inside the dark scan stage as well as on the light page. Without it the
+   labels on the sign-in and set-password forms inherited the stage's white and
+   became white on white -- readable to a screen reader, invisible to a person
+   (QA UI-01). */
+.block{background:var(--surface);color:var(--ink);
+  border:2px solid var(--line-strong);border-radius:var(--r-2);padding:var(--sp-6)}
+.soft{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-5)}
+.stack{display:grid;gap:var(--sp-3)}
 
-/* -------------------------------------------------------------- member cards */
-.login-layout{display:grid;grid-template-columns:1fr 1fr;gap:30px;max-width:960px;margin:0 auto;padding:48px 20px;align-items:center}
-.welcome h1{font-size:36px}
-.welcome-line{height:4px;width:56px;background:var(--primary);margin:20px 0}
-.login-card{max-width:420px}
-.icon-mark{width:38px;height:38px;display:grid;place-items:center;border-radius:8px;background:var(--primary);color:#fff;font-weight:700;margin-bottom:14px}
-.login-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
-.member-card{background:var(--primary);color:#fff;border-radius:12px;padding:22px;margin-bottom:16px}
-.member-card .eyebrow{color:#BFDCD4}
-.member-card h1{margin-bottom:4px}
-.avatar,.list-avatar{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:var(--tint);color:var(--primary);font-weight:700;flex:none}
-.avatar{background:rgba(255,255,255,.18);color:#fff;margin-bottom:10px}
-.member-code{font:600 14px/1.6 Arial,sans-serif;letter-spacing:1px;opacity:.92;margin-bottom:10px}
-.card-foot{font-size:13px;opacity:.88;margin:10px 0 0}
-.badge{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:3px 10px;font-size:13px;font-weight:600;background:#fff;color:var(--muted)}
-.badge.active{background:var(--tint);color:var(--primary);border-color:var(--primary)}
-.badge.suspended,.badge.expired{background:var(--accent-tint);color:var(--accent);border-color:var(--accent)}
-dl{margin:0}
-dt{font-size:13px;color:var(--muted);margin-top:12px}
-dd{margin:2px 0 0}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+  min-height:var(--tap);padding:0 var(--sp-5);border-radius:var(--r-1);
+  border:2px solid var(--line-strong);background:var(--surface);
+  font-size:var(--fs-18);font-weight:700;cursor:pointer;transition:background var(--dur)}
+.btn:hover{background:var(--panel)}
+/* ขอบใช้ --brand-line ไม่ใช่ --brand-surface เพราะสองค่านี้ตอบคนละคำถาม
+   --brand-surface ถูกดันจนตัวอักษรที่อยู่ "บนมัน" อ่านออก ไม่มีอะไรรับประกันว่า
+   มันจะต่างจากการ์ดที่มันวางอยู่ ยิมสีขาวจึงได้ปุ่มที่ตัวหนังสืออ่านสบาย 18:1
+   แต่ตัวปุ่มมองไม่เห็นเลย (1:1) ส่วน --brand-line คำนวณมาเทียบกับพื้นหน้าและ
+   รับประกัน 3:1 ซึ่งเป็นเกณฑ์ของขอบเขตตัวควบคุมตาม WCAG 1.4.11 คนละเกณฑ์กับ
+   4.5:1 ของตัวอักษร แก้ที่ class เดียวจึงครอบปุ่มหลักทุกปุ่มทั้งแอป */
+.btn.primary{background:var(--brand-surface);border-color:var(--brand-line);color:var(--on-brand)}
+.btn.primary:hover{background:var(--brand-2);border-color:var(--brand-line);color:var(--on-brand-2)}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.ghost{border-color:var(--line-ctl)}
+.btn.xl{min-height:var(--tap-lg);font-size:var(--fs-20)}
+.btn.auto{width:auto;min-height:48px;font-size:var(--fs-16);padding:0 var(--sp-4);white-space:nowrap}
+/* A11Y-01 (Designer): ปุ่มที่กดไม่ได้ ตัดสีทิ้ง ไม่ใช่ลดความทึบ
+   opacity:.5 ทำให้ตัวอักษรบนปุ่มหลักเหลือ 2.4–3.5:1 อ่านไม่ออก และ
+   "อ่านไม่ออก" ไม่ใช่วิธีบอกว่ากดไม่ได้ — สีเทาทึบบอกได้ชัดกว่าและยังอ่านออก
+   ต้องระบุ .primary/.danger ด้วย เพราะ brand-extra.css โหลดทีหลังและทับสีกลับ
+   ทำให้ปุ่มที่กดไม่ได้ยังเป็นสีแบรนด์เต็ม ๆ และดูเหมือนกดได้ */
+.btn[disabled],.btn[aria-disabled="true"],
+.btn.primary[disabled],.btn.primary[aria-disabled="true"],
+.btn.danger[disabled],.btn.danger[aria-disabled="true"]{background:var(--panel);
+  border-color:var(--line-ctl);color:var(--ink-2);opacity:1;cursor:not-allowed}
+.btn[disabled]:hover,.btn[aria-disabled="true"]:hover,
+.btn.primary[disabled]:hover,.btn.primary[aria-disabled="true"]:hover{background:var(--panel)}
+.btn-row{display:flex;gap:var(--sp-3);flex-wrap:wrap}
+.btn-row>.btn{width:auto;flex:1 1 160px}
 
-/* ------------------------------------------------------------- QR + packages */
-.qr-frame{border:2px dashed #71838C;background:var(--paper);border-radius:12px;width:192px;height:192px;margin:16px auto;display:grid;place-items:center;text-align:center;padding:12px;color:var(--muted)}
-.pkg-card{border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px;background:#fff}
-.pkg-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-.price{font-size:25px;font-weight:700;color:var(--primary)}
-.price.tbd{font-size:17px;color:var(--accent)}
-.tag{display:inline-block;border:1px solid var(--line);padding:3px 10px;border-radius:6px;font-size:13px;font-weight:600}
-.tag.draft{background:var(--accent-tint);color:var(--accent);border-color:var(--accent)}
-.tag.active{background:var(--tint);color:var(--primary);border-color:var(--primary)}
-.tag.archived{background:#EEF1F1;color:var(--muted)}
+.field{margin-bottom:var(--sp-4)}
+.field label{display:block;font-size:var(--fs-16);font-weight:700;margin-bottom:8px}
+.field input,.field select,.field textarea{width:100%;min-height:var(--tap);padding:0 var(--sp-4);
+  border:2px solid var(--line-strong);border-radius:var(--r-1);background:var(--surface);font-size:var(--fs-18)}
+.field textarea{min-height:110px;padding:var(--sp-3) var(--sp-4);line-height:1.6}
+.field .hint{margin:6px 0 0;font-size:var(--fs-14);color:var(--ink-2)}
+/* ข้อผิดพลาดติดกับช่องที่ผิดเสมอ ไม่รวมไว้บนสุดของฟอร์ม */
+.field.invalid input,.field.invalid select{border-color:var(--bad)}
+.field .err{display:flex;gap:6px;margin:6px 0 0;font-size:var(--fs-14);font-weight:700;color:var(--bad)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)}
 
-/* -------------------------------------------------------------- lists/tables */
-.search-row{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap}
-.search-row .field{flex:1;min-width:220px}
-.member-list{display:flex;flex-direction:column;gap:8px;margin:14px 0}
-.member-row{display:flex;align-items:center;gap:12px;text-align:left;width:100%;min-height:64px;border-radius:10px}
-.member-name{flex:1;display:flex;flex-direction:column}
-.member-name small{color:var(--muted)}
-.pagination{display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:14px;color:var(--muted)}
-.hours-grid{display:grid;grid-template-columns:96px 104px 1fr 1fr;gap:10px;align-items:center;margin-bottom:10px}
-.hours-grid input[type=time]{min-height:46px;border:1px solid #71838C;border-radius:6px;padding:8px 10px;width:100%}
-.audit{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
-.audit div{padding:8px 0;border-bottom:1px solid var(--line)}
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-16);font-weight:700;
+  padding:5px 12px;border-radius:var(--r-1);border:2px solid;white-space:nowrap}
+.chip.ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok)}
+.chip.bad{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
+.chip.warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
+.chip.neutral{background:var(--panel);color:var(--ink-2);border-color:var(--ink-2)}
 
-@media(max-width:760px){
-  .login-layout,.row-2{grid-template-columns:1fr}
-  .welcome{display:none}
-  .hours-grid{grid-template-columns:1fr 1fr;gap:8px}
-  main{padding:18px 16px 96px}
+.row{display:flex;justify-content:space-between;gap:var(--sp-3);padding:10px 0;border-bottom:2px solid var(--panel)}
+.row:last-child{border-bottom:0}
+
+.steps{display:flex;gap:var(--sp-2);margin-bottom:var(--sp-5)}
+.step{flex:1;padding:10px var(--sp-3);border-radius:var(--r-1);border:2px solid var(--line);
+  background:var(--surface);font-size:var(--fs-16);font-weight:700;color:var(--ink-2);text-align:center}
+.step.on{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
+.step.done{border-color:var(--brand-line);color:var(--brand-ink)}
+
+.banner{display:flex;align-items:center;gap:var(--sp-4);border-radius:var(--r-2);padding:var(--sp-5);margin-bottom:var(--sp-5)}
+.banner .ic{width:52px;height:52px;border-radius:var(--r-1);display:grid;place-items:center;font-size:26px;flex:none}
+.banner b{display:block;font-size:var(--fs-24);font-weight:800;line-height:1.3}
+.banner span{font-size:var(--fs-16)}
+.banner.ok{background:var(--ok);color:#fff}
+.banner.ok .ic{background:rgba(255,255,255,.2)}
+.banner.bad{background:var(--bad);color:#fff}
+.banner.bad .ic{background:rgba(255,255,255,.2)}
+
+/* -------------------------------------------------- 5. สี่สถานะของทุกหน้า ---
+   มีข้อมูล = markup ปกติ · อีกสามสถานะใช้บล็อกด้านล่าง                        */
+
+/* 5.1 กำลังโหลด — ใช้ skeleton ไม่ใช่ spinner เพื่อไม่ให้หน้ากระตุก */
+.skel{background:var(--panel);border-radius:8px;position:relative;overflow:hidden}
+.skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.65),transparent);
+  animation:shimmer 1.4s infinite}
+@keyframes shimmer{100%{transform:translateX(100%)}}
+.skel-line{height:16px;margin:8px 0}
+.skel-row{display:flex;align-items:center;gap:var(--sp-4);background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-3) var(--sp-4);min-height:84px}
+.skel-av{width:60px;height:60px;border-radius:50%;flex:none}
+
+/* 5.2 ว่างเปล่า — บอกว่าทำอะไรต่อได้เสมอ ไม่ใช่แค่ "ไม่มีข้อมูล" */
+.empty{text-align:center;padding:var(--sp-10) var(--sp-5);background:var(--surface);
+  border:2px dashed var(--line);border-radius:var(--r-2)}
+.empty .ic{width:72px;height:72px;border-radius:50%;background:var(--panel);
+  display:grid;place-items:center;font-size:32px;margin:0 auto var(--sp-4)}
+.empty b{display:block;font-size:var(--fs-20);font-weight:700}
+.empty p{margin:6px auto var(--sp-5);max-width:42ch;color:var(--ink-2);font-size:var(--fs-16)}
+
+/* 5.3 ผิดพลาด — ต้องมีปุ่มลองใหม่เสมอ ห้ามเป็นทางตัน */
+.errbox{background:var(--bad-soft);border:2px solid var(--bad);border-radius:var(--r-2);padding:var(--sp-6);text-align:center}
+.errbox .ic{width:72px;height:72px;border-radius:50%;background:var(--bad);color:#fff;
+  display:grid;place-items:center;font-size:34px;margin:0 auto var(--sp-4)}
+.errbox b{display:block;font-size:var(--fs-20);font-weight:800;color:var(--bad)}
+.errbox p{margin:6px auto var(--sp-5);max-width:46ch;font-size:var(--fs-16)}
+
+/* สปินเนอร์ในปุ่ม — ใช้เฉพาะตอนกดแล้วรอผล */
+.spin{width:22px;height:22px;border-radius:50%;border:3px solid rgba(255,255,255,.35);
+  border-top-color:#fff;animation:rot .8s linear infinite;flex:none}
+@keyframes rot{100%{transform:rotate(360deg)}}
+
+/* -------------------------------------------------- 6. หน้าสแกนเช็คอิน ---
+   จอมืด: ลดแสงสะท้อนบนหน้าจอลูกค้า ทำให้กล้องอ่านบัตรติดง่ายขึ้น           */
+.scanstage{background:var(--dark);min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;color:var(--on-dark)}
+.scanbar{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-4) var(--sp-5);
+  border-bottom:1px solid rgba(255,255,255,.14);min-height:68px}
+/* จานโปร่งบนแถบมืด พื้นจริงจึงเป็นสีมืด ไม่ใช่สีแบรนด์ — หมึกต้องเป็นของ
+   พื้นมืด ถ้าปล่อยให้รับ --on-brand มาจาก .mark ยิมสีอ่อนจะได้ตัวอักษรเข้ม
+   วางบนแถบเข้ม (วัดได้ 1.5:1) กลายเป็นรอยเปื้อนบนจอที่พนักงานมองทั้งวัน */
+.scanbar .mark{background:rgba(255,255,255,.14);color:var(--on-dark)}
+.scanbar .brand{color:var(--on-dark)}
+.scanbar .brand small{color:var(--on-dark-2)}
+.scanbar .btn{background:transparent;border-color:rgba(255,255,255,.4);color:var(--on-dark)}
+.scanbody{flex:1;display:grid;grid-template-columns:420px 1fr;gap:var(--sp-5);
+  padding:var(--sp-5);align-items:start;max-width:1240px;margin:0 auto;width:100%}
+.scanbody>*{min-width:0}
+
+.cam{background:var(--dark-2);border-radius:var(--r-2);aspect-ratio:1/1;position:relative;
+  display:grid;align-items:end;justify-items:center;padding-bottom:18px;text-align:center;
+  color:var(--on-dark-2);font-size:var(--fs-16);overflow:hidden;border:1px solid rgba(255,255,255,.14)}
+.cam .frame{position:absolute;inset:14%;border:4px solid rgba(255,255,255,.9);border-radius:16px}
+.cam .laser{position:absolute;left:14%;right:14%;top:50%;height:4px;background:#38D89B;box-shadow:0 0 18px #38D89B}
+.cam.off .frame,.cam.off .laser{display:none}
+
+.darkbtns{display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap}
+.darkbtns .btn{width:auto;flex:1 1 160px;background:transparent;border-color:rgba(255,255,255,.4);color:var(--on-dark)}
+.darkbtns .btn:hover{background:rgba(255,255,255,.1)}
+.darkbtns .btn.primary{background:#fff;border-color:#fff;color:var(--dark)}
+.darkbtns .btn.primary:hover{background:#E6E9E7}
+
+/* ผลลัพธ์ — รูปถ่ายใหญ่กว่าตัวหนังสือโดยตั้งใจ พนักงานต้องเห็นหน้าก่อนเห็นผล */
+.result{background:var(--pass);border-radius:var(--r-3);padding:var(--sp-8);
+  display:flex;gap:var(--sp-8);align-items:center;color:#fff}
+.result .rface{width:300px;height:300px;border-radius:50%;overflow:hidden;
+  border:8px solid rgba(255,255,255,.9);flex:none;background:var(--panel)}
+.result .rbody{flex:1;min-width:0}
+.result .rv{font-size:clamp(34px,3.6vw,60px);font-weight:800;line-height:1.1;letter-spacing:-.02em;
+  display:flex;align-items:center;gap:var(--sp-4);white-space:nowrap}
+.result .rv i{width:72px;height:72px;border-radius:22px;background:rgba(255,255,255,.22);
+  display:grid;place-items:center;font-style:normal;font-size:38px;flex:none}
+.result .rname{font-size:clamp(28px,2.7vw,44px);font-weight:800;margin-top:var(--sp-5);line-height:1.2}
+.result .rcode{font-family:var(--font-num);font-size:var(--fs-18);opacity:.85;letter-spacing:.06em}
+.result .rfacts{display:flex;gap:var(--sp-8);flex-wrap:wrap;margin-top:var(--sp-5);
+  padding-top:var(--sp-5);border-top:3px solid rgba(255,255,255,.3)}
+.result .rfacts span{display:block;font-size:var(--fs-16);opacity:.88}
+.result .rfacts b{font-size:var(--fs-28);font-weight:800}
+.result .reason{margin:var(--sp-5) 0 0;padding-top:var(--sp-5);border-top:3px solid rgba(255,255,255,.3);font-size:var(--fs-20);font-weight:700}
+.result.deny{background:var(--deny)}
+/* คนนี้เข้าได้ แค่บันทึกไปแล้ว — พนักงานใหม่ที่เห็นสีแดงจะไล่ลูกค้ากลับ (QA) */
+.result.again{background:var(--again)}
+.result.wait{background:#243430}
+
+.checkline{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);
+  border-radius:var(--r-1);padding:var(--sp-4);font-size:var(--fs-16);color:var(--on-dark);margin-top:var(--sp-4)}
+
+.dlog{list-style:none;margin:var(--sp-4) 0 0;padding:0;display:grid;gap:var(--sp-2)}
+.dlog li{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3);
+  border-radius:var(--r-1);background:rgba(255,255,255,.07);font-size:var(--fs-16);color:var(--on-dark)}
+.dlog .mini{width:44px;height:44px;border-radius:50%;overflow:hidden;flex:none;background:var(--panel)}
+.dlog .chip{font-size:var(--fs-14);padding:3px 10px}
+
+/* สถานะว่าง/ผิดพลาดบนจอมืด */
+.dark-empty,.dark-err{border-radius:var(--r-3);padding:var(--sp-8);text-align:center;border:2px dashed rgba(255,255,255,.3)}
+.dark-err{border-style:solid;border-color:var(--deny);background:rgba(198,42,30,.16)}
+.dark-empty .ic,.dark-err .ic{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;
+  font-size:34px;margin:0 auto var(--sp-4);background:rgba(255,255,255,.14)}
+.dark-err .ic{background:var(--deny)}
+.dark-empty b,.dark-err b{display:block;font-size:var(--fs-28);font-weight:800}
+.dark-empty p,.dark-err p{margin:8px auto var(--sp-5);max-width:44ch;color:var(--on-dark-2);font-size:var(--fs-16)}
+.dark-err p{color:#F3D5D2}
+
+/* -------------------------------------------------- 7. บัตรสมาชิก PNG ----
+   artwork 1080x1350 — เซิร์ฟเวอร์ render ตามสเปคตัวเลขในไฟล์แนบ            */
+.mcard{width:1080px;height:1350px;position:relative;flex:none;background:#fff;
+  display:flex;flex-direction:column;font-family:var(--font);color:var(--ink);overflow:hidden}
+.mcard .top{background:var(--brand-surface);color:var(--on-brand);padding:38px 56px;display:flex;align-items:center;gap:22px}
+.mcard .top .gm{width:74px;height:74px;border-radius:20px;background:rgba(255,255,255,.18);
+  display:grid;place-items:center;font-size:27px;font-weight:800;flex:none}
+.mcard .top .gn{font-size:42px;font-weight:800;line-height:1.2}
+.mcard .top .gn span{display:block;font-size:19px;letter-spacing:.2em;opacity:.8;font-weight:500;font-family:var(--font-num)}
+.mcard .idrow{display:flex;align-items:center;gap:36px;padding:38px 56px 16px}
+.mcard .face{width:232px;height:232px;border-radius:50%;overflow:hidden;flex:none;
+  border:7px solid var(--brand-surface);background:var(--panel)}
+.mcard .idtext{min-width:0}
+.mcard .eyebrow{font-size:24px;font-weight:600;color:var(--ink-2)}
+.mcard .who{font-size:64px;font-weight:800;line-height:1.15;letter-spacing:-.015em;margin-top:2px}
+.mcard .code{font-family:var(--font-num);font-size:30px;letter-spacing:.09em;color:var(--ink-2);margin-top:8px;font-weight:600}
+.mcard .qrzone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 56px}
+.mcard .qrbox{width:640px;height:640px;padding:22px;border:6px solid var(--line-strong);border-radius:26px;background:#fff}
+.mcard .qrcap{margin-top:16px;font-size:32px;font-weight:700;line-height:1.3}
+.mcard .bar{background:var(--brand-2);color:var(--on-brand-2);padding:18px 56px 18px}
+.mcard .bar .brow{display:flex;justify-content:space-between;align-items:flex-end;font-size:26px;line-height:1.35}
+.mcard .bar b{font-weight:700}
+/* ไม่ใช้ opacity บนบัตร: เมื่อสีรองเป็นโทนอุ่นกลาง ๆ contrast จะตกต่ำกว่า 4.5
+   ลำดับชั้นใช้ขนาดกับน้ำหนักแทน ซึ่งชัดกว่าบนรูปที่เปิดในแชต */
+.mcard .bar .brow span{font-size:22px;display:block;line-height:1.35;font-weight:400}
+/* เบอร์โทรยิม: บรรทัดเล็กใต้แถบ ไม่ลดขนาด QR */
+.mcard .bar .tel{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.28);
+  font-size:21px;line-height:1.4;display:flex;justify-content:space-between;gap:20px}
+.mcard .bar .tel .num{font-family:var(--font-num);font-weight:600;display:inline}
+/* บัตรที่ถูกยกเลิก */
+.mcard.void::before{content:"ยกเลิกแล้ว";position:absolute;inset:0;z-index:5;
+  display:grid;place-items:center;font-size:150px;font-weight:800;color:rgba(155,28,19,.26);
+  transform:rotate(-24deg);letter-spacing:.06em}
+.mcard.void .qrbox{opacity:.35}
+
+/* พรีวิวบัตรย่อส่วนในหน้าเว็บ (คงสัดส่วนจริง) */
+.cardscale{position:relative;overflow:hidden;min-width:0;width:100%;border:2px solid var(--line-strong);border-radius:var(--r-2)}
+.cardscale .mcard{position:absolute;top:0;left:0;transform-origin:0 0}
+
+/* -------------------------------------------------- 8. หน้าจัดการ -------- */
+.searchbig{position:relative;margin-bottom:var(--sp-4)}
+.searchbig input{width:100%;min-height:var(--tap-lg);padding:0 var(--sp-5) 0 58px;font-size:var(--fs-18);
+  border:2px solid var(--line-strong);border-radius:var(--r-1);background:var(--surface)}
+.searchbig svg{position:absolute;left:20px;top:24px;width:24px;height:24px}
+
+.list{display:grid;gap:var(--sp-3)}
+/* ห่อบรรทัดเมื่อคอลัมน์แคบ ดีกว่าบีบชื่อจนอ่านไม่ออก */
+.item{display:flex;align-items:center;flex-wrap:wrap;row-gap:10px;gap:var(--sp-4);background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-3) var(--sp-4);min-height:84px}
+.item .av{width:60px;height:60px;border-radius:50%;overflow:hidden;flex:none;background:var(--panel)}
+.item .who{flex:1 1 200px;min-width:0}
+.item .who b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.3}
+.item .who span{display:block;font-size:var(--fs-16);color:var(--ink-2)}
+.item .btn{width:auto;min-width:110px;min-height:50px;font-size:var(--fs-16)}
+
+/* ตัวเลือกแพ็กเกจ / วิธีรับเงิน */
+.pick{display:flex;align-items:center;gap:var(--sp-3);border:2px solid var(--line-ctl);
+  border-radius:var(--r-1);padding:var(--sp-3) var(--sp-4);cursor:pointer;background:var(--surface);min-height:var(--tap)}
+.pick input{width:22px;height:22px;accent-color:var(--brand-surface);flex:none}
+.pick .n{flex:1}
+.pick b{display:block;font-weight:700}
+.pick .sm{font-size:var(--fs-14);color:var(--ink-2)}
+.pick.sel{border-color:var(--brand-surface);background:var(--brand-soft);border-width:3px;padding:calc(var(--sp-3) - 1px) calc(var(--sp-4) - 1px)}
+
+/* สรุปยอดก่อนกดบันทึก */
+.total{display:flex;justify-content:space-between;align-items:baseline;
+  background:var(--dark);color:#fff;border-radius:var(--r-1);padding:var(--sp-4) var(--sp-5);margin-top:var(--sp-4)}
+.total b{font-family:var(--font-num);font-size:var(--fs-36);font-weight:800}
+
+/* ตารางสิทธิ์ผู้ใช้ */
+.utable{width:100%;border-collapse:collapse;font-size:var(--fs-16);background:var(--surface)}
+.utable th{text-align:left;font-size:var(--fs-14);color:var(--ink-2);font-weight:700;
+  padding:10px var(--sp-4);border-bottom:2px solid var(--line-strong);background:var(--panel)}
+.utable td{padding:12px var(--sp-4);border-bottom:2px solid var(--panel);vertical-align:middle}
+.utable tr:last-child td{border-bottom:0}
+.utable .btn{width:auto;min-height:46px;font-size:var(--fs-14);padding:0 var(--sp-3)}
+/* The role dropdown is a bare <select> in a table cell, so it inherited none of
+   the field sizing and came out about 21px tall -- a thumb's width is 44 at the
+   very least, and this one changes what somebody is allowed to do. */
+.utable select{width:100%;min-height:48px;padding:0 var(--sp-3);font-size:var(--fs-16);
+  border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface)}
+
+/* กล่องยืนยันก่อนทำสิ่งที่ย้อนยาก */
+.confirm{background:var(--surface);border:3px solid var(--bad);border-radius:var(--r-2);padding:var(--sp-6)}
+.confirm h2{color:var(--bad)}
+.confirm .warnlist{margin:0 0 var(--sp-5);padding-left:20px;font-size:var(--fs-16);color:var(--ink-2)}
+.confirm .warnlist li{margin-bottom:6px}
+
+/* -------------------------------------------------- 9. Responsive -------
+   ออกแบบที่ 390px ก่อน แล้วขยายขึ้น                                        */
+@media (max-width:899px){
+  .wrap{padding:var(--sp-4) var(--sp-4) 88px}
+  .page{grid-template-columns:1fr}
+  .railnav{display:none}
+  .bottomnav{display:block}
+  .two{grid-template-columns:1fr}
+  h1{font-size:var(--fs-24)}
+  .step{padding:8px 6px;font-size:var(--fs-14)}
+
+  .scanbody{grid-template-columns:1fr;padding:var(--sp-4);gap:var(--sp-4)}
+  .scanbody>*{min-width:0}
+  /* QA จุดสะดุด 2: บนจอ 390 ผลสแกน (รูปหน้า สิทธิ์คงเหลือ ปุ่มยืนยัน) อยู่ใต้
+     กล้องทั้งหมด ต้องปัดจอทุกคน ที่เคาน์เตอร์คือเสียเวลาทุกครั้งที่มีคนเข้า
+     พอมีผลแล้วสลับให้ผลขึ้นก่อน กล้องเลื่อนลงไปอยู่ล่าง */
+  .scanbody.hasresult>*:last-child{order:-1}
+  .darkbtns .btn{min-width:0;flex:1 1 140px}
+  .result{flex-direction:column;text-align:center;padding:var(--sp-5);gap:var(--sp-5)}
+  .result .rface{width:220px;height:220px}
+  /* ไอคอนวางเหนือข้อความ เพราะ "เข้าใช้บริการไม่ได้" ยาวเกินความกว้าง 390px */
+  .result .rv{flex-direction:column;gap:var(--sp-3);white-space:normal;
+    font-size:40px;line-height:1.2;justify-content:center;text-align:center}
+  .result .rv i{width:56px;height:56px;font-size:28px;border-radius:18px}
+  .result .rname{font-size:var(--fs-36)}
+  .result .rfacts{justify-content:center;gap:var(--sp-6)}
+  .result .rbody{width:100%}
+
+  .item{flex-wrap:wrap;row-gap:10px}
+  .item .btn{width:100%;order:9}
+
+  /* ตารางสิทธิ์กลายเป็นการ์ดต่อคน ใช้ markup เดิม */
+  .utable thead{display:none}
+  .utable,.utable tbody,.utable tr,.utable td{display:block;width:100%}
+  .utable tr{border:2px solid var(--line);border-radius:var(--r-2);margin-bottom:var(--sp-3);padding:var(--sp-2)}
+  .utable td{border-bottom:0;padding:6px var(--sp-3);display:flex;justify-content:space-between;gap:var(--sp-3)}
+  .utable td::before{content:attr(data-label);font-weight:700;color:var(--ink-2);font-size:var(--fs-14)}
+  .utable .btn{width:100%}
 }
 
-/* The public gym card sits under both columns of the sign-in layout. */
-.public-info{grid-column:1 / -1;max-width:760px;margin:0 auto;width:100%}
-@media(max-width:760px){.public-info{max-width:420px}}
-
-/* ------------------------------------------------------ payment (phase 2) */
-/* Anchors that act as buttons, e.g. the "save the QR image" download link. */
-.button{display:block;width:100%;text-align:center;text-decoration:none;padding:11px 12px;min-height:46px;border-radius:8px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-weight:600;margin-top:12px}
-.button.secondary{background:#fff;color:var(--primary)}
-.button:hover{background:var(--primary-dark);color:#fff}
-.button.secondary:hover{background:var(--tint);color:var(--primary)}
-.qr-image{display:block;width:100%;max-width:240px;height:auto;margin:16px auto 8px;border:1px solid var(--line);border-radius:12px;background:#fff}
-.qr-amount{text-align:center;font-size:25px;font-weight:700;color:var(--primary);margin-bottom:14px}
-.slip-preview{display:block;width:100%;max-width:280px;margin:12px auto 0;border:1px solid var(--line);border-radius:8px}
-.slip-review{display:block;width:100%;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
-.review-grid{display:grid;grid-template-columns:280px 1fr;gap:22px;align-items:start;margin-top:16px}
-.notice ul{margin:6px 0 0;padding-left:20px}
-.notice p{margin:4px 0 0}
-input[type=file]{border:1px dashed #71838C;border-radius:6px;padding:12px;background:#fff;min-height:46px;width:100%}
-table.sales{width:100%;border-collapse:collapse;margin-top:10px}
-table.sales th,table.sales td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
-table.sales th{font-size:13px;color:var(--muted);font-weight:600}
-table.sales td:last-child,table.sales th:last-child{text-align:right}
-
-@media(max-width:860px){ .review-grid{grid-template-columns:1fr} }
-
-/* ----------------------------------------------------- check-in (phase 3) */
-.checkin-qr{display:block;width:100%;max-width:240px;height:auto;margin:16px auto 8px;border:1px solid var(--line);border-radius:12px;background:#fff}
-.qr-hint{text-align:center;font-weight:600;color:var(--primary);margin-bottom:8px}
-/* The counter reads this from about a metre away, so it leads with size and an
-   icon as well as colour — colour alone excludes anyone who cannot tell them apart. */
-.scan-result{display:flex;gap:18px;align-items:center;border-radius:12px;padding:22px;margin-bottom:16px;border:2px solid}
-.scan-result h2{margin:0 0 4px;font-size:30px}
-.scan-result.allowed{background:var(--tint);border-color:var(--primary);color:var(--primary-dark)}
-.scan-result.duplicate{background:var(--accent-tint);border-color:var(--accent);color:#6F3A11}
-.scan-result.denied{background:#FBEDEB;border-color:var(--danger);color:#7A221A}
-.scan-icon{font:700 40px/1 Arial,sans-serif;width:64px;height:64px;flex:none;display:grid;place-items:center;border-radius:50%;background:#fff;border:2px solid currentColor}
-.scan-member{font-size:19px;font-weight:600;margin:0 0 4px}
-.scan-reason{margin:0;font-size:16px}
-@media(max-width:560px){
-  .scan-result{flex-direction:column;text-align:center}
-  .scan-result h2{font-size:26px}
+/* -------------------------------------------------- 10. A11y / print ---- */
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+  .skel::after{display:none}
+}
+@media print{
+  .bottomnav,.railnav,.appbar .btn{display:none}
+  body{background:#fff}
 }
 
-/* The counter tablet's camera view. Kept small enough that the result panel
-   above it stays on screen while somebody is holding up a phone. */
-.camera{margin-bottom:14px}
-.camera-view{display:block;width:100%;max-width:420px;aspect-ratio:4/3;object-fit:cover;background:#000;border:1px solid var(--line);border-radius:12px;margin:0 auto}
+/* ==========================================================================
+   บล็อกความเข้ากันได้ — ของที่ยังใช้ชื่อคลาสชุดเดิม
+   ยกบล็อกข้างบนมาทั้งก้อนตามที่สั่ง ส่วนนี้คือสิ่งที่ฟอร์มตั้งค่ายังอ้างถึงอยู่
+   (คลาสของหน้าตรวจสลิปเดิมถูกลบไปพร้อมกับหน้านั้นแล้ว)
+   ========================================================================== */
+.tabs{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.tabs button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:999px;
+  background:var(--surface);font-weight:700;cursor:pointer}
+.tabs button[aria-current=page]{background:var(--brand-surface);border-color:var(--brand-surface);color:var(--on-brand)}
+.table-wrap{overflow-x:auto;border-radius:var(--r-2)}
+.pagination{display:flex;gap:var(--sp-3);align-items:center;justify-content:center;margin-top:var(--sp-4)}
+.pagination button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);border-radius:var(--r-1);
+  background:var(--surface);cursor:pointer}
+.field-error{display:block;margin-top:6px;font-size:var(--fs-14);font-weight:700;color:var(--bad)}
+.hours-grid{display:grid;grid-template-columns:120px 130px 1fr 1fr;gap:var(--sp-3);align-items:center;
+  padding:10px 0;border-bottom:2px solid var(--panel)}
+.hours-grid input[type=time]{width:100%;min-height:48px;padding:0 var(--sp-3);border:2px solid var(--line-ctl);
+  border-radius:var(--r-1);font-family:var(--font-num);font-size:var(--fs-16);background:var(--surface)}
+@media (max-width:899px){ .hours-grid{grid-template-columns:1fr 1fr} .hours-grid>strong{grid-column:1/-1} }
+/* The box is 24px because that is as big as a checkbox is allowed to look, but
+   the whole row is the target -- tapping the words toggles it -- so the row is
+   what has to clear 44px on a phone. */
+.check-row{display:flex;gap:var(--sp-3);align-items:center;margin:var(--sp-3) 0;min-height:44px;cursor:pointer}
+.check-row input{width:24px;height:24px;accent-color:var(--brand-surface);flex:none}
+/* QA จุดสะดุด 1: กินสองบรรทัดเต็มบนจอ 390 ทุกหน้า และข้อความเดิมอ่านแล้วเหมือน
+   ระบบยังใช้จริงไม่ได้ · บรรทัดเดียว ตัดท้ายถ้ายาว และบอกสิ่งที่ทำได้ ไม่ใช่
+   สิ่งที่ยังไม่ได้ทำ */
+.pilot-banner{display:flex;gap:var(--sp-2);align-items:center;justify-content:center;
+  background:var(--warn-soft);border-bottom:2px solid var(--warn);color:var(--warn);
+  padding:6px var(--sp-4);font-size:var(--fs-14);line-height:1.4;
+  white-space:nowrap;overflow:hidden}
+.pilot-banner b{flex:none}
+.pilot-banner span{overflow:hidden;text-overflow:ellipsis}
+.sales{width:100%;border-collapse:collapse;font-size:var(--fs-16)}
+.sales th,.sales td{padding:10px var(--sp-3);border-bottom:2px solid var(--panel);text-align:left}
+.sales td:not(:first-child),.sales th:not(:first-child){text-align:right;font-family:var(--font-num)}
+
+/* ชื่อยาวต้องขึ้นบรรทัดที่สองแทนการถูกตัด — ชื่อคนละคนที่ขึ้นต้นเหมือนกัน
+   จะแยกไม่ออกถ้าตัดท้ายทิ้ง (QA ข้อ ค) */
+.item .who b,.result .rname,.utable td b{overflow-wrap:anywhere}
+.item .who b{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* กล้องจริงในกรอบสแกนของจอมืด */
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam.off video{display:none}
+.cam > .camhint{position:relative;z-index:2;text-align:center;padding:var(--sp-4);
+  background:rgba(0,0,0,.45);border-radius:var(--r-1)}
+
+/* รูปถ่ายจริงแทนภาพตัวอย่างของต้นแบบ */
+.rface img,.mini img,.av img,.face img{width:100%;height:100%;object-fit:cover;display:block}
+.rface,.mini,.av{overflow:hidden}
+.av{display:grid;place-items:center;color:var(--ink-2);font-weight:700}
+/* The card beside the buttons, and the three steps beside the summary. Here
+   rather than inline on the element, because an inline grid-template is a rule
+   no media query can reach: on a phone it kept a 320px second column and the
+   whole page scrolled sideways. */
+.cardgrid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--sp-6);align-items:start}
+@media (max-width:899px){ .cardgrid{grid-template-columns:1fr} }
+.cardshot{display:block;width:100%;border:2px solid var(--line-strong);border-radius:var(--r-2)}
+.photoframe{position:relative;aspect-ratio:1/1;max-width:440px;margin:0 auto;background:var(--dark);
+  border-radius:var(--r-2);overflow:hidden}
+.photoframe video,.photoframe img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.photoframe .ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:66%;aspect-ratio:1;
+  border:4px dashed rgba(255,255,255,.75);border-radius:50%}
+.photoframe .tip{position:absolute;left:0;right:0;bottom:0;padding:12px;background:rgba(0,0,0,.62);
+  color:#fff;font-size:var(--fs-16);font-weight:600;text-align:center}
+/* BUG-02 (QA): the frame has three states and used to look identical in all
+   three -- a black rectangle. Two to three seconds of black while a real
+   camera warms up reads as "broken", and an empty frame before anybody has
+   pressed anything reads as "the camera is on and my face is not in it". */
+.photoframe .framestate{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  display:flex;align-items:center;justify-content:center;gap:10px;padding:0 var(--sp-4);
+  color:var(--on-dark);font-size:var(--fs-16);font-weight:700;text-align:center;z-index:1}
+.photoframe .framestate .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff}
+
+/* BUG-06 (QA): "แพ็กเกจ" was breaking across two lines as "แพ็ก / เกจ" in the
+   narrow summary column. Thai has no spaces, so the browser breaks a word
+   wherever it likes unless it is told not to. */
+.row>.muted,.row .lb,.summary .muted{white-space:nowrap}

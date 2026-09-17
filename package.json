@@ -7,24 +7,34 @@
     "node": ">=24.15.0 <25"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env server/start.js",
+    "start": "node server/start.js",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "test": "node --test tests/*.test.js",
     "test:ui": "npm run build && node tests/free-port.js && playwright test",
-    "db:migrate": "node --env-file-if-exists=.env server/manage.js migrate",
-    "db:rollback": "node --env-file-if-exists=.env server/manage.js rollback",
-    "db:seed": "node --env-file-if-exists=.env server/manage.js seed",
-    "db:admin": "node --env-file-if-exists=.env server/manage.js admin",
-    "db:seed:demo": "node --env-file-if-exists=.env server/manage.js seed:demo",
-    "slips:prune": "node --env-file-if-exists=.env server/prune-slips.js"
+    "db:migrate": "node server/manage.js migrate",
+    "db:rollback": "node server/manage.js rollback",
+    "db:seed": "node server/manage.js seed",
+    "db:admin": "node server/manage.js admin",
+    "db:seed:demo": "node server/manage.js seed:demo",
+    "slips:prune": "node server/prune-slips.js",
+    "env:set": "node server/env-set.js",
+    "admin:set-password-link": "node server/admin-link.js",
+    "reports:prune": "node server/prune-reports.js",
+    "mail:build": "node server/emails/mkmail.cjs",
+    "content:import": "node server/content-import.js"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/noto-sans-thai": "^5.3.0",
+    "@napi-rs/canvas": "^1.0.9",
+    "bcryptjs": "^3.0.3",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "jsqr": "^1.4.0",
+    "modern-screenshot": "^4.7.0",
     "multer": "^2.3.0",
-    "nodemailer": "^10.0.9",
+    "nodemailer": "^10.0.10",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -33,7 +43,6 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "smtp-server": "^3.19.12",
     "supertest": "^7.2.2",
     "vite": "^8.3.0"
   }
