@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { audit, transaction } from './db.js';
 import { resolveTheme } from './theme.js';
 import { brandShort, settingsRow } from './settings-routes.js';
+import { SlipError } from './slips.js';
 import { HttpError, parse } from './validation.js';
 
 /** The same rule the browser prints the gym's number with. See shared/phone.cjs. */
@@ -85,6 +86,29 @@ const stationSchema = z.object({
   reps: z.string().trim().max(60).nullish(),
   rest: z.string().trim().max(60).nullish(),
   note: z.string().trim().max(400).optional(),
+}).strict();
+
+const articleSchema = z.object({
+  title: z.string().trim().min(1, 'กรุณากรอกชื่อบทความ').max(200),
+  body: z.array(z.string().max(1200)).max(30).optional(),
+  reviewed: z.boolean().optional(),
+  version: z.number().int().positive(),
+}).strict();
+
+/**
+ * The safety wording, and the press that puts the gym's name on it.
+ *
+ * `approved` is separate from the text for the same reason `reviewed` is on a
+ * machine: editing a sentence is not the same act as standing behind it. The
+ * owner can fix a typo without re-approving, and can approve without editing.
+ */
+const safetySchema = z.object({
+  portal_home_title: z.string().trim().max(200).optional(),
+  portal_home: z.array(z.string().max(600)).max(20).optional(),
+  machine_footer: z.array(z.string().max(600)).max(20).optional(),
+  program_before_start: z.array(z.string().max(600)).max(20).optional(),
+  approved: z.boolean().optional(),
+  version: z.number().int().positive(),
 }).strict();
 
 const programSchema = z.object({
@@ -385,10 +409,20 @@ export function registerContentRoutes({ app, db, now, admin, member, paidUp, ori
     if (!req.file) throw new HttpError(400, 'กรุณาเลือกไฟล์รูป');
     const before = machineRow(req.params.code);
     if (!before) throw new HttpError(404, 'ไม่พบเครื่องนี้');
-    const stored = machineStore.write(req.file.buffer, req.file.mimetype);
+    // `save`, and the content type it worked out from the bytes themselves --
+    // not `write`, which is not a method this store has, and not the type the
+    // browser claimed. Written against a store this route never had a screen
+    // or a test to exercise, so every upload answered 500 with a reference
+    // number and nothing else (found while building the screen).
+    let stored;
+    try { stored = machineStore.save(req.file.buffer); }
+    catch (error) {
+      if (error instanceof SlipError) throw new HttpError(400, error.message);
+      throw error;
+    }
     const previous = before.photo_stored_name;
     db.prepare('UPDATE machines SET photo_stored_name=?,photo_content_type=?,photo_updated_at=?,version=version+1 WHERE code=?')
-      .run(stored, req.file.mimetype, now(), before.code);
+      .run(stored.storedName, stored.contentType, now(), before.code);
     // Only after the row points at the new one: a crash between the two must
     // leave an extra file, never a row pointing at nothing.
     if (previous) { try { machineStore.remove(previous); } catch { /* already gone */ } }
@@ -418,6 +452,68 @@ export function registerContentRoutes({ app, db, now, admin, member, paidUp, ori
       audit(db, req.user.id, 'content.program_edited', before.code, null,
         { name: input.name_th, values_are_examples: input.values_are_examples }, now(), 'program');
       return publicProgram(db.prepare('SELECT * FROM programs WHERE code=?').get(before.code));
+    });
+    res.json(result);
+  });
+
+  app.get('/api/articles', admin, (req, res) => res.json({
+    items: articles().map(row => ({ ...publicArticle(row), version: row.version,
+      reviewed_by: row.reviewed_by, reviewed_at: row.reviewed_at })),
+  }));
+
+  app.put('/api/articles/:code', admin, (req, res) => {
+    const input = parse(articleSchema, req.body);
+    const result = transaction(db, () => {
+      const before = db.prepare('SELECT * FROM articles WHERE code=?').get(req.params.code);
+      if (!before) throw new HttpError(404, 'ไม่พบบทความนี้');
+      if (before.version !== input.version) {
+        throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดหน้าใหม่ก่อนบันทึก');
+      }
+      db.prepare(`UPDATE articles SET title=?,body=?,reviewed_by=?,reviewed_at=?,
+        version=version+1,updated_at=? WHERE code=?`)
+        .run(input.title, input.body ? JSON.stringify(input.body) : before.body,
+          input.reviewed ? req.user.email : (input.reviewed === false ? null : before.reviewed_by),
+          input.reviewed ? now() : (input.reviewed === false ? null : before.reviewed_at),
+          now(), before.code);
+      audit(db, req.user.id, 'content.article_edited', before.code, null,
+        { title: input.title, reviewed: !!input.reviewed }, now(), 'article');
+      return publicArticle(db.prepare('SELECT * FROM articles WHERE code=?').get(before.code));
+    });
+    res.json(result);
+  });
+
+  /** The safety wording as the owner edits it, with who signed it off. */
+  const safetyView = row => ({
+    portal_home_title: row.portal_home_title ?? '',
+    portal_home: list(row.portal_home),
+    machine_footer: list(row.machine_footer),
+    program_before_start: list(row.program_before_start),
+    approved_by: row.approved_by ?? null,
+    approved_at: row.approved_at ?? null,
+    version: row.version ?? 1,
+  });
+
+  app.get('/api/safety', admin, (req, res) => res.json(safetyView(safety())));
+
+  app.put('/api/safety', admin, (req, res) => {
+    const input = parse(safetySchema, req.body);
+    const result = transaction(db, () => {
+      const before = safety();
+      if ((before.version ?? 1) !== input.version) {
+        throw new HttpError(409, 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดหน้าใหม่ก่อนบันทึก');
+      }
+      const text = key => (input[key] ? JSON.stringify(input[key]) : before[key]);
+      db.prepare(`UPDATE safety_notices SET portal_home_title=?,portal_home=?,machine_footer=?,
+        program_before_start=?,approved_by=?,approved_at=?,version=version+1,updated_at=? WHERE id=1`)
+        .run(input.portal_home_title ?? before.portal_home_title,
+          text('portal_home'), text('machine_footer'), text('program_before_start'),
+          input.approved ? req.user.email : (input.approved === false ? null : before.approved_by),
+          input.approved ? now() : (input.approved === false ? null : before.approved_at),
+          now());
+      // Worth a row of its own: this is the gym saying these words are theirs.
+      audit(db, req.user.id, 'content.safety_changed', 'safety_notices',
+        { approved_by: before.approved_by }, { approved: !!input.approved }, now(), 'safety');
+      return safetyView(safety());
     });
     res.json(result);
   });

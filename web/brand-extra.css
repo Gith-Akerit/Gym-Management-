@@ -290,6 +290,12 @@
 .settabs a[aria-current]{color:var(--brand-ink);border-bottom-color:var(--brand-surface)}
 .settabs .dotwarn{width:11px;height:11px;border-radius:50%;background:var(--warn);flex:none}
 .settabs .dotbad{width:11px;height:11px;border-radius:50%;background:var(--bad);flex:none}
+/* สามแท็บเรียงเดียวกันยาวเกินจอ 390px · ให้ขึ้นบรรทัดใหม่แทนการเลื่อนข้าง
+   เพราะแท็บที่โผล่ครึ่งใบนอกจอคือแท็บที่เจ้าของยิมไม่รู้ว่ามี */
+@media (max-width:640px){
+  .settabs{flex-wrap:wrap;overflow-x:visible}
+  .settabs a{padding:0 var(--sp-3);font-size:var(--fs-16)}
+}
 
 /* ------------------------------------------------ แถบสถานะการส่งอีเมล --- */
 /* สถานะต้องอยู่บนสุดเสมอ เพราะคำถามแรกของเจ้าของยิมคือ "ตอนนี้ส่งได้ไหม"
@@ -515,6 +521,66 @@
   .authtop .mk{width:64px;height:64px;border-radius:18px}
   .qitem .acts .btn{flex:1 1 100%}
 }
+
+/* ------------------------------------ เครื่องและโปรแกรม (ฝั่งเจ้าของยิม) -- */
+/* หกเครื่องที่กางทุกช่องพร้อมกันคือหน้าที่หาอะไรไม่เจอ · แถวปิดบอกสองอย่าง
+   คือชื่อกับ "มีใครตรวจหรือยัง" แล้วค่อยกางทีละแถว */
+.cnav{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin:0 0 var(--sp-5)}
+.cnav button{min-height:48px;padding:0 var(--sp-4);border-radius:var(--r-1);
+  border:2px solid var(--line-strong);background:var(--surface);color:var(--ink-2);
+  font-size:var(--fs-16);font-weight:700;cursor:pointer}
+.cnav button:hover{color:var(--ink)}
+.cnav button.on{background:var(--brand-soft);border-color:var(--brand-surface);color:var(--brand-ink)}
+.cactions{margin:0 0 var(--sp-5)}
+
+.crow{border:2px solid var(--line-strong);border-radius:var(--r-2);margin-bottom:var(--sp-3);
+  background:var(--surface);overflow:hidden}
+.crow.open{border-color:var(--brand-surface)}
+.chead{display:flex;align-items:center;gap:var(--sp-3);width:100%;min-height:64px;
+  padding:var(--sp-3) var(--sp-4);background:none;border:0;cursor:pointer;text-align:start}
+.chead:hover{background:var(--panel)}
+.ccode{font-family:var(--font-num);font-weight:700;color:var(--ink-2);flex:none}
+.ctitle{font-size:var(--fs-18);font-weight:700;flex:1;min-width:0}
+.cchev{flex:none;color:var(--ink-2)}
+.cbody{padding:var(--sp-4) var(--sp-4) var(--sp-5);border-top:2px solid var(--line)}
+.cbody textarea{width:100%;font:inherit;line-height:1.6}
+.csub{margin:var(--sp-5) 0 var(--sp-2);font-size:var(--fs-18)}
+.cfoot{margin:var(--sp-4) 0 0}
+
+/* สถานะการตรวจ: ไม่ใช้สีอย่างเดียว มีคำกำกับเสมอ (WCAG 1.4.1) */
+.cstate{flex:none;font-size:var(--fs-14);font-weight:700;padding:4px 10px;border-radius:999px;
+  border:2px solid}
+.cstate.done{color:#0B5A36;border-color:var(--ok);background:#E7F6EE}
+.cstate.todo{color:#7A4A05;border-color:var(--warn);background:#FFF4DE}
+.creview{margin:var(--sp-4) 0 var(--sp-2)}
+
+.cwarn{border:3px solid var(--warn);background:#FFF4DE;border-radius:var(--r-2);
+  padding:var(--sp-4);margin-bottom:var(--sp-4)}
+.cwarn.ok{border-color:var(--ok);background:#E7F6EE}
+.cwarn b{display:block;font-size:var(--fs-18);margin-bottom:4px}
+.cwarn p{margin:0;font-size:var(--fs-16);line-height:1.6}
+
+.ctable{width:100%;border-collapse:collapse;margin-bottom:var(--sp-2)}
+.ctable th{text-align:start;font-size:var(--fs-14);color:var(--ink-2);padding:6px 8px;
+  border-bottom:2px solid var(--line-strong);white-space:nowrap}
+.ctable td{padding:6px 8px;border-bottom:2px solid var(--line);vertical-align:middle}
+.ctable input{width:100%;min-width:72px;min-height:44px;font:inherit}
+
+.cphoto{display:flex;gap:var(--sp-4);align-items:flex-start;flex-wrap:wrap}
+.cphoto img{width:180px;border-radius:var(--r-1);border:2px solid var(--line-strong);display:block}
+.cnophoto{width:180px;height:120px;border-radius:var(--r-1);border:2px dashed var(--line-strong);
+  display:grid;place-items:center;color:var(--ink-2);font-weight:700}
+.cphoto>div{flex:1;min-width:240px}
+.cphoto label.btn{display:inline-flex}
+
+@media (max-width:640px){
+  .ctable,.ctable thead,.ctable tbody,.ctable tr,.ctable th,.ctable td{display:block}
+  .ctable thead{display:none}
+  .ctable tr{border:2px solid var(--line-strong);border-radius:var(--r-1);
+    padding:var(--sp-2);margin-bottom:var(--sp-3)}
+  .ctable td{border:0;padding:4px 0}
+}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 
@@ -668,4 +734,5 @@
   .mnav a{min-height:58px;flex-direction:row;gap:8px;border-top:0;border-bottom:4px solid transparent}
   .mnav a[aria-current]{border-bottom-color:var(--brand-surface)}
 }
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

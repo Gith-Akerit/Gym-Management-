@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Brand from '../shared/brand.cjs';
 import { MailSettings } from './mail-settings.jsx';
+import { ContentSettings } from './content-settings.jsx';
 import { api, formatPhone, Loading, Mark, Notice, StateBox, upload, useResource } from './shared.jsx';
 
 /**
@@ -108,7 +109,7 @@ const BarPreview = ({ derived, branding, name, shortName, appbar }) => <div clas
  * well as a colour, because a coloured dot on its own says nothing to somebody
  * who cannot tell yellow from red.
  */
-const SettingsTabs = ({ tab, setTab, dot }) => <div className="settabs">
+const SettingsTabs = ({ tab, setTab, dot, canEdit }) => <div className="settabs">
   <a href="#brand" aria-current={tab === 'brand' ? 'page' : undefined}
     onClick={event => { event.preventDefault(); setTab('brand'); }}>ยิมและแบรนด์</a>
   <a href="#mail" aria-current={tab === 'mail' ? 'page' : undefined}
@@ -117,6 +118,10 @@ const SettingsTabs = ({ tab, setTab, dot }) => <div className="settabs">
     {dot === 'bad' && <span className="dotbad" role="img" aria-label="ส่งเมลทดสอบไม่สำเร็จ"/>}
     {dot === 'warn' && <span className="dotwarn" role="img" aria-label="ยังไม่ได้ตั้งค่าอีเมล"/>}
   </a>
+  {/* The owner's only, unlike the two beside it: what a member reads is the
+      gym's word to its customers, and every route behind this tab is admin. */}
+  {canEdit && <a href="#content" aria-current={tab === 'content' ? 'page' : undefined}
+    onClick={event => { event.preventDefault(); setTab('content'); }}>เครื่องและโปรแกรม</a>}
 </div>;
 
 export function GymBranding({ role, onAuthError, onSaved }) {
@@ -149,11 +154,23 @@ export function GymBranding({ role, onAuthError, onSaved }) {
   // preview: this tab's job is "fill it in and press send", and on a phone a
   // wall of Microsoft instructions above the form is how somebody gives up
   // before reaching it (Designer).
+  // Answered before the branding form loads, like the mail tab: this one has
+  // its own reads and does not need a colour on screen to be useful.
+  if (tab === 'content' && canEdit) {
+    return <div>
+      <h1>ตั้งค่ายิม</h1>
+      <p className="sub">เนื้อหาที่สมาชิกอ่านใน "ช่วยเล่น" และบนหน้าที่เปิดจาก QR ข้างเครื่อง
+        · แก้ได้ทุกช่อง ไม่ต้องรอทีมพัฒนา</p>
+      <SettingsTabs tab={tab} setTab={setTab} dot={dot} canEdit={canEdit}/>
+      <ContentSettings onAuthError={onAuthError} onSaved={onSaved}/>
+    </div>;
+  }
+
   if (tab === 'mail') {
     return <div className={canEdit ? '' : 'readonly'}>
       <h1>ตั้งค่ายิม</h1>
       <p className="sub">กล่องจดหมายที่ระบบใช้ส่งออก · ใช้ส่งบัตรสมาชิกให้ลูกค้า และลิงก์ลืมรหัสผ่านของพนักงาน</p>
-      <SettingsTabs tab={tab} setTab={setTab} dot={dot}/>
+      <SettingsTabs tab={tab} setTab={setTab} dot={dot} canEdit={canEdit}/>
       <MailSettings onAuthError={onAuthError}
         onSaved={message => { onSaved?.(message); mail.reload().catch(() => {}); }}
         onStatus={() => mail.reload().catch(() => {})}/>
@@ -242,7 +259,7 @@ export function GymBranding({ role, onAuthError, onSaved }) {
     return <div className="readonly">
       <h1>ตั้งค่ายิม</h1>
       <p className="sub">ดูได้อย่างเดียว · เฉพาะเจ้าของยิมที่แก้ไขได้</p>
-      <SettingsTabs tab={tab} setTab={setTab} dot={dot}/>
+      <SettingsTabs tab={tab} setTab={setTab} dot={dot} canEdit={canEdit}/>
       <div className="alert info" style={{ marginBottom: 'var(--sp-5)' }}><span className="ic">i</span>
         <div><b>คุณเข้าใช้งานในฐานะพนักงาน</b>
           <span>ถ้าต้องแก้ชื่อ โลโก้ หรือสี ให้แจ้งเจ้าของยิม · หน้านี้เปิดไว้เพื่อให้คุณตอบลูกค้าได้ว่าเบอร์โทรและ LINE
@@ -267,7 +284,7 @@ export function GymBranding({ role, onAuthError, onSaved }) {
   return <>
     <h1>ตั้งค่ายิม</h1>
     <p className="sub">ชื่อ โลโก้ และสีของยิม · มีผลกับหัวแอป ปุ่ม หน้าเข้าสู่ระบบ และบัตรสมาชิก</p>
-    <SettingsTabs tab={tab} setTab={setTab} dot={dot}/>
+    <SettingsTabs tab={tab} setTab={setTab} dot={dot} canEdit={canEdit}/>
     <div className="setgrid">
       <div>
         <div className="sect">

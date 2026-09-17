@@ -195,6 +195,11 @@ test('a member session opens nothing at the counter', async t => {
     ['put', '/gym/settings'],
     ['get', '/gym/mail-settings'],
     ['post', '/gym/mail-settings/test'],
+    ['get', '/machines'],
+    ['get', '/programs'],
+    ['get', '/articles'],
+    ['get', '/safety'],
+    ['put', '/safety'],
     ['get', '/reports'],
     ['get', '/checkins'],
   ];

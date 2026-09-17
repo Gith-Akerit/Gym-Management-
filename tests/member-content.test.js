@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { counterFixture } from './counter.js';
+import { counterFixture, PNG_PIXEL } from './counter.js';
 import { createRequire } from 'node:module';
 import { importContent } from '../server/content-import.js';
 import { registerMachineFallback, youTubeId } from '../server/content-routes.js';
@@ -27,6 +27,9 @@ const { formatPhone } = createRequire(import.meta.url)('../shared/phone.cjs');
 const CONTENT = JSON.parse(readFileSync(new URL('../docs/content/member-content.json', import.meta.url), 'utf8'));
 const MEMBER = { name: 'สมชาย ขยันมาก', phone: '0891234567', email: 'somchai@example.test' };
 const PORTAL_PASSWORD = 'a-password-of-my-own';
+
+/** The owner's token, for the routes that only answer to one. */
+const signInOwner = fixture => fixture.signIn('owner@example.test');
 
 /** A member with a live membership and a password, the way one really arrives. */
 async function joinedMember(fixture) {
@@ -271,4 +274,123 @@ test('the QR sheet is one page per gym, not per person, and belongs to the owner
   // because that is the question they will be asked when they hand it over.
   assert.match(sheet.text, /ไม่ต้องเข้าสู่ระบบ/);
   assert.ok(call);
+});
+
+test('the owner edits the articles and signs them off, and nobody else can', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+  const { portal } = await joinedMember(fixture);
+
+  for (const token of [desk, portal, null]) {
+    const answer = await call('get', '/articles', token);
+    assert.ok([401, 403].includes(answer.status), `สถานะ ${answer.status} — บทความเป็นของเจ้าของยิม`);
+  }
+
+  const before = (await call('get', '/articles', owner).expect(200)).body.items;
+  assert.equal(before.length, CONTENT.articles.length);
+  assert.equal(before[0].reviewed_by, null);
+
+  const saved = (await call('put', `/articles/${before[0].code}`, owner, {
+    title: 'มาถึงยิมครั้งแรก อ่านอันนี้ก่อน',
+    body: ['ย่อหน้าที่เจ้าของยิมเขียนเอง', 'อีกย่อหน้าหนึ่ง'],
+    reviewed: true,
+    version: before[0].version,
+  }).expect(200)).body;
+  assert.equal(saved.title, 'มาถึงยิมครั้งแรก อ่านอันนี้ก่อน');
+  assert.deepEqual(saved.body.length, 2);
+
+  // What the member reads is what the owner typed, on the public list too.
+  const seen = (await call('get', '/public/articles', null).expect(200)).body.items;
+  assert.equal(seen.find(a => a.code === before[0].code).title, 'มาถึงยิมครั้งแรก อ่านอันนี้ก่อน');
+
+  // Signed off means the next import leaves it alone -- the whole point of it.
+  assert.equal(importContent(db, CONTENT, 5000).articles
+    .find(row => row.code === before[0].code).action, 'kept');
+  await call('put', `/articles/${before[0].code}`, owner,
+    { title: 'x', version: 1 }).expect(409);
+});
+
+test('the safety wording carries the gym name, so it takes the owner press', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+
+  for (const token of [desk, null]) {
+    const answer = await call('get', '/safety', token);
+    assert.ok([401, 403].includes(answer.status), `สถานะ ${answer.status} — ข้อความความปลอดภัยเป็นของเจ้าของยิม`);
+  }
+
+  const before = (await call('get', '/safety', owner).expect(200)).body;
+  assert.equal(before.approved_by, null, 'ยังไม่มีใครอนุมัติตอนเพิ่งนำเข้า');
+  assert.ok(before.machine_footer.length);
+
+  // The approval is the server's to write, not the browser's to claim: a body
+  // that hands in its own approved_by is refused rather than believed.
+  const refused = (await call('put', '/safety', owner,
+    { approved_by: 'somebody@else', version: before.version }).expect(400)).body;
+  assert.ok(refused.error);
+
+  // Editing and approving are two different acts: a typo fix is not the gym
+  // putting its name to the advice, and approving is not a rewrite.
+  const saved = (await call('put', '/safety', owner, {
+    machine_footer: ['เก็บอุปกรณ์เข้าที่ทุกครั้ง'], version: before.version,
+  }).expect(200)).body;
+  assert.deepEqual(saved.machine_footer, ['เก็บอุปกรณ์เข้าที่ทุกครั้ง']);
+  assert.equal(saved.approved_by, null, 'แก้ข้อความไม่ใช่การอนุมัติ');
+  assert.deepEqual(saved.portal_home, before.portal_home, 'ช่องที่ไม่ได้ส่งมาต้องอยู่เหมือนเดิม');
+
+  const approved = (await call('put', '/safety', owner,
+    { approved: true, version: saved.version }).expect(200)).body;
+  assert.equal(approved.approved_by, 'owner@example.test');
+  assert.ok(approved.approved_at, 'ต้องบันทึกวันที่อนุมัติไว้เป็นหลักฐาน');
+
+  // It reaches the machine page, which is where a member meets it.
+  const page = await fixture.http.get(`/m/${CONTENT.machines[0].code}`).expect(200);
+  assert.ok(page.text.includes('เก็บอุปกรณ์เข้าที่ทุกครั้ง'));
+
+  // And the press is written down: this is the gym saying these words are theirs.
+  const logged = db.prepare("SELECT count(*) AS n FROM audit_logs WHERE action='content.safety_changed'").get();
+  assert.equal(logged.n, 2);
+  await call('put', '/safety', owner, { approved: true, version: 1 }).expect(409);
+});
+
+test('a photograph of a machine is saved and served to whoever scans the sticker', async t => {
+  const fixture = counterFixture(t);
+  const { call, http, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signInOwner(fixture);
+  const code = CONTENT.machines[0].code;
+
+  // This route answered 500 to every upload it was ever given: it called a
+  // method the store does not have (`write`), and nothing exercised it because
+  // there was no screen behind it and no test in front of it. Found the day
+  // the screen was built, which is later than it should have been -- hence
+  // this test rather than only the browser one.
+  const before = (await call('get', '/machines', owner).expect(200)).body.items
+    .find(item => item.code === code);
+  assert.equal(before.has_photo, false);
+
+  const saved = (await fixture.http.put(`/api/machines/${code}/photo`)
+    .set('X-Gym-Client', 'mobile').set('Authorization', `Bearer ${owner}`)
+    .attach('photo', PNG_PIXEL, 'machine.png').expect(200)).body;
+  assert.equal(saved.has_photo, true);
+  assert.match(saved.photo_url, new RegExp(`^/api/public/machines/${code}/photo`));
+
+  // Served without a session: the person scanning the sticker has none.
+  const image = await http.get(saved.photo_url).expect(200);
+  assert.match(image.headers['content-type'], /image\/png/);
+  // And the page behind the sticker shows it.
+  const page = await http.get(`/m/${code}`).expect(200);
+  assert.ok(page.text.includes(`/api/public/machines/${code}/photo`));
+
+  // A file that is not an image is refused with a sentence, not a 500.
+  const refused = await fixture.http.put(`/api/machines/${code}/photo`)
+    .set('X-Gym-Client', 'mobile').set('Authorization', `Bearer ${owner}`)
+    .attach('photo', Buffer.from('not a picture at all, just text'), 'notes.txt').expect(400);
+  assert.match(refused.body.error, /รูป/);
 });
