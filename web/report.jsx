@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { upload } from './shared.jsx';
-import { withScanningPaused, withTimeout } from './capture.js';
+import { hiddenFromCapture, loadCaptureModule, withScanningPaused, withTimeout } from './capture.js';
 
 /**
  * "ใช้ไม่ได้อย่างไร" — with a picture of it.
@@ -107,7 +107,9 @@ export function captureScreen() {
 }
 
 async function captureNow() {
-  const { domToDataUrl } = await import('modern-screenshot');
+  // The same promise the app warmed up with, not a second import: on a cold
+  // page this is what turns ten seconds into two (QA BUG-16).
+  const { domToDataUrl } = await loadCaptureModule();
   const swapped = [];
   for (const video of document.querySelectorAll('video')) {
     if (!video.videoWidth || !video.videoHeight) continue;
@@ -129,8 +131,13 @@ async function captureNow() {
     // real <video> elements back and the screen is left showing frozen
     // canvases. Giving up after eight seconds restores them and falls through
     // to the "picture failed" path, which already exists and works.
-    return await withTimeout(
-      domToDataUrl(document.body, { scale, backgroundColor: '#EFF2F4', type: 'image/png' }));
+    return await withTimeout(domToDataUrl(document.body, {
+      scale, backgroundColor: '#EFF2F4', type: 'image/png',
+      // Without this the panel announcing the capture is IN the capture,
+      // parked over the middle of the screen -- which is where the thing
+      // being reported usually is (QA BUG-17).
+      filter: node => !hiddenFromCapture(node),
+    }));
   } finally {
     for (const [canvas, video] of swapped) canvas.replaceWith(video);
   }

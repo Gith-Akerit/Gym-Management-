@@ -16,8 +16,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAPTURE_TIMEOUT_MS, onScanningPause, scanningPaused, setScanningPaused,
-  withScanningPaused, withTimeout } from '../web/capture.js';
+import { CAPTURE_TIMEOUT_MS, hiddenFromCapture, onScanningPause, scanningPaused,
+  setScanningPaused, withScanningPaused, withTimeout } from '../web/capture.js';
 
 test('a promise that never settles gives up on its own', async () => {
   const never = new Promise(() => {});
@@ -91,4 +91,21 @@ test('the loop is let go however the capture ends, including before it starts', 
   await assert.rejects(() => withScanningPaused(() => withTimeout(new Promise(() => {}), 20)),
     /จับภาพหน้าจอไม่ทัน/);
   assert.equal(scanningPaused(), false);
+});
+
+test('the panel that announces the capture is left out of the capture', () => {
+  // BUG-17: the picture the gym received had a white box parked across the
+  // middle of it saying "กำลังจับภาพหน้าจอ…", over whatever the person was
+  // reporting. The existing spec covered the form that opens afterwards, not
+  // the panel that is up while the shutter is open.
+  const panel = { nodeType: 1, hasAttribute: name => name === 'data-capture-hide' };
+  const ordinary = { nodeType: 1, hasAttribute: () => false };
+  assert.equal(hiddenFromCapture(panel), true);
+  assert.equal(hiddenFromCapture(ordinary), false);
+
+  // A text node has no attributes to ask about, and asking would throw --
+  // which inside a screenshot filter means no picture at all.
+  assert.equal(hiddenFromCapture({ nodeType: 3 }), false);
+  assert.equal(hiddenFromCapture(null), false);
+  assert.equal(hiddenFromCapture(undefined), false);
 });

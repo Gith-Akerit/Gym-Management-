@@ -72,3 +72,61 @@ export function withTimeout(promise, ms = CAPTURE_TIMEOUT_MS, message = 'จั�
   });
   return Promise.race([promise, alarm]).finally(() => clearTimeout(timer));
 }
+
+/**
+ * The screenshot library, fetched once and remembered.
+ *
+ * It is a dynamic import because most sessions never press "แจ้งปัญหา" and
+ * 24 KB of it has no business in the first paint. That was right, and it had
+ * a cost nobody measured until QA did: loading and compiling it WHILE the QR
+ * loop runs pushed the first capture on every page past the eight-second
+ * clock, so the first report from any page arrived with no picture at all --
+ * five times out of five on the gym's machine. The download was 42 ms of
+ * those ten seconds; the rest was the module competing with the camera for
+ * the main thread (QA BUG-16).
+ *
+ * So it is still fetched on demand -- just demanded earlier, while nobody is
+ * waiting, and kept.
+ */
+let modulePromise = null;
+
+export function loadCaptureModule() {
+  // A failed load is not remembered: the tab that lost the wifi for a second
+  // at idle time must not be a tab that can never take a picture again.
+  modulePromise ??= import('modern-screenshot').catch(error => {
+    modulePromise = null;
+    throw error;
+  });
+  return modulePromise;
+}
+
+let scheduled = false;
+
+/**
+ * Asks for it while the counter is quiet.
+ *
+ * `requestIdleCallback` so it never competes with opening the camera, with a
+ * timeout so a permanently busy tab still gets there, and a plain timer for
+ * the browsers without it. Called once, after somebody is signed in and the
+ * counter's own app is on screen -- never from the member's portal, which has
+ * no way to report a problem and no reason to pay 113 ms for one.
+ */
+export function preloadCaptureModule({ idleTimeoutMs = 3000, fallbackMs = 1500 } = {}) {
+  if (scheduled) return;
+  scheduled = true;
+  const start = () => { loadCaptureModule().catch(() => { /* asked again at press time */ }); };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(start, { timeout: idleTimeoutMs });
+  else setTimeout(start, fallbackMs);
+}
+
+/**
+ * Whether the screenshot should pretend this element is not there.
+ *
+ * The picture is taken before the box opens so that it shows the problem
+ * rather than the box -- but the panel that says "กำลังจับภาพหน้าจอ…" is on
+ * screen while the shutter is open, and it landed in the middle of every
+ * report the gym received, over the very thing somebody was reporting
+ * (QA BUG-17). Anything marked `data-capture-hide` is left out.
+ */
+export const hiddenFromCapture = node =>
+  !!node && node.nodeType === 1 && node.hasAttribute?.('data-capture-hide');

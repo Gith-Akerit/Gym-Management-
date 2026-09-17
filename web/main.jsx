@@ -18,7 +18,7 @@ import { PendingRequests } from './user-requests.jsx';
 import { PhotoCapture } from './camera.jsx';
 import { ProblemReports } from './reports.jsx';
 import { captureScreen, flushPendingReports, pendingReportCount, ReportDialog } from './report.jsx';
-import { setScanningPaused } from './capture.js';
+import { preloadCaptureModule, setScanningPaused } from './capture.js';
 
 const blank = { name: '', email: '', phone: '', date_of_birth: '', emergency_contact: '', status: 'active' };
 const blankPackage = { code: '', name_th: '', type: 'unlimited', duration_days: 30, session_limit: '', price_satang: '', description: '', status: 'draft', sort_order: 0 };
@@ -1319,6 +1319,12 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
     return () => window.removeEventListener('online', flush);
   }, []);
 
+  // Fetched while the counter is quiet rather than at the moment somebody
+  // presses the button. Here rather than on the scan screen so every screen
+  // benefits, and inside the signed-in shell so the member's portal -- which
+  // has no way to report a problem -- never pays for it (QA BUG-16).
+  useEffect(() => { preloadCaptureModule(); }, []);
+
   /**
    * The picture is taken before the box opens, or the picture is of the box.
    *
@@ -1374,7 +1380,7 @@ function Console({ user, gym, brand, branding, onBrandingChange, onLogout, onAut
 
   /** Drawn over whatever screen is underneath, including the scan stage. */
   const reportUi = report && (report.capturing
-    ? <div className="sheet" role="status" aria-live="polite">
+    ? <div className="sheet" role="status" aria-live="polite" data-capture-hide="">
         <div className="sheet-in"><div className="sheet-b done-big">
           <span className="spin" style={{ width: 44, height: 44, margin: '0 auto var(--sp-4)' }}/>
           <b>กำลังจับภาพหน้าจอ…</b>
