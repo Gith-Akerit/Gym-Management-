@@ -121,7 +121,13 @@ test('a membership the gym took back is not filed under "expired"', async t => {
   await call('post', `/admin/orders/${order.id}/reverse`, owner,
     { version: order.version, reason: 'อนุมัติผิดคน' }).expect(200);
   const expired = (await call('get', '/admin/reports/members?view=expired', owner).expect(200)).body;
-  assert.equal(expired.items.length, 0, 'สิทธิ์ที่ถูกยกเลิกไม่ใช่สิทธิ์ที่หมดอายุ');
+  // They are in the list -- somebody who cannot get in is what this view is
+  // for, and leaving them out of it was how they became invisible. What must
+  // never happen is reading this as a membership that ran out of time, and
+  // that is now said in a column rather than by absence (Mika, on BUG-18).
+  assert.equal(expired.items.length, 1);
+  assert.equal(expired.items[0].reason, 'ถูกยกเลิก');
+  assert.equal(expired.items[0].package, 'รายเดือน ไม่จำกัดครั้ง', 'ยกเลิกแล้วก็ยังต้องรู้ว่าแพ็กเกจอะไร');
   assert.equal(expired.revoked.length, 1);
   assert.equal(expired.revoked[0].status, 'ถูกยกเลิก');
   assert.equal(expired.revoked[0].reason, 'อนุมัติผิดคน');
@@ -566,4 +572,115 @@ test('the bar across the top counts today, and counts people once', async t => {
   // And the number on the bar is the number of rows in the report behind it.
   const list = (await call('get', '/admin/reports/members?view=expiring&days=7', owner).expect(200)).body;
   assert.equal(renewed.expiring_7, list.total);
+});
+
+// ---------------------------------------------------------------------------
+// BUG-18: "ครั้งคงเหลือ: ไม่จำกัด" for a member with nothing left.
+//
+// The member report exists to be telephoned from. The "หมดอายุแล้ว" view joins
+// only entitlements that are still usable -- which those members, by
+// definition, do not have -- so every column came back NULL, and
+// `sessions_total === null` was read as "this package counts no visits". Every
+// row of that view said "ไม่จำกัด", with the package and the date blank: the
+// owner rings somebody who cannot get in, believing they can, and has nothing
+// to talk to them about (QA, on the gym's own machine).
+//
+// The fix is to tell "an unlimited package" apart from "no row was joined",
+// and to give that view a join that does not require the entitlement to be
+// usable. These four cases are the three ways a membership ends plus the one
+// that must still say "ไม่จำกัด" because it really is unlimited.
+
+/** A gym selling a single visit, sold to one member who then uses it. */
+async function usedUpGym(fixture) {
+  const { call, signIn, addMember } = fixture;
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+  const pkg = (await call('post', '/packages', owner, {
+    code: 'TRIAL1', name_th: 'ทดลองเล่นฟรี 1 ครั้ง', type: 'limited_sessions',
+    duration_days: 7, session_limit: 1, price_thb: 0, status: 'active',
+  }).expect(201)).body;
+  const member = await addMember(desk, { name: 'ทดลอง ใช้ครบแล้ว', phone: '0899990001' });
+  await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', pkg.id).field('payment_method', 'none')
+    .field('note', 'แถมให้ทดลอง').expect(201);
+  const qr = (await call('get', `/members/${member.id}/card`, desk).expect(200)).body.qr;
+  await call('post', '/check-ins/verify', desk, { qr, device_label: 'เคาน์เตอร์ 1' }).expect(200);
+  return { owner, desk, member, pkg };
+}
+
+test('a member who used every visit is expired, says so, and keeps their package', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  const { owner, member } = await usedUpGym(fixture);
+
+  // The state QA found: no visits left, and the date still days away.
+  const left = db.prepare('SELECT sessions_remaining, expires_at FROM entitlements WHERE member_id=?').get(member.id);
+  assert.equal(left.sessions_remaining, 0);
+  assert.ok(left.expires_at > fixture.at(), 'วันหมดอายุต้องยังไม่ถึง ไม่งั้นเทสต์นี้ไม่ได้ตรวจเคสที่ตั้งใจ');
+
+  const expired = (await call('get', '/admin/reports/members?view=expired', owner).expect(200)).body;
+  assert.equal(expired.total, 1);
+  const row = expired.items[0];
+  assert.equal(row.sessions_left, 0, `ต้องเป็นเลข 0 ไม่ใช่ "${row.sessions_left}"`);
+  assert.equal(row.reason, 'ใช้ครบแล้ว');
+  assert.equal(row.package, 'ทดลองเล่นฟรี 1 ครั้ง', 'ช่องแพ็กเกจต้องไม่ว่าง');
+  assert.match(row.expires_on, /^\d{2}\/\d{2}\/\d{4}$/, 'ช่องวันหมดอายุต้องไม่ว่าง');
+  assert.ok(Number(row.days_left) > 0, 'ยังเหลือวันอยู่จริง ตัวเลขนั้นมีประโยชน์ตอนโทรขายเพิ่ม');
+
+  // And nowhere near the list of people to ring about renewing: that list is
+  // people who can still get in.
+  const soon = (await call('get', '/admin/reports/members?view=expiring&days=7', owner).expect(200)).body;
+  assert.equal(soon.total, 0);
+  assert.equal((await call('get', '/admin/reports/today', owner).expect(200)).body.expiring_7, 0);
+
+  // The CSV carries the same word, in a column of its own.
+  const csv = await call('get', '/admin/reports/members?view=expired&format=csv', owner).expect(200);
+  assert.match(csv.text, /สาเหตุ/);
+  assert.match(csv.text, /ใช้ครบแล้ว/);
+  assert.doesNotMatch(csv.text, /ไม่จำกัด/);
+});
+
+test('the other two endings are named apart from it', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  const { owner, member } = await usedUpGym(fixture);
+  const reasonFor = async () => (await call('get', '/admin/reports/members?view=expired', owner)
+    .expect(200)).body.items[0].reason;
+
+  // Give the visit back and push the date into the past: the same member, a
+  // different ending.
+  db.prepare('UPDATE entitlements SET sessions_remaining=1, expires_at=? WHERE member_id=?')
+    .run(fixture.at() - 2 * 86400000, member.id);
+  assert.equal(await reasonFor(), 'ครบกำหนดวัน');
+
+  db.prepare("UPDATE entitlements SET status='revoked', revoked_at=?, revoked_reason=? WHERE member_id=?")
+    .run(fixture.at(), 'คืนเงินให้ลูกค้า', member.id);
+  assert.equal(await reasonFor(), 'ถูกยกเลิก');
+});
+
+test('a package that really is unlimited still says so, and nothing else does', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  const { owner, member } = await busyGym(fixture);
+
+  // The monthly package counts no visits. Run its date out.
+  db.prepare('UPDATE entitlements SET expires_at=? WHERE member_id=?')
+    .run(fixture.at() - 86400000, member.id);
+  const expired = (await call('get', '/admin/reports/members?view=expired', owner).expect(200)).body;
+  assert.equal(expired.total, 1);
+  assert.equal(expired.items[0].sessions_left, 'ไม่จำกัด', 'แพ็กเกจไม่จำกัดครั้งจริง ต้องยังขึ้นว่าไม่จำกัด');
+  assert.equal(expired.items[0].reason, 'ครบกำหนดวัน');
+  assert.equal(expired.items[0].package, 'รายเดือน ไม่จำกัดครั้ง');
+  assert.equal(expired.items[0].days_left, '', 'วันที่ผ่านไปแล้วไม่ต้องพิมพ์เป็นเลขติดลบ');
+
+  // And a member who never bought anything: an empty cell, not the word.
+  const walkIn = await fixture.addMember(await fixture.signIn('desk@example.test', 'staff'),
+    { name: 'ยังไม่ซื้อ อะไรเลย', phone: '0899990002' });
+  const fresh = (await call('get', '/admin/reports/members?view=new', owner).expect(200)).body;
+  const theirs = fresh.items.find(row => row.name === 'ยังไม่ซื้อ อะไรเลย');
+  assert.ok(theirs, 'สมาชิกที่เพิ่งสมัครต้องอยู่ในมุมมองสมัครใหม่');
+  assert.equal(theirs.sessions_left, '', `ไม่มีสิทธิ์เลยต้องเป็นช่องว่าง ไม่ใช่ "${theirs.sessions_left}"`);
+  assert.equal(theirs.package, '');
+  assert.equal(theirs.reason, '', 'ไม่เคยมีสิทธิ์ ก็ไม่มีสาเหตุที่สิทธิ์จบลง');
+  assert.ok(walkIn.id);
 });

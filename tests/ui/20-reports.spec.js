@@ -55,9 +55,16 @@ test.beforeAll(async ({ browser }) => {
     await page.getByRole('button', { name: 'เมนู', exact: true }).waitFor();
   }
 
-  await signUpMember(page, { name: CUSTOMER, phone: '0891110020', pkg: /รายเดือน Unlimited/ });
-  const { qr } = await cardToken(page, CUSTOMER);
-  await scan(page, qr);
+  // Playwright restarts the worker after a failure, and a restarted worker
+  // runs this hook again. Signing the same person up twice fails on the
+  // telephone number, which turns one real failure into three.
+  const already = await (await page.request.get(
+    `/api/members?q=${encodeURIComponent(CUSTOMER)}`)).json();
+  if (!already.items?.length) {
+    await signUpMember(page, { name: CUSTOMER, phone: '0891110020', pkg: /รายเดือน Unlimited/ });
+    const { qr } = await cardToken(page, CUSTOMER);
+    await scan(page, qr);
+  }
   await page.close();
 });
 
@@ -236,4 +243,165 @@ test('both tabs are readable and fit, at 1280 and at 390', async ({ page }) => {
     `แท็บบัญชีผู้ใช้ล้นขอบที่ ${size.width}px`).toBe(false);
     await page.screenshot({ path: `artifacts/ui-user-accounts-${size.name}.png`, fullPage: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// BUG-19: on paper, the table was not a table.
+//
+// The mobile rules that turn `.utable` into one card per row were written at
+// `(max-width: 899px)` with no media type, and a browser laying out A4 uses
+// the PAPER width -- about 794 CSS px -- not the window's. So every printed
+// report came out as cards: no column headings on any page, three rows to a
+// sheet, nineteen sheets for fifty-nine rows.
+//
+// The round before this one checked printing with `emulateMedia({media:
+// 'print'})` at a 1280px viewport and passed, because at 1280 nothing is
+// wrong. This one prints the actual PDF and counts the pages, which is the
+// only measurement that would have caught it.
+
+/** Bangkok today, the same rule the reports use. */
+const bangkokToday = () => new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+const backFrom = (day, count) =>
+  new Date(Date.parse(`${day}T00:00:00Z`) - count * 86400000).toISOString().slice(0, 10);
+
+/** How many sheets of paper this PDF is. */
+const pageCount = buffer => (buffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+
+test('fifty-nine rows print as a table, on a sane number of sheets', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await openTab(page, 'รายงาน');
+  await openReport(page, 'เช็คอิน');
+
+  // Exactly fifty-nine rows, on any machine on any day: the check-in report
+  // fills every day in the range whether anybody came or not, so the range
+  // decides the row count and the gym's data cannot change it.
+  const today = bangkokToday();
+  await pickRange(page, backFrom(today, 58), today);
+  const rows = page.locator('.rtable').first().locator('tbody tr');
+  await expect(rows).toHaveCount(60);              // 59 days + the "รวม" row
+
+  // At paper width, in print media: the three properties the cards broke.
+  await page.setViewportSize({ width: 794, height: 1123 });
+  await page.emulateMedia({ media: 'print' });
+  const layout = await page.locator('.rtable').first().evaluate(table => ({
+    head: getComputedStyle(table.querySelector('thead')).display,
+    row: getComputedStyle(table.querySelector('tbody tr')).display,
+    cell: getComputedStyle(table.querySelector('tbody td')).display,
+    label: getComputedStyle(table.querySelector('tbody td'), '::before').content,
+    headHeight: table.querySelector('thead').getBoundingClientRect().height,
+  }));
+  // `table-header-group` is what repeats the column headings on every sheet,
+  // which is the whole of spec 2.5 and what was missing from every page.
+  expect(layout.head, 'หัวตารางต้องซ้ำทุกหน้ากระดาษ').toBe('table-header-group');
+  expect(layout.row).toBe('table-row');
+  expect(layout.cell).toBe('table-cell');
+  expect(layout.label, 'ป้ายชื่อคอลัมน์ของการ์ดมือถือต้องไม่ซ้ำกับหัวตาราง').toBe('none');
+  expect(layout.headHeight).toBeGreaterThan(0);
+
+  // A4 is 1123 CSS px tall and Chromium leaves 0.4in top and bottom by
+  // default, so this much of each sheet carries content.
+  const SHEET = 1123 - 2 * 38;
+  const tall = await page.locator('.rtable').first()
+    .evaluate(table => Math.round(table.getBoundingClientRect().height));
+  const tableSheets = Math.ceil(tall / SHEET);
+  expect(tableSheets, `ตาราง 59 แถวสูง ${tall}px = ${tableSheets} หน้า`).toBeLessThanOrEqual(3);
+
+  const pdf = await page.pdf({ format: 'A4' });
+  const sheets = pageCount(pdf);
+  // The whole screen, not only the table: this page also prints the summary
+  // bar and the twenty-four hour chart, which is the fourth sheet. Broken, the
+  // table alone was nineteen.
+  expect(sheets, `ทั้งหน้าได้ ${sheets} แผ่น (ตาราง ${tableSheets} + แถบสรุปและกราฟ)`)
+    .toBeLessThanOrEqual(4);
+  await page.emulateMedia({ media: 'screen' });
+});
+
+test('the same tables are still cards in a hand', async ({ page }) => {
+  // The fix narrows the mobile rules to `screen`, so the one thing that could
+  // go wrong is losing them on a phone -- where the card layout is the only
+  // reason a seven-column table is usable at all.
+  await signIn(page, ADMIN);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  for (const [tab, ready] of [['บัญชีผู้ใช้', 'ผู้ใช้และสิทธิ์'], ['รายงาน', 'พนักงานทำอะไรไปบ้าง']]) {
+    await openTab(page, tab);
+    await expect(page.getByRole('heading', { name: ready })).toBeVisible();
+    const shape = await page.locator('.utable').first().evaluate(table => ({
+      head: getComputedStyle(table.querySelector('thead')).display,
+      cell: getComputedStyle(table.querySelector('tbody td')).display,
+      label: getComputedStyle(table.querySelector('tbody td'), '::before').content,
+    }));
+    expect(shape.head, `${tab} บนจอ 390`).toBe('none');
+    expect(shape.cell).toBe('flex');
+    expect(shape.label, 'การ์ดมือถือต้องมีป้ายชื่อคอลัมน์ ไม่งั้นตัวเลขลอยอยู่เฉย ๆ').not.toBe('none');
+  }
+});
+
+test('the expired view names the package, the date and why it ended', async ({ page }) => {
+  // BUG-18 on the screen, with both endings in one table: somebody whose visits
+  // ran out while their month still had days on it -- the case QA found, where
+  // every column was blank and the last one said "ไม่จำกัด" -- and somebody
+  // whose date simply passed.
+  await signIn(page, ADMIN);
+  await page.getByRole('button', { name: 'เมนู', exact: true }).waitFor();
+
+  const USED_UP = 'อารีย์ ใช้ครบแล้ว';
+  const known = await (await page.request.get(
+    `/api/members?q=${encodeURIComponent(USED_UP)}`)).json();
+  if (!known.items?.length) {
+    // The free trial: one visit, seven days. Put it on sale the way the owner
+    // would, then sell it and use it up.
+    const { items } = await (await page.request.get('/api/packages')).json();
+    const trial = items.find(row => row.code === 'TRIAL_1_VISIT');
+    if (trial.status !== 'active') {
+      const open = await page.request.put(`/api/packages/${trial.id}`, {
+        headers: { 'X-Gym-Client': 'web' },
+        data: { code: trial.code, name_th: trial.name_th, type: trial.type,
+          duration_days: trial.duration_days, session_limit: trial.session_limit,
+          description: trial.description, sort_order: trial.sort_order,
+          price_thb: 0, status: 'active', version: trial.version } });
+      expect(open.ok(), await open.text()).toBe(true);
+      await page.reload();
+      await page.getByRole('button', { name: 'เมนู', exact: true }).waitFor();
+    }
+    await signUpMember(page, { name: USED_UP, phone: '0891110021', pkg: /ทดลองเล่นฟรี 1 ครั้ง/ });
+    const { qr } = await cardToken(page, USED_UP);
+    await scan(page, qr);
+
+    // And the other ending, on the member the file signed up first.
+    const ran = await page.request.post('/__test/expire-membership', {
+      headers: { 'X-Gym-Client': 'web' }, data: { phone: '0891110020' } });
+    expect(ran.ok(), await ran.text()).toBe(true);
+  }
+
+  await openTab(page, 'รายงาน');
+  await openReport(page, 'สมาชิก');
+  await page.getByLabel('มุมมอง').selectOption('expired');
+  await expect(page.locator('.rtable').first()).toBeVisible();
+
+  const report = await (await page.request.get('/api/admin/reports/members?view=expired')).json();
+  expect(report.total, 'ต้องมีสมาชิกหมดอายุให้ดูจริง ไม่งั้นเทสต์นี้ไม่ได้ตรวจอะไร').toBeGreaterThan(1);
+  await expect(page.locator('.rtable').first()
+    .getByRole('columnheader', { name: 'สาเหตุ' })).toBeVisible();
+
+  for (const row of report.items) {
+    expect(['ใช้ครบแล้ว', 'ครบกำหนดวัน', 'ถูกยกเลิก'], `สาเหตุที่ได้: "${row.reason}"`).toContain(row.reason);
+    // The three cells that were blank on the gym's machine.
+    expect(row.package, `${row.name} ไม่มีชื่อแพ็กเกจ`).not.toBe('');
+    expect(row.expires_on, `${row.name} ไม่มีวันหมดอายุ`).not.toBe('');
+    expect(row.sessions_left, `${row.name} ขึ้น "ไม่จำกัด" ทั้งที่แพ็กเกจนับครั้ง`)
+      .not.toBe(undefined);
+  }
+  // The one QA telephoned about: visits gone, days left, and the report now
+  // says which of the two ended it.
+  const usedUp = report.items.find(row => row.name === USED_UP);
+  expect(usedUp, 'ต้องมีแถวของคนที่ใช้ครบแล้ว').toBeTruthy();
+  expect(usedUp.reason).toBe('ใช้ครบแล้ว');
+  expect(usedUp.sessions_left).toBe(0);
+  expect(String(usedUp.package)).toContain('ทดลอง');
+  expect(report.items.some(row => row.reason === 'ครบกำหนดวัน'),
+    'ต้องมีแถวที่หมดเพราะครบกำหนดวันด้วย จะได้เห็นว่าสองสาเหตุแยกกันจริง').toBe(true);
+
+  await expect(page.getByText('ใช้ครบแล้ว').first()).toBeVisible();
+  await page.screenshot({ path: 'artifacts/ui-reports-expired-1280.png', fullPage: true });
 });

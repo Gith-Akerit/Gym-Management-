@@ -394,8 +394,14 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .confirm .warnlist li{margin-bottom:6px}
 
 /* -------------------------------------------------- 9. Responsive -------
-   ออกแบบที่ 390px ก่อน แล้วขยายขึ้น                                        */
-@media (max-width:899px){
+   ออกแบบที่ 390px ก่อน แล้วขยายขึ้น
+
+   `screen` ไม่ใช่ของประดับ: ตอนจัดหน้ากระดาษ เบราว์เซอร์ใช้ความกว้างของ
+   "กระดาษ" ไม่ใช่ของจอ และ A4 แนวตั้ง ≈ 794px ซึ่งต่ำกว่า 899px กฎมือถือ
+   ทั้งบล็อกนี้จึงชนะตอนพิมพ์ ตารางกลายเป็นการ์ด หัวคอลัมน์ถูก display:none
+   และ 59 แถวกินกระดาษ 19 หน้าโดยไม่มีหัวตารางสักหน้าเดียว (QA BUG-19)
+   ทุกกฎในบล็อกนี้เป็นเรื่องของนิ้วมือกับจอแคบ ไม่มีข้อไหนที่กระดาษต้องการ */
+@media screen and (max-width:899px){
   .wrap{padding:var(--sp-4) var(--sp-4) 88px}
   .page{grid-template-columns:1fr}
   .railnav{display:none}
@@ -441,6 +447,23 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 @media print{
   .bottomnav,.railnav,.appbar .btn{display:none}
   body{background:#fff}
+
+  /* ตารางบนกระดาษต้องเป็นตาราง ไม่ใช่การ์ด
+     เขียนไว้ตรงนี้ทั้งที่บล็อก 9 ถูกจำกัดเป็น `screen` แล้ว เพราะกฎการ์ดมี
+     อยู่หลายที่และเพิ่มได้อีก อันนี้คือคำสั่งสุดท้ายว่ากระดาษได้ตารางเสมอ
+     `table-header-group` คือสิ่งที่ทำให้หัวคอลัมน์ซ้ำทุกหน้ากระดาษ ซึ่งเป็น
+     ข้อกำหนดของสเปกข้อ 2.5 และเป็นสิ่งที่หายไปทั้งเล่มใน BUG-19 */
+  .utable{display:table;width:100%}
+  .utable thead{display:table-header-group}
+  .utable tbody{display:table-row-group}
+  .utable tr{display:table-row;border:0;border-radius:0;margin:0;padding:0}
+  .utable td{display:table-cell;width:auto;padding:6px 8px;border-bottom:1px solid #999}
+  /* ป้ายชื่อคอลัมน์ในการ์ดมือถือ ซ้ำกับหัวตารางที่กลับมาแล้ว */
+  .utable td::before{content:none}
+  .utable thead th{border-bottom:2px solid #000}
+  /* แถวไม่ขาดกลางหน้า แต่ตารางทั้งตารางขาดได้ ไม่งั้นตาราง 59 แถวจะถูกดัน
+     ไปทั้งก้อน */
+  .utable tr{break-inside:avoid}
 }
 
 /* ==========================================================================

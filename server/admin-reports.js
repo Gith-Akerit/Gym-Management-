@@ -561,10 +561,21 @@ export function registerAdminReportRoutes({ app, db, now, admin }) {
     const days = input.days ?? 7;
     const at = now();
 
-    // One row per member: the entitlement that runs longest among those still
-    // usable, which is the one the member screen shows. Somebody who bought a
-    // second package before the first ran out has two, and the report must
-    // agree with the screen about which one represents them.
+    /**
+     * Two entitlements per member, and the difference between them matters.
+     *
+     * `live` is the one they can walk in on today: still active, not past its
+     * date, and with visits left if it counts visits. That is what the member
+     * screen shows, and somebody who renewed early has two rows and is
+     * represented by the one that runs longest.
+     *
+     * `last` is the most recent one whatever became of it. Without it the
+     * "หมดอายุแล้ว" view can say nothing at all: those members have no live
+     * entitlement BY DEFINITION, so every column taken from `live` is NULL --
+     * and `sessions_total IS NULL` then read as "an unlimited package" and
+     * printed "ไม่จำกัด" for a member with nothing left (QA BUG-18). Every row
+     * of that view read that way, and the report exists to be telephoned from.
+     */
     const base = `WITH live AS (
       SELECT e.member_id, e.expires_at, e.sessions_remaining, e.sessions_total,
              o.package_name_snapshot AS package,
@@ -572,11 +583,22 @@ export function registerAdminReportRoutes({ app, db, now, admin }) {
       FROM entitlements e LEFT JOIN orders o ON o.id = e.order_id
       WHERE e.status='active' AND e.expires_at > ${at}
         AND (e.sessions_total IS NULL OR e.sessions_remaining > 0)
+    ), last AS (
+      SELECT e.member_id, e.expires_at, e.sessions_remaining, e.sessions_total,
+             e.status AS ent_status, o.package_name_snapshot AS package,
+             row_number() OVER (PARTITION BY e.member_id
+               ORDER BY e.created_at DESC, e.expires_at DESC, e.id) AS rank
+      FROM entitlements e LEFT JOIN orders o ON o.id = e.order_id
     )
     SELECT m.id, m.member_code, m.name, m.phone, m.joined_at, m.status,
-           l.expires_at AS expires_at, l.sessions_remaining AS sessions_remaining,
-           l.sessions_total AS sessions_total, l.package AS package
-    FROM members m LEFT JOIN live l ON l.member_id = m.id AND l.rank = 1
+           l.expires_at AS live_expires_at, l.sessions_remaining AS live_sessions_remaining,
+           l.sessions_total AS live_sessions_total, l.package AS live_package,
+           p.expires_at AS last_expires_at, p.sessions_remaining AS last_sessions_remaining,
+           p.sessions_total AS last_sessions_total, p.package AS last_package,
+           p.ent_status AS last_status
+    FROM members m
+    LEFT JOIN live l ON l.member_id = m.id AND l.rank = 1
+    LEFT JOIN last p ON p.member_id = m.id AND p.rank = 1
     WHERE m.status <> 'suspended'`;
 
     let rows = [];
@@ -590,19 +612,51 @@ export function registerAdminReportRoutes({ app, db, now, admin }) {
       rows = db.prepare(`${base} AND l.expires_at IS NOT NULL AND l.expires_at <= ?
         ORDER BY l.expires_at`).all(at + days * DAY_MS);
     } else {
-      rows = db.prepare(`${base} AND l.expires_at IS NULL
-        AND EXISTS (SELECT 1 FROM entitlements e WHERE e.member_id=m.id AND e.status='active')
+      // Anything they ever had, none of it usable now. A membership that was
+      // revoked belongs here too: the member cannot get in, which is the
+      // question this view answers.
+      rows = db.prepare(`${base} AND l.expires_at IS NULL AND p.member_id IS NOT NULL
         ORDER BY m.name`).all();
     }
 
-    const item = row => ({
-      member_code: row.member_code, name: row.name, phone: formatPhone(row.phone) ?? '',
-      package: row.package ?? '', expires_at: row.expires_at ?? null,
-      expires_on: row.expires_at ? thaiTime(row.expires_at).slice(0, 10) : '',
-      days_left: row.expires_at ? Math.ceil((row.expires_at - at) / DAY_MS) : '',
-      sessions_left: row.sessions_total === null ? 'ไม่จำกัด' : (row.sessions_remaining ?? ''),
-      joined_on: thaiTime(row.joined_at).slice(0, 10),
-    });
+    /**
+     * Why they cannot get in, in three words the owner can telephone with.
+     *
+     * Used-up beats out-of-time when both are true: a limited package whose
+     * visits ran out was finished by the visits, and the call to make is
+     * "would you like more", not "your month is up".
+     */
+    const whyEnded = row => {
+      if (row.last_expires_at === null) return '';
+      if (row.last_status === 'revoked') return 'ถูกยกเลิก';
+      if (row.last_sessions_total !== null && (row.last_sessions_remaining ?? 0) <= 0) return 'ใช้ครบแล้ว';
+      return 'ครบกำหนดวัน';
+    };
+
+    const item = row => {
+      // Whichever of the two joins has something to say about this member.
+      const usable = row.live_expires_at !== null;
+      const which = usable ? 'live' : 'last';
+      const expires = row[`${which}_expires_at`];
+      const total = row[`${which}_sessions_total`];
+      const remaining = row[`${which}_sessions_remaining`];
+      return {
+        member_code: row.member_code, name: row.name, phone: formatPhone(row.phone) ?? '',
+        package: row[`${which}_package`] ?? '', expires_at: expires ?? null,
+        expires_on: expires ? thaiTime(expires).slice(0, 10) : '',
+        // Only counted forward. An expired row's date is usually behind us and
+        // "-42 วัน" is not a number anybody asked for -- but a package whose
+        // visits ran out early still has days on it, and those are worth
+        // knowing when the call is about selling more.
+        days_left: expires && expires > at ? Math.ceil((expires - at) / DAY_MS) : '',
+        // No entitlement at all is an empty cell. It is NOT "ไม่จำกัด": that
+        // word belongs to a package that really does count no visits, and
+        // telling the two apart is the whole of BUG-18.
+        sessions_left: expires === null ? '' : (total === null ? 'ไม่จำกัด' : (remaining ?? 0)),
+        reason: usable ? '' : whyEnded(row),
+        joined_on: thaiTime(row.joined_at).slice(0, 10),
+      };
+    };
     const items = rows.map(item);
 
     // A membership the gym took back is not a membership that ran out. Its own
@@ -626,10 +680,11 @@ export function registerAdminReportRoutes({ app, db, now, admin }) {
       },
       csv: [
         { title: `สมาชิก · ${{ active: 'ใช้งานอยู่', expiring: `จะหมดอายุใน ${days} วัน`, expired: 'หมดอายุแล้ว', new: 'สมัครใหม่' }[view]}`,
-          headers: ['รหัสสมาชิก', 'ชื่อ', 'เบอร์โทร', 'แพ็กเกจ', 'หมดอายุ', 'เหลือกี่วัน', 'ครั้งคงเหลือ', 'วันที่สมัคร'],
+          headers: ['รหัสสมาชิก', 'ชื่อ', 'เบอร์โทร', 'แพ็กเกจ', 'หมดอายุ', 'เหลือกี่วัน',
+            'ครั้งคงเหลือ', 'สาเหตุ', 'วันที่สมัคร'],
           rows: [...items.map(row => [row.member_code, row.name, row.phone, row.package,
-            row.expires_on, row.days_left, row.sessions_left, row.joined_on]),
-          ['รวม', items.length, '', '', '', '', '', '']] },
+            row.expires_on, row.days_left, row.sessions_left, row.reason, row.joined_on]),
+          ['รวม', items.length, '', '', '', '', '', '', '']] },
         revoked.length ? { title: 'สิทธิ์ที่ถูกยกเลิก (ไม่ใช่หมดอายุ)',
           headers: ['รหัสสมาชิก', 'ชื่อ', 'เบอร์โทร', 'แพ็กเกจ', 'ยกเลิกเมื่อ', 'เหตุผล'],
           rows: revoked.map(row => [row.member_code, row.name, formatPhone(row.phone) ?? '',

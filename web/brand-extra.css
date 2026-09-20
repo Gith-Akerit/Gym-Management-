@@ -794,6 +794,13 @@ a.btn.disabled{background:var(--panel);border-color:var(--line-ctl);color:var(--
   pointer-events:none}
 
 .rtable td.num,.rtable th.num{font-family:var(--font-num);white-space:nowrap}
+/* เก้าคอลัมน์ไม่พอดี 1280 เมื่อชื่อคนต้องอ่านออก: ปล่อยตามใจเบราว์เซอร์แล้ว
+   `overflow-wrap:anywhere` ที่ใช้กับชื่อจะบีบคอลัมน์นั้นจนเหลือ "สม/พงษ์/อ่าน"
+   ห้าบรรทัด ซึ่งเป็นชื่อที่โทรหาใครไม่ได้ · จึงกันที่ให้ชื่อและให้สาเหตุอยู่
+   บรรทัดเดียว แล้วยอมให้ตารางเลื่อนข้างในกรอบของมันเอง ซึ่งเป็นพฤติกรรมที่
+   ตั้งใจไว้แต่แรกของ `.table-wrap` (ดู tests/ui/06-layout.spec.js) */
+.rtable td[data-label="ชื่อ"]{min-width:118px}
+.rtable td[data-label="สาเหตุ"]{white-space:nowrap}
 .rtable .note{display:block;font-size:var(--fs-14)}
 .rtable .sumrow td{background:var(--brand-soft);border-top:3px solid var(--brand-line)}
 .trunc{background:var(--warn-soft);border:2px solid var(--warn);border-radius:var(--r-1);
@@ -831,6 +838,8 @@ a.btn.disabled{background:var(--panel);border-color:var(--line-ctl);color:var(--
   body:has(.reportpage) .bottomnav{display:none!important}
   .reportpage .table-wrap{overflow:visible}
   .rtable .sumrow td{background:#EEE;border-top:2px solid #000}
-  .bars,.tcard,.rtable{break-inside:avoid}
+  /* ตารางทั้งตารางต้องขาดหน้าได้ มีแต่แถวที่ห้ามขาด (ดู @media print ใน
+     style.css) ไม่งั้น 59 แถวจะถูกผลักไปเริ่มหน้าใหม่ทั้งก้อน */
+  .bars,.tcard{break-inside:avoid}
   .bars .bfill{background:#555;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }

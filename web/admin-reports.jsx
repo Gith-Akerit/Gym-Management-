@@ -253,6 +253,12 @@ function CheckIns({ data }) {
 function Members({ data }) {
   const empty = { expiring: 'ไม่มีสมาชิกที่กำลังจะหมดอายุ', active: 'ยังไม่มีสมาชิกที่ใช้งานอยู่',
     expired: 'ไม่มีสมาชิกที่หมดอายุค้างอยู่', new: 'ไม่มีใครสมัครใหม่ในช่วงนี้' }[data.view];
+  // "สาเหตุ" is only ever filled for somebody who cannot get in, so the column
+  // appears when there is something in it. On "ใช้งานอยู่ทั้งหมด" it would be
+  // an empty column beside every row, which reads as a broken report rather
+  // than as good news. The CSV carries it always -- a file whose columns move
+  // between downloads is a file no spreadsheet can be built on.
+  const showReason = data.items.some(row => row.reason);
   return <>
     {!data.total
       ? <Empty icon="🧍" title={empty}>เลือกมุมมองอื่น หรือขยายช่วงวันแล้วดูอีกครั้ง</Empty>
@@ -260,7 +266,8 @@ function Members({ data }) {
         {data.truncated && <Truncated shown={data.items.length} total={data.total}/>}
         <TableWrap>
           <thead><tr><th>รหัสสมาชิก</th><th>ชื่อ</th><th>เบอร์โทร</th><th>แพ็กเกจ</th>
-            <th>หมดอายุ</th><th>เหลือกี่วัน</th><th>ครั้งคงเหลือ</th><th>วันที่สมัคร</th></tr></thead>
+            <th>หมดอายุ</th><th>เหลือกี่วัน</th><th>ครั้งคงเหลือ</th>
+            {showReason && <th>สาเหตุ</th>}<th>วันที่สมัคร</th></tr></thead>
           <tbody>
             {data.items.map(row => <tr key={row.member_code}>
               <td data-label="รหัสสมาชิก" className="num">{row.member_code}</td>
@@ -270,10 +277,11 @@ function Members({ data }) {
               <td data-label="หมดอายุ" className="num">{row.expires_on}</td>
               <td data-label="เหลือกี่วัน" className="num">{row.days_left}</td>
               <td data-label="ครั้งคงเหลือ" className="num">{row.sessions_left}</td>
+              {showReason && <td data-label="สาเหตุ">{row.reason}</td>}
               <td data-label="วันที่สมัคร" className="num">{row.joined_on}</td>
             </tr>)}
             <tr className="sumrow"><td data-label="รวม"><b>รวม</b></td>
-              <td colSpan={7}><b>{nf.format(data.total)} คน</b></td></tr>
+              <td colSpan={showReason ? 8 : 7}><b>{nf.format(data.total)} คน</b></td></tr>
           </tbody>
         </TableWrap>
       </>}
