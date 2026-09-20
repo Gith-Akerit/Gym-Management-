@@ -1,0 +1,845 @@
+/* ==========================================================================
+   ส่วนของแบรนด์และหน้า "ตั้งค่ายิม" — ยกจาก brand.css + settings.css ของ
+   Designer มาต่อท้าย app.css โดยตัดเฉพาะบรรทัดที่ซ้ำกับ token ด้านบน
+   ========================================================================== */
+
+/* --------------------------------------------------------------- โลโก้ --- */
+.mark.haslogo{background:#FFFFFF;border:2px solid var(--line);padding:6px}
+.mark.haslogo img{width:100%;height:100%;object-fit:contain;display:block}
+/* โลโก้แนวนอนในหัวแอป แทนกล่องชื่อย่อ */
+.brandlogo{height:40px;max-width:150px;object-fit:contain;object-position:left center;display:block;flex:none}
+
+/* --------------------------------------------- หัวแอปเป็นสีแบรนด์ (ปิดไว้) */
+[data-appbar="brand"] .appbar{background:var(--brand-surface);border-bottom-color:var(--brand-2)}
+[data-appbar="brand"] .appbar .brand{color:var(--on-brand)}
+/* BRAND-02 จุดที่ตกหล่น: opacity บนตัวอักษรที่วางบนสีแบรนด์ใช้ไม่ได้อีกแล้ว
+   ทุกกรณี เพราะ token รับประกัน 4.5:1 ที่ความทึบเต็ม ลดลงเมื่อไรก็หลุดเมื่อนั้น
+   ต้องการข้อความรองให้ลดขนาดหรือน้ำหนักแทน (Designer) */
+[data-appbar="brand"] .appbar .brand small{color:var(--on-brand);opacity:1;font-weight:500}
+[data-appbar="brand"] .appbar .btn{background:transparent;border-color:var(--on-brand);color:var(--on-brand)}
+[data-appbar="brand"] .appbar .mark{background:rgba(255,255,255,.18);color:var(--on-brand)}
+[data-appbar="brand"] .appbar .mark.haslogo{background:#fff;border-color:transparent}
+/* MENU-02 ปุ่มเมนูเป็นของใหม่ เลยไม่ได้อยู่ในบล็อกนี้ตั้งแต่แรก จึงคงหมึกของ
+   แถบขาวไว้บนแถบสีแบรนด์ · บรรทัด role ลดน้ำหนัก ไม่ลดความทึบ */
+[data-appbar="brand"] .appbar .avatar-btn{background:transparent;border-color:var(--on-brand)}
+[data-appbar="brand"] .appbar .avatar-btn .cav{color:var(--on-brand)}
+[data-appbar="brand"] .appbar .avatar-btn .cav span{color:var(--on-brand);opacity:1;font-weight:500}
+[data-appbar="brand"] .appbar .avatar-btn .av{background:rgba(255,255,255,.18);color:var(--on-brand)}
+/* ค่าเริ่มต้น: หัวขาว + เส้นแบรนด์ 6 px ใต้ */
+[data-appbar="light"] .appbar{border-bottom:2px solid var(--line-strong);
+  box-shadow:inset 0 -6px 0 -2px var(--brand-surface)}
+
+/* ------------------------------------------------- หน้าเข้าสู่ระบบ -------
+   ย้ายไปอยู่ท้ายไฟล์ในบล็อก "หน้า auth" ของ Designer แล้ว กฎเดิมยังอยู่ครบ
+   ทุกข้อ: เวทีเป็น var(--brand-2) หมึกบนเวที derive จาก --brand-2 ไม่ใช่
+   ขาวตายตัว และลำดับชั้นมาจากขนาดกับน้ำหนัก ไม่ใช่ opacity เพราะ opacity
+   กินคอนทราสต์ที่ token อุตส่าห์คำนวณมาให้                                  */
+
+/* ============================================ หน้า "ตั้งค่ายิม" ========== */
+/* ฟอร์มซ้าย · พรีวิวขวาที่ติดหนึบไว้ตลอด เพราะทุกการเปลี่ยนสีต้องเห็นผลทันที */
+.wrap.wide{max-width:1280px}
+.setgrid{display:grid;grid-template-columns:1fr 360px;gap:var(--sp-6);align-items:start}
+.setgrid>*{min-width:0}
+.previewcol{position:sticky;top:92px;display:grid;gap:var(--sp-4)}
+/* การ์ดข้างในกว้าง 1080 px จริง ๆ แล้วย่อด้วย transform ถ้าไม่ตรึง min-width
+   ช่องกริดจะโตตามเนื้อหา แล้วทั้งหน้าจะเลื่อนข้างที่ 390 px */
+.previewcol>*{min-width:0}
+
+.sect{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);
+  padding:var(--sp-5);margin-bottom:var(--sp-4)}
+.sect>h2{margin:0 0 var(--sp-2);font-size:var(--fs-20)}
+.sect>.note{margin:0 0 var(--sp-4)}
+
+/* ---- ช่องอัปโหลดโลโก้ ---- */
+.drop{border:3px dashed var(--line-ctl);border-radius:var(--r-2);background:var(--canvas);
+  padding:var(--sp-6);text-align:center;display:grid;gap:var(--sp-3);justify-items:center}
+.drop .ic{width:64px;height:64px;border-radius:var(--r-1);background:var(--panel);
+  display:grid;place-items:center;font-size:28px}
+.drop b{font-size:var(--fs-18)}
+.drop.has{border-style:solid;border-color:var(--brand-line);background:var(--surface);
+  grid-template-columns:auto 1fr;justify-items:start;align-items:center;text-align:left;gap:var(--sp-4)}
+.logobox{width:132px;height:88px;border:2px solid var(--line);border-radius:var(--r-1);
+  background:#fff;display:grid;place-items:center;padding:8px;flex:none}
+.logobox img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+/* ตารางหมากรุกบอกว่าพื้นใส ไม่ใช่พื้นขาว */
+.logobox.alpha{background-image:
+  linear-gradient(45deg,#E4E9ED 25%,transparent 25%),linear-gradient(-45deg,#E4E9ED 25%,transparent 25%),
+  linear-gradient(45deg,transparent 75%,#E4E9ED 75%),linear-gradient(-45deg,transparent 75%,#E4E9ED 75%);
+  background-size:14px 14px;background-position:0 0,0 7px,7px -7px,-7px 0}
+
+/* ---- แถบสีที่ดึงจากโลโก้ ---- */
+.swatches{display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-2)}
+.sw{width:76px;border:3px solid var(--line);border-radius:var(--r-1);background:var(--surface);
+  cursor:pointer;padding:0;overflow:hidden;text-align:center;min-height:0}
+.sw i{display:block;height:52px}
+.sw span{display:block;font-family:var(--font-num);font-size:12px;font-weight:600;
+  padding:5px 2px;color:var(--ink-2);letter-spacing:.02em}
+.sw[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 3px var(--brand-soft)}
+.sw.skel-sw i{background:var(--panel)}
+
+/* ---- ช่องเลือกสีเอง ---- */
+.colorrow{display:flex;gap:var(--sp-3);align-items:flex-end;flex-wrap:wrap}
+.colorrow .field{margin:0;flex:1 1 180px}
+.swatch-in{width:var(--tap);height:var(--tap);padding:0;border:2px solid var(--line-strong);
+  border-radius:var(--r-1);background:none;cursor:pointer;flex:none}
+.swatch-in::-webkit-color-swatch-wrapper{padding:4px}
+.swatch-in::-webkit-color-swatch{border:none;border-radius:8px}
+
+/* ---- ผลตรวจ contrast แบบสด ---- */
+.ratios{display:grid;gap:var(--sp-2);margin-top:var(--sp-4)}
+.ratio{display:flex;align-items:center;gap:var(--sp-3);padding:10px var(--sp-4);
+  border-radius:var(--r-1);border:2px solid var(--line);background:var(--canvas);font-size:var(--fs-16)}
+.ratio .dot{width:34px;height:34px;border-radius:8px;flex:none;display:grid;place-items:center;
+  font-size:var(--fs-14);font-weight:800}
+.ratio .lbl{flex:1;min-width:0}
+.ratio b{font-family:var(--font-num);font-weight:700;white-space:nowrap}
+.ratio.pass{border-color:var(--ok)}
+.ratio.fixed{border-color:var(--warn);background:var(--warn-soft)}
+
+.alert{display:flex;gap:var(--sp-3);align-items:flex-start;border-radius:var(--r-1);
+  padding:var(--sp-4);margin-top:var(--sp-4);font-size:var(--fs-16);border:2px solid}
+.alert .ic{font-weight:800;flex:none;font-size:var(--fs-20);line-height:1.2}
+.alert.warn{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+.alert.err{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.alert.info{background:var(--brand-soft);border-color:var(--brand-line);color:var(--brand-ink)}
+/* scope ไว้ที่หัวข้อเท่านั้น — ไม่งั้น <b> ที่ใช้เน้นคำกลางประโยคจะตกบรรทัด */
+.alert>div>b:first-child{display:block}
+.alert span{color:var(--ink-2);font-weight:400;display:block;margin-top:2px}
+.alert.warn span,.alert.err span{color:inherit;opacity:.9}
+
+/* ---- พรีวิว ---- */
+.pvcard{border:2px solid var(--line-strong);border-radius:var(--r-2);overflow:hidden;
+  position:relative;width:100%;background:#fff}
+/* บัตรจริงกว้าง 1080 px วางทับกล่องแล้วย่อด้วย transform ทั้งใบ จึงต้องหลุด
+   จาก flow ไม่งั้นกล่องจะสูงตามบัตรจริง */
+.pvcard .mcard{position:absolute;top:0;left:0;transform-origin:0 0}
+.pvcard img{display:block;width:100%}
+.pvbar{border:2px solid var(--line);border-radius:var(--r-1);overflow:hidden;background:var(--surface)}
+.pvbar .appbar{position:static;border-bottom-width:2px}
+.pvbar .appbar-in{min-height:58px;padding:8px var(--sp-4)}
+.pvbar .mark{width:38px;height:38px;font-size:var(--fs-14)}
+.pvbar .brandlogo{height:30px;max-width:120px}
+.pvbar .brand{font-size:var(--fs-16)}
+.pvbar .brand small{font-size:13px}
+.pvbar .btn.auto{min-height:38px;font-size:var(--fs-14)}
+.pvlabel{font-size:var(--fs-14);font-weight:700;color:var(--ink-2);margin-bottom:6px}
+.pvbtns{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+.pvbtns .btn{width:auto;flex:1 1 130px;min-height:48px;font-size:var(--fs-16)}
+
+/* แถบบันทึกที่ลอยอยู่ล่างสุดเสมอ ไม่ต้องเลื่อนขึ้นไปหาปุ่ม */
+.savebar{position:sticky;bottom:0;background:var(--surface);border-top:2px solid var(--line-strong);
+  padding:var(--sp-4) var(--sp-5);margin:var(--sp-6) calc(var(--sp-5) * -1) 0;
+  display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;z-index:10}
+.savebar .grow{flex:1;min-width:180px;font-size:var(--fs-16);color:var(--ink-2)}
+.savebar .btn{width:auto;min-width:150px}
+
+/* โหมดพนักงาน = อ่านอย่างเดียว */
+/* A11Y-01 เหตุผลเดียวกับปุ่มที่กดไม่ได้: โหมดอ่านอย่างเดียวต้องยังอ่านออก */
+.readonly .sect input,.readonly .sect select,.readonly .sect button{pointer-events:none;
+  background:var(--canvas);border-color:var(--line-ctl);color:var(--ink-2);opacity:1}
+.readonly .savebar{display:none}
+
+@media (max-width:899px){
+  .setgrid{grid-template-columns:1fr}
+  .previewcol{position:static;order:-1}
+  .drop.has{grid-template-columns:1fr;justify-items:center;text-align:center}
+  .sw{width:calc(50% - var(--sp-3))}
+  .savebar{margin:var(--sp-5) calc(var(--sp-4) * -1) 0;position:sticky;bottom:64px}
+  .savebar .btn{width:100%}
+}
+
+/* ============================================ เมนูมุมขวาบน ================
+   ยกจาก features.css ของ Designer ส่วนที่ 1 · แถบซ้ายเหลือสี่งานประจำ
+   ที่เหลือมาอยู่ที่นี่ จัดกลุ่มตามความถี่ที่ใช้ ไม่ใช่ตามประเภทของหน้า
+   ========================================================================== */
+.usermenu{position:relative;flex:none}
+.avatar-btn{display:flex;align-items:center;gap:10px;min-height:48px;padding:4px 10px 4px 4px;
+  border:2px solid var(--line-ctl);border-radius:999px;background:var(--surface);cursor:pointer}
+.avatar-btn:hover{background:var(--panel)}
+.avatar-btn .av{width:38px;height:38px;border-radius:50%;background:var(--brand-soft);
+  color:var(--brand-ink);display:grid;place-items:center;font-weight:800;font-size:var(--fs-16);flex:none}
+.avatar-btn .cav{font-size:var(--fs-14);font-weight:700;line-height:1.2;text-align:left;max-width:120px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.avatar-btn .cav span{display:block;font-weight:500;color:var(--ink-2);font-size:13px}
+.avatar-btn .caret{width:20px;height:20px;flex:none}
+
+/* เดสก์ท็อปเป็น dropdown */
+/* MENU-01 หมึกตั้งที่ระดับแผง ไม่ใช่ทีละบรรทัด: แผงตั้งพื้นเป็น --surface เอง
+   แต่บนจอสแกน .scanstage ตั้ง color:var(--on-dark) ให้ทั้งกิ่ง อีเมลหัวแผงจึง
+   เป็นขาวบนครีม 1.04:1 ตั้งที่นี่ครอบของที่จะเพิ่มในแผงวันหลังด้วย */
+.menupanel{color:var(--ink);position:absolute;right:0;top:calc(100% + 10px);width:312px;background:var(--surface);
+  border:2px solid var(--line-strong);border-radius:var(--r-2);box-shadow:0 16px 40px rgba(14,20,24,.22);
+  z-index:60;overflow:auto;max-height:calc(100dvh - 96px)}
+.menupanel .who{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4);
+  background:var(--brand-soft);border-bottom:2px solid var(--line)}
+.menupanel .who .av{width:44px;height:44px;border-radius:50%;background:var(--brand-surface);
+  color:var(--on-brand);display:grid;place-items:center;font-weight:800;flex:none}
+.menupanel .who b{display:block;font-size:var(--fs-16);line-height:1.3;overflow-wrap:anywhere}
+.menupanel .who span{font-size:var(--fs-14);color:var(--ink-2)}
+.menugroup{padding:var(--sp-2) 0;border-bottom:2px solid var(--panel)}
+.menugroup:last-child{border-bottom:0}
+.menugroup .gl{font-size:13px;font-weight:700;color:var(--ink-2);padding:6px var(--sp-4) 2px;letter-spacing:.02em}
+.mi{display:flex;align-items:center;gap:var(--sp-3);width:100%;min-height:50px;padding:0 var(--sp-4);
+  background:none;border:0;cursor:pointer;text-decoration:none;color:var(--ink);
+  font-size:var(--fs-16);font-weight:600;text-align:left}
+.mi:hover{background:var(--panel)}
+.mi .ic{width:24px;height:24px;flex:none;display:grid;place-items:center;color:var(--ink-2)}
+.mi .ic svg{width:22px;height:22px;display:block}
+.mi .sub{display:block;font-weight:400;font-size:13px;color:var(--ink-2)}
+.mi.danger{color:var(--bad)}
+.mi.danger .ic{color:var(--bad)}
+.mi[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.mi[aria-disabled="true"]:hover{background:none}
+.menupanel .foot{padding:10px var(--sp-4);background:var(--canvas);font-size:13px;color:var(--ink-2)}
+
+/* บนจอมืดของหน้าสแกน ปุ่มต้องเป็นหมึกของพื้นมืด ไม่ใช่ของสีแบรนด์ */
+.scanbar .avatar-btn{background:transparent;border-color:rgba(255,255,255,.4);color:var(--on-dark)}
+.scanbar .avatar-btn .av{background:rgba(255,255,255,.18);color:var(--on-dark)}
+.scanbar .avatar-btn .cav span{color:var(--on-dark-2)}
+/* MENU-10 ต่ำกว่า ~430 px ชื่อยิมบนแถบจอสแกนเหลือที่ 24 px คือ "สุ…" ซึ่งไม่ได้
+   บอกอะไรเลย ซ่อนไปตรง ๆ ดีกว่า ชื่อยิมยังอยู่บนทุกหน้าที่ไม่ใช่จอสแกน */
+@media (max-width:430px){
+  .scanbar .brand{display:none}
+}
+
+/* ฉากหลังของแผงบนมือถือเท่านั้น เดสก์ท็อปเป็น dropdown จึงไม่ต้องมีฉากมืด */
+.scrim{display:none}
+@media (max-width:899px){
+  /* มือถือเป็น bottom sheet ไม่ใช่ dropdown เพราะนิ้วโป้งถึงขอบล่างง่ายกว่ามุมขวาบน */
+  .scrim{display:block;position:fixed;inset:0;background:rgba(8,12,15,.55);z-index:55}
+  .menupanel{position:fixed;right:8px;left:8px;top:auto;bottom:calc(8px + env(safe-area-inset-bottom));
+    width:auto;border-radius:var(--r-3);max-height:82dvh;overflow:auto}
+  .avatar-btn .cav{display:none}
+  .mi{min-height:58px}
+}
+
+
+/* ============================================ แจ้งปัญหา ==================
+   ยกจาก features.css ของ Designer ส่วนที่ 2 · กล่องแจ้งปัญหาลอยอยู่บนหน้าเดิม
+   ไม่แตะหน้าไหน และหน้ารายการฝั่งเจ้าของ
+   ========================================================================== */
+/* กล่องหรี่หน้าด้วยตัวเอง ไม่ใช้ .scrim ของเมนู เพราะนั่นเป็นอิลิเมนต์ fixed
+   ที่มี z-index สูงกว่าตัวแผง ถ้าเอามาซ้อนในนี้จะบังกล่องเองที่ 390 px */
+.sheet{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;
+  padding:var(--sp-5);background:rgba(8,12,15,.55)}
+.sheet-in{background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-3);
+  width:100%;max-width:620px;max-height:92dvh;overflow:auto;box-shadow:0 24px 60px rgba(14,20,24,.3)}
+.sheet-h{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-5);border-bottom:2px solid var(--line)}
+.sheet-h h2{margin:0;flex:1;font-size:var(--fs-24)}
+.sheet-b{padding:var(--sp-5)}
+.sheet-f{padding:var(--sp-5);border-top:2px solid var(--line);display:flex;gap:var(--sp-3);flex-wrap:wrap}
+.sheet-f .btn{width:auto;flex:1 1 160px}
+.iconbtn{width:48px;height:48px;border-radius:var(--r-1);border:2px solid var(--line-ctl);
+  background:var(--surface);cursor:pointer;display:grid;place-items:center;font-size:var(--fs-20);flex:none}
+
+/* ภาพหน้าจอที่จับได้ */
+.shot-prev{position:relative;border:2px solid var(--line);border-radius:var(--r-1);overflow:hidden;
+  background:var(--panel);aspect-ratio:16/10}
+.shot-prev img,.shot-prev svg{width:100%;height:100%;object-fit:cover;object-position:top center;display:block}
+.shot-prev .tag{position:absolute;left:10px;top:10px;background:rgba(14,20,24,.82);color:#fff;
+  font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px}
+.shot-prev .zoom{position:absolute;right:10px;bottom:10px;background:#fff;border:2px solid var(--line-strong);
+  border-radius:var(--r-1);min-height:44px;padding:0 14px;font-size:var(--fs-14);font-weight:700;cursor:pointer}
+.shot-skel{aspect-ratio:16/10;border-radius:var(--r-1)}
+
+/* กล่องข้อมูลที่แนบไปด้วยอัตโนมัติ — โชว์เสมอ ไม่ซ่อน */
+.meta{background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-1);padding:var(--sp-4);margin-top:var(--sp-4)}
+.meta dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px var(--sp-4);font-size:var(--fs-14)}
+.meta dt{color:var(--ink-2)}
+.meta dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+
+/* สถานะสำเร็จ */
+.done-big{text-align:center;padding:var(--sp-6) var(--sp-4)}
+.done-big .tick{width:84px;height:84px;border-radius:50%;background:var(--ok);color:#fff;
+  display:grid;place-items:center;font-size:42px;margin:0 auto var(--sp-4)}
+.done-big b{display:block;font-size:var(--fs-28);font-weight:800}
+.done-big .ref{font-family:var(--font-num);font-size:var(--fs-24);font-weight:700;
+  background:var(--panel);border-radius:var(--r-1);padding:8px 18px;display:inline-block;margin-top:var(--sp-3)}
+
+/* รายการแจ้งปัญหาฝั่งเจ้าของ */
+.rep{display:flex;gap:var(--sp-4);align-items:flex-start;background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-4);flex-wrap:wrap}
+.rep .thumb{width:112px;height:76px;border-radius:var(--r-1);overflow:hidden;background:var(--panel);
+  border:2px solid var(--line);flex:none}
+.rep .thumb img,.rep .thumb svg{width:100%;height:100%;object-fit:cover;object-position:top center}
+.rep .body{flex:1 1 240px;min-width:0}
+.rep .body b{display:block;font-size:var(--fs-18);line-height:1.4}
+.rep .body .m{font-size:var(--fs-14);color:var(--ink-2);margin-top:4px}
+.rep .btn{width:auto;min-height:48px;font-size:var(--fs-16)}
+.rep.unread{border-color:var(--brand-line);border-width:3px;padding:calc(var(--sp-4) - 1px)}
+
+
+
+
+/* ============================================ แท็บ "อีเมลของระบบ" =========
+   ยกจาก mail-settings.css ของ Designer · อยู่ในหน้าตั้งค่ายิม ไม่ใช่รายการที่ 9
+   ในเมนูข้าง เพราะเมนูที่ยาวขึ้นทุกครั้งที่มีของใหม่คือเมนูที่พังในอีกสามเดือน
+   คนอ่านหน้านี้คือเจ้าของยิม ไม่ใช่ผู้ดูแลระบบสายไอที ทุกคำที่ขึ้นบนจอจึงต้อง
+   แปลเป็น "แล้วผมต้องกดอะไรต่อ" ได้ทันที
+   ========================================================================== */
+
+/* ------------------------------------------------ แท็บย่อยในหน้าตั้งค่า -- */
+/* ไม่เพิ่มรายการที่ 9 ในเมนูข้าง — เมนูยาวขึ้นทุกครั้งที่มีของใหม่คือทางที่ผิด
+   อีเมลเป็นการตั้งค่าของยิมเหมือนโลโก้และสี จึงอยู่หน้าเดียวกันคนละแท็บ */
+.settabs{display:flex;gap:var(--sp-2);border-bottom:3px solid var(--line);
+  margin:0 0 var(--sp-5);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.settabs a{flex:none;display:flex;align-items:center;gap:8px;min-height:56px;padding:0 var(--sp-4);
+  font-size:var(--fs-18);font-weight:700;color:var(--ink-2);text-decoration:none;
+  border-bottom:4px solid transparent;margin-bottom:-3px;white-space:nowrap}
+.settabs a:hover{color:var(--ink)}
+.settabs a[aria-current]{color:var(--brand-ink);border-bottom-color:var(--brand-surface)}
+.settabs .dotwarn{width:11px;height:11px;border-radius:50%;background:var(--warn);flex:none}
+.settabs .dotbad{width:11px;height:11px;border-radius:50%;background:var(--bad);flex:none}
+/* สามแท็บเรียงเดียวกันยาวเกินจอ 390px · ให้ขึ้นบรรทัดใหม่แทนการเลื่อนข้าง
+   เพราะแท็บที่โผล่ครึ่งใบนอกจอคือแท็บที่เจ้าของยิมไม่รู้ว่ามี */
+@media (max-width:640px){
+  .settabs{flex-wrap:wrap;overflow-x:visible}
+  .settabs a{padding:0 var(--sp-3);font-size:var(--fs-16)}
+}
+
+/* ------------------------------------------------ แถบสถานะการส่งอีเมล --- */
+/* สถานะต้องอยู่บนสุดเสมอ เพราะคำถามแรกของเจ้าของยิมคือ "ตอนนี้ส่งได้ไหม"
+   ไม่ใช้แค่สีบอกสถานะ มีทั้งไอคอนและข้อความกำกับ (WCAG 1.4.1) */
+.mstat{display:flex;gap:var(--sp-4);align-items:flex-start;border-radius:var(--r-2);
+  border:3px solid;padding:var(--sp-5);margin-bottom:var(--sp-5)}
+.mstat .ic{width:56px;height:56px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-size:28px;font-weight:800}
+.mstat .tx{flex:1;min-width:0}
+.mstat .tx>b:first-child{display:block;font-size:var(--fs-24);font-weight:800;line-height:1.3;margin-bottom:4px}
+.mstat p{margin:0;font-size:var(--fs-16);line-height:1.65}
+.mstat .when{display:block;margin-top:6px;font-family:var(--font-num);font-size:var(--fs-14);font-weight:600}
+
+.mstat.off{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.mstat.off .ic{background:var(--warn);color:#FFFFFF}
+.mstat.on{border-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
+.mstat.on .ic{background:var(--ok);color:#FFFFFF}
+.mstat.err{border-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+.mstat.err .ic{background:var(--bad);color:#FFFFFF}
+.mstat.busy{border-color:var(--line-ctl);background:var(--canvas);color:var(--ink)}
+.mstat.busy .ic{background:var(--panel);color:var(--ink-2)}
+/* ข้อความรองในแถบสถานะใช้สีเดียวกับหัวข้อ ไม่ลด opacity
+   เพราะพื้นอ่อนของ warn/bad ทำให้ตัวอักษรจาง ๆ ตกต่ำกว่า 4.5:1 ทันที */
+
+/* วงกลมหมุนตอนกำลังส่ง */
+.mspin{width:28px;height:28px;border-radius:50%;border:4px solid var(--line);
+  border-top-color:var(--ink-2);animation:mspin .8s linear infinite}
+@keyframes mspin{to{transform:rotate(360deg)}}
+
+/* ------------------------------------------------ ช่องรหัสที่บันทึกแล้ว - */
+/* กติกา: บันทึกแล้วห้ามอ่านกลับ ไม่ว่ากรณีใด ช่องจึงกลายเป็นป้ายบอกสถานะ
+   ไม่ใช่ input ที่เติมค่าปลอมไว้ — input ที่มีค่าปลอมชวนให้กดบันทึกทับโดยไม่ตั้งใจ */
+.secret{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;
+  background:var(--canvas);border:2px solid var(--line-ctl);border-radius:var(--r-1);
+  min-height:var(--tap);padding:10px var(--sp-4)}
+.secret .dots{flex:1;min-width:120px;font-family:var(--font-num);font-size:var(--fs-20);
+  letter-spacing:.18em;color:var(--ink-2)}
+.secret .btn{width:auto;min-height:44px;font-size:var(--fs-16);padding:0 var(--sp-4);flex:none}
+
+/* ปุ่มดู/ซ่อนรหัส ใช้ได้เฉพาะตอนพิมพ์ครั้งแรกเท่านั้น */
+.pwwrap{position:relative}
+.pwwrap input{padding-right:104px}
+.pwwrap .peek{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  min-height:44px;padding:0 14px;border:2px solid var(--line-ctl);border-radius:10px;
+  background:var(--surface);font-size:var(--fs-14);font-weight:700;color:var(--ink);cursor:pointer}
+
+/* ------------------------------------------------ กล่องวินิจฉัยตอนล้มเหลว */
+/* เรียงบังคับ: เกิดอะไรขึ้น → แปลว่าอะไร → คุณต้องกดอะไร → (พับไว้) ข้อความดิบ
+   ถ้าขึ้นข้อความดิบก่อน เจ้าของยิมจะปิดหน้าแล้วโทรหาเรา */
+.diag{border:3px solid var(--bad);border-radius:var(--r-2);background:var(--surface);
+  overflow:hidden;margin-bottom:var(--sp-5)}
+.diag>.hd{background:var(--bad-soft);padding:var(--sp-4) var(--sp-5);
+  border-bottom:2px solid var(--bad)}
+.diag>.hd b{display:block;font-size:var(--fs-20);color:var(--bad)}
+.diag>.hd .code{font-family:var(--font-num);font-size:var(--fs-14);font-weight:700;color:var(--bad)}
+.diag>.bd{padding:var(--sp-5)}
+.diag .why{margin:0 0 var(--sp-4);font-size:var(--fs-18);line-height:1.65}
+.diag .lbl{font-size:var(--fs-14);font-weight:700;color:var(--ink-2);margin-bottom:8px}
+
+/* ขั้นตอนที่เจ้าของยิมทำเองได้ */
+.fixlist{list-style:none;margin:0;padding:0;counter-reset:fx;display:grid;gap:var(--sp-3)}
+.fixlist li{counter-increment:fx;display:flex;gap:var(--sp-4);align-items:flex-start;
+  background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-1);padding:var(--sp-4)}
+.fixlist li::before{content:counter(fx);flex:none;width:36px;height:36px;border-radius:50%;
+  background:var(--ink);color:var(--surface);display:grid;place-items:center;
+  font-family:var(--font-num);font-size:var(--fs-16);font-weight:800}
+.fixlist .fb{flex:1;min-width:0;font-size:var(--fs-16);line-height:1.65}
+.fixlist .fb>b:first-child{display:block;font-size:var(--fs-18);margin-bottom:4px}
+
+/* เส้นทางเมนูใน Microsoft 365 — ให้ตาไล่ตามได้ทีละขั้น */
+.mpath{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.mpath span{background:var(--panel);border-radius:8px;padding:5px 11px;
+  font-size:var(--fs-14);font-weight:700;color:var(--ink)}
+.mpath i{color:var(--ink-2);font-style:normal;font-weight:700}
+
+/* ข้อความดิบจากเซิร์ฟเวอร์ พับไว้ สำหรับคนที่ต้องส่งต่อให้ฝ่ายไอที */
+.raw{margin-top:var(--sp-4);border-top:2px solid var(--panel);padding-top:var(--sp-3)}
+.raw summary{cursor:pointer;font-size:var(--fs-16);font-weight:700;color:var(--ink-2);
+  min-height:44px;display:flex;align-items:center}
+.raw pre{margin:8px 0 0;background:var(--dark);color:#E7ECEA;border-radius:var(--r-1);
+  padding:var(--sp-4);overflow-x:auto;font-family:var(--font-num);font-size:var(--fs-14);
+  line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* ------------------------------------------------ กล่องช่วยเหลือ -------- */
+.helpbox{background:var(--brand-soft);border:2px solid var(--brand-line);
+  border-radius:var(--r-2);padding:var(--sp-5)}
+.helpbox h3{margin:0 0 var(--sp-2);font-size:var(--fs-20);color:var(--brand-ink)}
+.helpbox>p{margin:0 0 var(--sp-4);font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+.helpbox .qa{border-top:2px solid var(--brand-line);padding-top:var(--sp-4);margin-top:var(--sp-4)}
+.helpbox .qa:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.helpbox .qa>b:first-child{display:block;font-size:var(--fs-18);margin-bottom:4px}
+.helpbox .qa p{margin:0;font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+
+/* ------------------------------------------------ แถวส่งเมลทดสอบ -------- */
+/* ส่งถึงอีเมลผู้ส่งเองเสมอ ไม่มีช่องให้พิมพ์ปลายทาง —
+   ถ้าพิมพ์ปลายทางได้ หน้านี้จะกลายเป็นเครื่องยิงเมลให้ใครก็ได้ทันทีที่บัญชีหลุด */
+.testbox{background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-2);
+  padding:var(--sp-5);margin-bottom:var(--sp-4)}
+.testbox h3{margin:0 0 var(--sp-2);font-size:var(--fs-20)}
+.testbox .to{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;
+  background:var(--canvas);border-radius:var(--r-1);padding:12px var(--sp-4);margin:var(--sp-4) 0}
+.testbox .to .lb{font-size:var(--fs-14);font-weight:700;color:var(--ink-2)}
+.testbox .to .ad{font-family:var(--font-num);font-size:var(--fs-18);font-weight:700;overflow-wrap:anywhere}
+.testbox .btn{width:100%}
+
+/* สองช่องเรียงคู่ (เซิร์ฟเวอร์ · พอร์ต) */
+.pair{display:grid;grid-template-columns:1fr 150px;gap:var(--sp-3)}
+.pair .field{margin-bottom:0}
+
+@media (max-width:899px){
+  /* settings.css ดันคอลัมน์ขวาขึ้นก่อนบนมือถือ ซึ่งถูกสำหรับหน้าสี
+     (ต้องเห็นพรีวิวเปลี่ยนทันที) แต่ผิดสำหรับหน้านี้ — งานของเจ้าของยิมคือ
+     "กรอกแล้วกดส่งทดสอบ" ถ้าเจอกำแพงคำแนะนำ Microsoft ก่อน เขาจะเลิกก่อนถึงฟอร์ม */
+  .setgrid.formfirst .previewcol{order:0}
+  .pair{grid-template-columns:1fr}
+  .settabs a{font-size:var(--fs-16);padding:0 var(--sp-3)}
+  .mstat{padding:var(--sp-4)}
+  .mstat .ic{width:48px;height:48px;font-size:24px}
+}
+@media (prefers-reduced-motion:reduce){.mspin{animation:none}}
+
+/* ============================================ หน้า auth ==================
+   ยกจาก auth.css ของ Designer · เวทีเดียวหลายแผง ทุกสถานะใช้โครงเดียวกัน
+   คนที่เดินจากสมัคร → ยืนยันอีเมล → รออนุมัติ จะรู้สึกว่าอยู่ที่เดิมตลอด
+   ========================================================================== */
+
+/* เวทีเดียว หลายแผง — ทุกสถานะใช้โครงเดียวกัน ต่างแค่เนื้อใน */
+.authstage{background:var(--brand-2);min-height:100vh;min-height:100dvh;
+  display:grid;place-items:center;padding:var(--sp-6) var(--sp-4)}
+.authbox{width:100%;max-width:460px}
+.authtop{text-align:center;margin-bottom:var(--sp-5)}
+.authtop .mk{width:76px;height:76px;border-radius:22px;background:#FFFFFF;
+  display:grid;place-items:center;margin:0 auto var(--sp-4);padding:10px}
+.authtop .mk img{width:100%;height:100%;object-fit:contain;display:block}
+.authtop .mk span{font-weight:800;font-size:var(--fs-24);color:var(--brand-ink)}
+/* ทั้งสองบรรทัดใช้ --on-brand-2 เต็มความทึบ แยกลำดับชั้นด้วยขนาด/น้ำหนัก */
+.authtop h1{margin:0;font-size:var(--fs-28);font-weight:800;color:var(--on-brand-2)}
+.authtop p{margin:4px 0 0;font-size:var(--fs-16);font-weight:500;color:var(--on-brand-2)}
+
+.authcard{background:var(--surface);border:2px solid var(--line-strong);
+  border-radius:var(--r-2);padding:var(--sp-6)}
+.authcard h2{margin:0 0 6px;font-size:var(--fs-24)}
+.authcard .lead{margin:0 0 var(--sp-5);font-size:var(--fs-16);color:var(--ink-2);line-height:1.6}
+
+/* ตัวคั่น "หรือ" */
+.orline{display:flex;align-items:center;gap:var(--sp-3);margin:var(--sp-5) 0;
+  color:var(--ink-2);font-size:var(--fs-14);font-weight:600}
+.orline::before,.orline::after{content:"";flex:1;height:2px;background:var(--panel)}
+
+/* ปุ่ม Google — รูปแบบต้องเปลี่ยนเป็น asset ทางการของ Google ก่อนขึ้นจริง */
+.gbtn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;
+  min-height:var(--tap);border:2px solid var(--line-strong);border-radius:var(--r-1);
+  background:#FFFFFF;color:var(--ink);font-size:var(--fs-18);font-weight:700;cursor:pointer}
+.gbtn:hover{background:var(--panel)}
+.gbtn .g{width:26px;height:26px;flex:none}
+
+.authfoot{margin-top:var(--sp-5);text-align:center;font-size:var(--fs-16);color:var(--ink-2)}
+.authfoot a{color:var(--brand-ink);font-weight:700;text-decoration:none}
+.authfoot a:hover{text-decoration:underline}
+.authlink{display:block;text-align:right;margin-top:-6px;margin-bottom:var(--sp-4);
+  font-size:var(--fs-14);font-weight:700;color:var(--brand-ink);text-decoration:none}
+
+/* ข้อความใต้เวที — ช่องทางติดต่อยิม อยู่นอกการ์ดเสมอ */
+.authhelp{margin-top:var(--sp-5);text-align:center;font-size:var(--fs-16);
+  font-weight:500;color:var(--on-brand-2)}
+.authhelp b{font-weight:700}
+
+/* ------------------------------- สถานะผลลัพธ์ (ส่งเมล/รออนุมัติ/ฯลฯ) ----- */
+.authres{text-align:center}
+.authres .ic{width:88px;height:88px;border-radius:50%;display:grid;place-items:center;
+  margin:0 auto var(--sp-5);font-size:42px;font-weight:800}
+.authres .ic.mail{background:var(--brand-soft);color:var(--brand-ink)}
+.authres .ic.wait{background:var(--warn-soft);color:var(--warn);border:3px solid var(--warn)}
+.authres .ic.stop{background:var(--bad-soft);color:var(--bad);border:3px solid var(--bad)}
+.authres .ic.done{background:var(--ok);color:#fff}
+.authres h2{margin:0 0 var(--sp-3);font-size:var(--fs-24)}
+.authres p{margin:0 0 var(--sp-4);font-size:var(--fs-16);color:var(--ink-2);line-height:1.7}
+.authres .mailto{display:inline-block;font-family:var(--font-num);font-weight:700;
+  font-size:var(--fs-18);background:var(--panel);border-radius:var(--r-1);padding:8px 16px;
+  margin-bottom:var(--sp-4);overflow-wrap:anywhere}
+
+/* รายการขั้นตอนถัดไป — บอกว่าให้ทำอะไรต่อ ไม่ใช่แค่บอกว่าเกิดอะไรขึ้น */
+.nextsteps{text-align:left;background:var(--canvas);border:2px solid var(--line);
+  border-radius:var(--r-1);padding:var(--sp-4);margin-bottom:var(--sp-4)}
+.nextsteps b{display:block;margin-bottom:8px;font-size:var(--fs-16)}
+.nextsteps ol{margin:0;padding-left:22px;font-size:var(--fs-16);line-height:1.7;color:var(--ink-2)}
+.nextsteps li{margin-bottom:6px}
+.nextsteps li:last-child{margin-bottom:0}
+
+/* ความแข็งแรงของรหัสผ่าน */
+.pwbar{display:flex;gap:6px;margin-top:10px}
+.pwbar i{flex:1;height:8px;border-radius:4px;background:var(--panel)}
+.pwbar i.on{background:var(--ok)}
+.pwbar i.weak{background:var(--warn)}
+.pwhint{margin-top:8px;font-size:var(--fs-14);color:var(--ink-2)}
+
+/* ------------------------------- คิวอนุมัติฝั่งเจ้าของ -------------------- */
+/* อยู่ในหน้า "ผู้ใช้และสิทธิ์" เดิม ไม่ใช่หน้าใหม่ */
+.queue{border:3px solid var(--warn);border-radius:var(--r-2);background:var(--warn-soft);
+  padding:var(--sp-5);margin-bottom:var(--sp-6)}
+.queue>h2{margin:0 0 4px;color:var(--warn);display:flex;align-items:center;gap:10px}
+.queue>.note{margin:0 0 var(--sp-4);color:var(--ink-2)}
+.qitem{display:flex;gap:var(--sp-4);align-items:flex-start;background:var(--surface);
+  border:2px solid var(--line-strong);border-radius:var(--r-2);padding:var(--sp-4);
+  margin-bottom:var(--sp-3);flex-wrap:wrap}
+.qitem:last-child{margin-bottom:0}
+.qitem .av{width:52px;height:52px;border-radius:50%;background:var(--panel);
+  display:grid;place-items:center;font-weight:800;font-size:var(--fs-20);flex:none}
+.qitem .who{flex:1 1 220px;min-width:0}
+.qitem .who b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.35}
+.qitem .who .m{font-size:var(--fs-16);color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere}
+.qitem .acts{display:flex;gap:var(--sp-2);flex-wrap:wrap;flex:1 1 100%}
+.qitem .acts .btn{width:auto;flex:1 1 150px;min-height:52px;font-size:var(--fs-16)}
+.waitnote{flex:1 1 100%;margin:0 0 var(--sp-2);font-size:var(--fs-16);
+  color:var(--ink-2);line-height:1.6}
+.via{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-14);font-weight:700;
+  background:var(--panel);border-radius:999px;padding:3px 10px;color:var(--ink-2)}
+.via svg{width:16px;height:16px}
+
+@media (max-width:899px){
+  .authstage{padding:var(--sp-5) var(--sp-4);align-items:start}
+  .authcard{padding:var(--sp-5)}
+  .authtop .mk{width:64px;height:64px;border-radius:18px}
+  .qitem .acts .btn{flex:1 1 100%}
+}
+
+/* ------------------------------------------- พักการอ่านบัตรระหว่างจับภาพ -- */
+/* ตอนจับภาพหน้าจอ ลูปอ่าน QR หยุดถอดรหัสชั่วคราว (BUG-14) · ถ้าไม่บอก คนที่
+   ยื่นบัตรให้กล้องจะเห็นแค่ภาพสดที่ไม่มีอะไรเกิดขึ้น · กรอบหรี่ลงพร้อมป้าย
+   จึงเป็นทั้งคำอธิบายและสัญญาณว่าเดี๋ยวกลับมา */
+.cam[data-scanning="paused"] .frame{opacity:.35}
+.cam[data-scanning="paused"] .laser{display:none}
+.campause{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:3;
+  background:rgba(14,20,24,.88);color:#FFFFFF;border:2px solid var(--warn);
+  border-radius:999px;padding:6px 14px;font-size:var(--fs-14);font-weight:700;
+  white-space:nowrap;pointer-events:none}
+
+/* ------------------------------------ เครื่องและโปรแกรม (ฝั่งเจ้าของยิม) -- */
+/* หกเครื่องที่กางทุกช่องพร้อมกันคือหน้าที่หาอะไรไม่เจอ · แถวปิดบอกสองอย่าง
+   คือชื่อกับ "มีใครตรวจหรือยัง" แล้วค่อยกางทีละแถว */
+.cnav{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin:0 0 var(--sp-5)}
+.cnav button{min-height:48px;padding:0 var(--sp-4);border-radius:var(--r-1);
+  border:2px solid var(--line-strong);background:var(--surface);color:var(--ink-2);
+  font-size:var(--fs-16);font-weight:700;cursor:pointer}
+.cnav button:hover{color:var(--ink)}
+.cnav button.on{background:var(--brand-soft);border-color:var(--brand-surface);color:var(--brand-ink)}
+.cactions{margin:0 0 var(--sp-5)}
+
+.crow{border:2px solid var(--line-strong);border-radius:var(--r-2);margin-bottom:var(--sp-3);
+  background:var(--surface);overflow:hidden}
+.crow.open{border-color:var(--brand-surface)}
+.chead{display:flex;align-items:center;gap:var(--sp-3);width:100%;min-height:64px;
+  padding:var(--sp-3) var(--sp-4);background:none;border:0;cursor:pointer;text-align:start}
+.chead:hover{background:var(--panel)}
+.ccode{font-family:var(--font-num);font-weight:700;color:var(--ink-2);flex:none}
+.ctitle{font-size:var(--fs-18);font-weight:700;flex:1;min-width:0}
+.cchev{flex:none;color:var(--ink-2)}
+.cbody{padding:var(--sp-4) var(--sp-4) var(--sp-5);border-top:2px solid var(--line)}
+.cbody textarea{width:100%;font:inherit;line-height:1.6}
+.csub{margin:var(--sp-5) 0 var(--sp-2);font-size:var(--fs-18)}
+.cfoot{margin:var(--sp-4) 0 0}
+
+/* สถานะการตรวจ: ไม่ใช้สีอย่างเดียว มีคำกำกับเสมอ (WCAG 1.4.1) */
+.cstate{flex:none;font-size:var(--fs-14);font-weight:700;padding:4px 10px;border-radius:999px;
+  border:2px solid}
+.cstate.done{color:#0B5A36;border-color:var(--ok);background:#E7F6EE}
+.cstate.todo{color:#7A4A05;border-color:var(--warn);background:#FFF4DE}
+.creview{margin:var(--sp-4) 0 var(--sp-2)}
+
+.cwarn{border:3px solid var(--warn);background:#FFF4DE;border-radius:var(--r-2);
+  padding:var(--sp-4);margin-bottom:var(--sp-4)}
+.cwarn.ok{border-color:var(--ok);background:#E7F6EE}
+.cwarn b{display:block;font-size:var(--fs-18);margin-bottom:4px}
+.cwarn p{margin:0;font-size:var(--fs-16);line-height:1.6}
+
+.ctable{width:100%;border-collapse:collapse;margin-bottom:var(--sp-2)}
+.ctable th{text-align:start;font-size:var(--fs-14);color:var(--ink-2);padding:6px 8px;
+  border-bottom:2px solid var(--line-strong);white-space:nowrap}
+.ctable td{padding:6px 8px;border-bottom:2px solid var(--line);vertical-align:middle}
+.ctable input{width:100%;min-width:72px;min-height:44px;font:inherit}
+
+.cphoto{display:flex;gap:var(--sp-4);align-items:flex-start;flex-wrap:wrap}
+.cphoto img{width:180px;border-radius:var(--r-1);border:2px solid var(--line-strong);display:block}
+.cnophoto{width:180px;height:120px;border-radius:var(--r-1);border:2px dashed var(--line-strong);
+  display:grid;place-items:center;color:var(--ink-2);font-weight:700}
+.cphoto>div{flex:1;min-width:240px}
+.cphoto label.btn{display:inline-flex}
+
+@media (max-width:640px){
+  .ctable,.ctable thead,.ctable tbody,.ctable tr,.ctable th,.ctable td{display:block}
+  .ctable thead{display:none}
+  .ctable tr{border:2px solid var(--line-strong);border-radius:var(--r-1);
+    padding:var(--sp-2);margin-bottom:var(--sp-3)}
+  .ctable td{border:0;padding:4px 0}
+}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+
+/* ============================================ พอร์ทัลสมาชิก "ช่วยเล่น" ====
+   ยกจาก member.css ของ Designer · มือถือเป็นหลัก คนอ่านยืนอยู่ในยิม
+   ถือมือถือมือเดียว อาจมีเหงื่อ · ตั้งใจให้ไม่เหมือนแอปพนักงาน เพราะสมาชิก
+   ไม่ใช่พนักงานที่มีสิทธิ์น้อยกว่า แต่เป็นคนละผลิตภัณฑ์
+   ========================================================================== */
+
+/* ------------------------------------------------ เปลือกของพอร์ทัลสมาชิก -- */
+/* ตั้งใจให้ไม่เหมือนแอปพนักงาน — ไม่มีเมนูข้าง ไม่มีป้ายบอกสิทธิ์
+   สมาชิกไม่ใช่พนักงานที่มีสิทธิ์น้อยกว่า แต่เป็นคนละผลิตภัณฑ์ */
+.mtop{background:var(--brand-surface);color:var(--on-brand);position:sticky;top:0;z-index:30}
+.mtop-in{max-width:720px;margin:0 auto;padding:12px var(--sp-4);
+  display:flex;align-items:center;gap:var(--sp-3);min-height:62px}
+.mtop .mk{width:40px;height:40px;border-radius:12px;background:#FFFFFF;
+  display:grid;place-items:center;padding:5px;flex:none}
+.mtop .mk img{width:100%;height:100%;object-fit:contain;display:block}
+/* ตัวย่อชื่อยิมอยู่ในกล่องขาว จึงต้องเป็นหมึกของแบรนด์ ไม่ใช่สีตัวอักษรของ
+   แถบซึ่งเป็นสีขาว — ไม่มีบรรทัดนี้ ยิมที่ยังไม่อัปโหลดโลโก้จะเห็นกล่องขาว
+   ว่างเปล่าบนหน้าแรกของพอร์ทัล (ขาวบนขาว = 1:1, QA BUG-10) เหมือนกฎของ
+   .authtop .mk span ด้านบนทุกประการ */
+.mtop .mk span{color:var(--brand-ink);font-weight:800}
+.mtop .nm{font-size:var(--fs-18);font-weight:700;line-height:1.2;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mtop .nm span{display:block;font-size:var(--fs-14);font-weight:500}
+.mtop .spacer{flex:1}
+.mtop .acct{width:44px;height:44px;border-radius:50%;border:2px solid var(--on-brand);
+  background:transparent;color:var(--on-brand);font-weight:800;font-size:var(--fs-16);
+  display:grid;place-items:center;cursor:pointer;flex:none}
+
+.mwrap{max-width:720px;margin:0 auto;padding:var(--sp-5) var(--sp-4) 96px}
+
+/* แถบล่าง 3 แท็บ — นิ้วโป้งถึงทั้งหมด */
+.mnav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);
+  border-top:2px solid var(--line-strong);z-index:40;padding-bottom:env(safe-area-inset-bottom)}
+.mnav ul{list-style:none;margin:0;padding:0;display:flex;max-width:720px;margin:0 auto}
+.mnav li{flex:1;display:flex}
+.mnav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;min-height:66px;text-decoration:none;font-size:var(--fs-14);font-weight:700;
+  color:var(--ink-2);border-top:4px solid transparent}
+.mnav a[aria-current]{color:var(--brand-ink);border-top-color:var(--brand-surface);background:var(--brand-soft)}
+.mnav svg{width:26px;height:26px}
+
+/* ------------------------------------------------ หน้าแรก ช่วยเล่น ------- */
+.hello{margin:0 0 var(--sp-5)}
+.hello h1{margin:0 0 4px;font-size:var(--fs-28);font-weight:800}
+.hello p{margin:0;font-size:var(--fs-16);color:var(--ink-2)}
+
+.sechead{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);
+  margin:var(--sp-6) 0 var(--sp-3)}
+.sechead h2{margin:0;font-size:var(--fs-20)}
+.sechead a{font-size:var(--fs-16);font-weight:700;color:var(--brand-ink);text-decoration:none}
+
+/* การ์ดเป้าหมาย — สิ่งแรกที่สมาชิกต้องเลือก */
+.goals{display:grid;gap:var(--sp-3)}
+.goal{display:flex;align-items:center;gap:var(--sp-4);text-decoration:none;color:inherit;
+  background:var(--surface);border:2px solid var(--line-strong);border-radius:var(--r-2);
+  padding:var(--sp-4);min-height:92px}
+.goal:hover{background:var(--panel)}
+.goal .gi{width:56px;height:56px;border-radius:16px;background:var(--brand-soft);
+  color:var(--brand-ink);display:grid;place-items:center;flex:none}
+.goal .gi svg{width:30px;height:30px}
+.goal .gt{flex:1;min-width:0}
+.goal .gt b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.3}
+.goal .gt span{display:block;font-size:var(--fs-16);color:var(--ink-2);margin-top:2px}
+.goal .go{flex:none;color:var(--ink-2)}
+.goal .go svg{width:24px;height:24px}
+
+/* ทางลัด 2 ช่อง */
+.quick{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)}
+.qcard{display:block;text-decoration:none;color:inherit;background:var(--surface);
+  border:2px solid var(--line);border-radius:var(--r-2);padding:var(--sp-4);min-height:118px}
+.qcard:hover{border-color:var(--brand-line)}
+.qcard .qi{width:44px;height:44px;border-radius:12px;background:var(--panel);
+  display:grid;place-items:center;margin-bottom:10px}
+.qcard .qi svg{width:24px;height:24px;color:var(--ink-2)}
+.qcard b{display:block;font-size:var(--fs-18);font-weight:700;line-height:1.3}
+.qcard span{display:block;font-size:var(--fs-14);color:var(--ink-2);margin-top:2px}
+
+/* เคล็ดลับสั้น */
+.tip{background:var(--brand-soft);border:2px solid var(--brand-line);border-radius:var(--r-2);
+  padding:var(--sp-4);display:flex;gap:var(--sp-3);align-items:flex-start}
+.tip .ti{font-size:var(--fs-24);line-height:1;flex:none;color:var(--brand-ink)}
+.tip b{display:block;font-size:var(--fs-18);margin-bottom:4px}
+.tip p{margin:0;font-size:var(--fs-16);color:var(--ink-2);line-height:1.65}
+
+/* ------------------------------------------------ หน้าโปรแกรม ----------- */
+.phero{background:var(--brand-surface);color:var(--on-brand);border-radius:var(--r-2);
+  padding:var(--sp-5);margin-bottom:var(--sp-5)}
+.phero h1{margin:0 0 6px;font-size:var(--fs-28);font-weight:800;color:var(--on-brand)}
+.phero p{margin:0 0 var(--sp-4);font-size:var(--fs-16);font-weight:500;color:var(--on-brand);line-height:1.6}
+.pstats{display:flex;gap:var(--sp-5);flex-wrap:wrap;padding-top:var(--sp-4);
+  border-top:2px solid rgba(255,255,255,.35)}
+.pstats div span{display:block;font-size:var(--fs-14);font-weight:500;color:var(--on-brand)}
+.pstats div b{font-size:var(--fs-20);font-weight:800;color:var(--on-brand)}
+
+/* รายการท่า — ตัวเลขใหญ่ อ่านจากระยะแขนตอนยืนอยู่หน้าเครื่อง */
+.steps-x{list-style:none;margin:0;padding:0;display:grid;gap:var(--sp-3);counter-reset:sx}
+.steps-x li{counter-increment:sx;background:var(--surface);border:2px solid var(--line);
+  border-radius:var(--r-2);padding:var(--sp-4);display:flex;gap:var(--sp-4);align-items:flex-start}
+.steps-x li::before{content:counter(sx);flex:none;width:40px;height:40px;border-radius:50%;
+  background:var(--brand-surface);color:var(--on-brand);display:grid;place-items:center;
+  font-family:var(--font-num);font-size:var(--fs-18);font-weight:800}
+.steps-x .xb{flex:1;min-width:0}
+.steps-x .xb b{display:block;font-size:var(--fs-20);font-weight:700;line-height:1.3}
+/* ภาพย่อเป็นของประกอบ ที่จอแคบเอาพื้นที่ไปให้ตัวเลขดีกว่า */
+@media (max-width:560px){.steps-x .xpic{display:none}}
+.steps-x .xpic{width:64px;height:48px;border-radius:10px;overflow:hidden;background:var(--panel);
+  border:2px solid var(--line);flex:none;margin-top:8px}
+.steps-x .xpic svg{width:100%;height:100%;display:block}
+/* ค่าเซ็ต/ครั้ง/พัก ต้องอยู่แถวเดียวกันที่ 390px และห้ามตัดคำกลางตัวเลข
+   จึงใช้ flex ที่กล่องยืดตามเนื้อหา + nowrap ที่ค่า ไม่ใช่กริดคอลัมน์เท่ากัน
+   (กริดเท่ากันทำให้ "ปานกลาง" ตกบรรทัดกลางคำ) */
+.dose{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-top:10px}
+.dose div{background:var(--panel);border-radius:10px;padding:6px 10px}
+.dose span,.dose b{white-space:nowrap}
+.dose span{display:block;font-size:13px;color:var(--ink-2);font-weight:600}
+.dose b{font-family:var(--font-num);font-size:var(--fs-20);font-weight:800}
+.steps-x .xlink{display:inline-flex;align-items:center;gap:6px;margin-top:4px;min-height:44px;
+  padding:0 2px;font-size:var(--fs-16);font-weight:700;color:var(--brand-ink);text-decoration:none}
+.steps-x .xlink:hover{text-decoration:underline}
+
+/* ลิงก์ย้อนกลับท้ายหน้า — สูง 44px เท่าปุ่มจริง */
+.backlink{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 4px;
+  margin-top:var(--sp-4);font-size:var(--fs-18);font-weight:700;
+  color:var(--brand-ink);text-decoration:none}
+.backlink:hover{text-decoration:underline}
+
+/* คำเตือนความปลอดภัย — ต้องให้เจ้าของยิมอนุมัติข้อความก่อนขึ้นจริง */
+.safety{background:var(--warn-soft);border:3px solid var(--warn);border-radius:var(--r-2);
+  padding:var(--sp-4);margin-bottom:var(--sp-5)}
+.safety b{display:flex;align-items:center;gap:8px;color:var(--warn);font-size:var(--fs-18);margin-bottom:6px}
+.safety p{margin:0;font-size:var(--fs-16);color:var(--ink);line-height:1.65}
+
+/* ------------------------------------------------ สมาชิกหมดอายุ --------- */
+.wall{text-align:center;padding:var(--sp-6) var(--sp-4)}
+.wall .wi{width:92px;height:92px;border-radius:50%;background:var(--warn-soft);
+  border:3px solid var(--warn);color:var(--warn);display:grid;place-items:center;
+  font-size:44px;margin:0 auto var(--sp-5)}
+.wall h1{margin:0 0 var(--sp-3);font-size:var(--fs-28)}
+.wall p{margin:0 0 var(--sp-4);font-size:var(--fs-18);color:var(--ink-2);line-height:1.7}
+.wall .when{display:inline-block;background:var(--panel);border-radius:var(--r-1);
+  padding:8px 18px;font-family:var(--font-num);font-weight:700;font-size:var(--fs-18);
+  margin-bottom:var(--sp-5)}
+
+@media (min-width:900px){
+  .goals{grid-template-columns:1fr 1fr}
+  .mwrap{padding-bottom:var(--sp-10)}
+  .mnav{position:static;border-top:0;border-bottom:2px solid var(--line-strong)}
+  .mnav a{min-height:58px;flex-direction:row;gap:8px;border-top:0;border-bottom:4px solid transparent}
+  .mnav a[aria-current]{border-bottom-color:var(--brand-surface)}
+}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ==========================================================================
+   รายงาน — แถบสรุปวันนี้ · ตัวกรอง · ตาราง · กราฟแท่ง CSS ล้วน
+   ทุกสีมาจากโทเคนใน shared/brand.cjs · ห้าม opacity บนตัวอักษรที่อยู่บนสีแบรนด์
+   เพราะ opacity ลดคอนทราสต์จริงโดยที่ตัวเลขในไฟล์สไตล์ยังดูผ่าน
+   ========================================================================== */
+
+.reportpage h2{margin:var(--sp-6) 0 4px}
+.reportpage h3{margin:var(--sp-6) 0 var(--sp-3);font-size:var(--fs-20)}
+.reportpage .rrange{margin:0 0 var(--sp-4)}
+
+/* แถบสรุปวันนี้ — สี่ตัวเลขแรกที่เจ้าของยิมมองหา ก่อนจะเลือกรายงานด้วยซ้ำ */
+.todaybar{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3);margin-bottom:var(--sp-5)}
+.tcard{background:var(--surface);border:2px solid var(--line);border-left:6px solid var(--brand-surface);
+  border-radius:var(--r-2);padding:var(--sp-4);min-height:104px;display:flex;flex-direction:column;gap:2px}
+.tcard .tlabel{font-size:var(--fs-14);font-weight:700;color:var(--ink-2)}
+.tcard .tvalue{font-family:var(--font-num);font-size:var(--fs-28);font-weight:800;color:var(--ink);
+  line-height:1.2;overflow-wrap:anywhere}
+.tcard .tvalue span{font-family:var(--font);font-size:var(--fs-16);font-weight:700;color:var(--ink-2)}
+
+/* ตัวกรอง — ทั้งก้อนหายไปตอนพิมพ์ กระดาษไม่ต้องรู้ว่าเลือกมายังไง */
+.repfilters{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);
+  padding:var(--sp-4);margin-bottom:var(--sp-5)}
+.repfilter-row{display:flex;flex-wrap:wrap;gap:var(--sp-4);align-items:flex-end}
+.repfilter-row .field{flex:1 1 200px;margin-bottom:0}
+.repfilter-row .quickdays,.repfilter-row .repactions{flex:2 1 320px}
+.repfilter-row .btn-row>.btn{flex:0 1 auto}
+.flabel{display:block;margin-bottom:6px;font-size:var(--fs-16);font-weight:700;color:var(--ink)}
+.repfilters input[type=date],.repfilters select{width:100%;min-height:48px;padding:0 var(--sp-3);
+  border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface);
+  font-family:var(--font-num);font-size:var(--fs-16);color:var(--ink)}
+
+/* แท็บเลือกรายงาน — ปุ่มจริง ไม่ใช่ลิงก์ เพราะไม่ได้เปลี่ยนที่อยู่ของหน้า */
+.reptabs{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.reptabs button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);
+  border-radius:999px;background:var(--surface);color:var(--ink);font-weight:700;
+  font-size:var(--fs-16);cursor:pointer}
+.reptabs button:hover{background:var(--panel)}
+.reptabs button[aria-selected=true]{background:var(--brand-surface);border-color:var(--brand-surface);
+  color:var(--on-brand)}
+
+/* ลิงก์ดาวน์โหลดหน้าตาเป็นปุ่ม — ตอนใช้ไม่ได้ให้ลดความอิ่มสี ไม่ใช่ลด opacity */
+a.btn{text-decoration:none;color:var(--ink)}
+a.btn.disabled{background:var(--panel);border-color:var(--line-ctl);color:var(--ink-2);
+  pointer-events:none}
+
+.rtable td.num,.rtable th.num{font-family:var(--font-num);white-space:nowrap}
+/* เก้าคอลัมน์ไม่พอดี 1280 เมื่อชื่อคนต้องอ่านออก: ปล่อยตามใจเบราว์เซอร์แล้ว
+   `overflow-wrap:anywhere` ที่ใช้กับชื่อจะบีบคอลัมน์นั้นจนเหลือ "สม/พงษ์/อ่าน"
+   ห้าบรรทัด ซึ่งเป็นชื่อที่โทรหาใครไม่ได้ · จึงกันที่ให้ชื่อและให้สาเหตุอยู่
+   บรรทัดเดียว แล้วยอมให้ตารางเลื่อนข้างในกรอบของมันเอง ซึ่งเป็นพฤติกรรมที่
+   ตั้งใจไว้แต่แรกของ `.table-wrap` (ดู tests/ui/06-layout.spec.js) */
+.rtable td[data-label="ชื่อ"]{min-width:118px}
+.rtable td[data-label="สาเหตุ"]{white-space:nowrap}
+.rtable .note{display:block;font-size:var(--fs-14)}
+.rtable .sumrow td{background:var(--brand-soft);border-top:3px solid var(--brand-line)}
+.trunc{background:var(--warn-soft);border:2px solid var(--warn);border-radius:var(--r-1);
+  padding:10px var(--sp-4);margin:0 0 var(--sp-3);font-size:var(--fs-16);
+  font-weight:700;color:var(--warn)}
+
+/* กราฟแท่ง — สองกล่องกับเปอร์เซ็นต์ ไม่มี canvas เพราะหน้านี้ต้องพิมพ์ได้
+   ตัวเลขอยู่ "ข้าง" แท่ง ไม่ใช่ "บน" แท่ง จึงอ่านได้ทั้งแท่งยาวและแท่งสั้น */
+.bars{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);
+  padding:var(--sp-4);margin-top:var(--sp-5)}
+.bars .bars-cap{margin:0 0 var(--sp-3);font-weight:700;color:var(--ink)}
+.bars ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.bars li{display:grid;grid-template-columns:72px 1fr 110px;gap:var(--sp-3);align-items:center}
+.bars .blabel{font-family:var(--font-num);font-size:var(--fs-14);color:var(--ink-2);text-align:right}
+.bars .btrack{height:22px;background:var(--panel);border-radius:6px;overflow:hidden}
+.bars .bfill{display:block;height:100%;background:var(--brand-surface);border-radius:6px;min-width:2px}
+.bars .bnum{font-family:var(--font-num);font-size:var(--fs-14);font-weight:700;color:var(--ink)}
+
+@media (max-width:899px){
+  .todaybar{grid-template-columns:1fr 1fr}
+  .repfilter-row{gap:var(--sp-3)}
+  .repfilter-row .field{flex:1 1 100%}
+  .bars li{grid-template-columns:60px 1fr 88px}
+}
+
+/* พิมพ์ — เอาทุกอย่างที่กดได้ออก เหลือหัวเรื่อง ช่วงวันที่ ตาราง และกราฟ */
+@media print{
+  /* Scoped to this screen: the app bar disappearing from every printed page
+     in the product is not what was asked for, and other screens print for
+     other reasons. `:has()` keeps the rule where it belongs. */
+  .noprint{display:none!important}
+  body:has(.reportpage) .appbar,
+  body:has(.reportpage) .settabs,
+  body:has(.reportpage) .pilot-banner,
+  body:has(.reportpage) .bottomnav{display:none!important}
+  .reportpage .table-wrap{overflow:visible}
+  .rtable .sumrow td{background:#EEE;border-top:2px solid #000}
+  /* ตารางทั้งตารางต้องขาดหน้าได้ มีแต่แถวที่ห้ามขาด (ดู @media print ใน
+     style.css) ไม่งั้น 59 แถวจะถูกผลักไปเริ่มหน้าใหม่ทั้งก้อน */
+  .bars,.tcard{break-inside:avoid}
+  .bars .bfill{background:#555;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}

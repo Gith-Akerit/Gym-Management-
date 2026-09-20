@@ -1,12 +1,18 @@
-// Checking in with a QR code.
+// Checking in at the counter.
 //
-// The QR a member shows is a short-lived, one-time token. It carries no name,
-// no member code and nothing else readable — only a random id and a signature —
-// so a photo of somebody's screen is worth nothing a minute later, and a QR
-// lifted from a chat group cannot be replayed at the counter.
+// What a member shows is the card the gym sent them: a picture, with a signed
+// token in it that does not expire. Nothing in the token is readable — a member
+// id and a signature — and a copy forwarded to a friend gets that friend as far
+// as the counter, where the photograph on the screen is somebody else's face.
+// That check is a person's, not the system's, which is why the scan result puts
+// the face first and the verdict second.
+//
+// The short-lived one-time QR the old member app minted is still accepted while
+// unexpired ones remain, so the change of product does not turn anybody away.
 
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { cardSignatureMatches, decodeCardQr } from './cards.js';
 import { audit, transaction } from './db.js';
 import { HttpError, parse } from './validation.js';
 
@@ -23,60 +29,11 @@ export function decodeCheckInQr(raw) {
   return { id, signature };
 }
 
-export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
+export function registerCheckInRoutes({ app, db, now, admin, counter, secret, limit }) {
   const sign = id => createHmac('sha256', secret).update(`checkin:${id}`).digest('hex');
-
-  /** Staff and admins may scan and read; only admins manage members and money. */
-  const counter = (req, res, next) => (['staff', 'admin'].includes(req.user.role)
-    ? next() : next(new HttpError(403, 'เฉพาะพนักงานและผู้ดูแลระบบเท่านั้น')));
 
   const settings = () => db.prepare('SELECT check_in_window_minutes, check_in_token_seconds FROM gym_profile WHERE id=1').get()
     ?? { check_in_window_minutes: 5, check_in_token_seconds: 60 };
-
-  function requireActiveMember(req) {
-    const member = db.prepare('SELECT * FROM members WHERE user_id=?').get(req.user.id);
-    if (!member) throw new HttpError(403, 'สำหรับบัญชีสมาชิกเท่านั้น');
-    return member;
-  }
-
-  // ------------------------------------------------------------------ member
-
-  /**
-   * Issues the QR the member shows at the counter. Asking for a new one retires
-   * every earlier unused token for that member, so only the code currently on
-   * screen can work — the screenshot a friend was sent is already dead.
-   */
-  app.post('/api/me/check-in-token', (req, res) => {
-    // The screen renews about once a minute, so 120 in 15 minutes leaves room
-    // for two hours of watching it while still bounding what one account can
-    // write. Every write here competes with the counter for the same lock.
-    limit(`checkin-token:${req.user.id}`, 120, 900000);
-    const member = requireActiveMember(req);
-    if (member.status !== 'active') {
-      throw new HttpError(403, member.status === 'suspended'
-        ? 'บัญชีสมาชิกถูกระงับ กรุณาติดต่อพนักงานที่ยิม'
-        : 'สถานะสมาชิกหมดอายุ กรุณาติดต่อพนักงานที่ยิม');
-    }
-    const ttl = settings().check_in_token_seconds * 1000;
-    const id = randomUUID();
-    transaction(db, () => {
-      db.prepare('UPDATE check_in_tokens SET expires_at=? WHERE member_id=? AND consumed_at IS NULL AND expires_at>?')
-        .run(now(), member.id, now());
-      db.prepare('INSERT INTO check_in_tokens(id,member_id,issued_at,expires_at) VALUES(?,?,?,?)')
-        .run(id, member.id, now(), now() + ttl);
-    });
-    res.status(201).json({
-      qr: encodeCheckInQr(id, sign(id)),
-      expires_at: now() + ttl,
-      expires_in: settings().check_in_token_seconds,
-    });
-  });
-
-  app.get('/api/me/check-ins', (req, res) => {
-    const member = requireActiveMember(req);
-    res.json({ items: db.prepare(`SELECT id, result, failure_reason, checked_in_at
-      FROM check_ins WHERE member_id=? ORDER BY checked_in_at DESC LIMIT 50`).all(member.id) });
-  });
 
   // ------------------------------------------------------------------- staff
 
@@ -104,6 +61,50 @@ export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
     device_label: z.string().trim().max(60, 'ชื่ออุปกรณ์ยาวได้ไม่เกิน 60 ตัวอักษร').default(''),
   }).strict();
 
+  const memberRow = id => db.prepare('SELECT m.*, u.email FROM members m LEFT JOIN users u ON u.id=m.user_id WHERE m.id=?').get(id);
+  const UNREADABLE = 'QR ไม่ถูกต้อง กรุณาให้สมาชิกเปิดรูปบัตรอีกครั้ง';
+
+  /**
+   * A card. The signature covers the card number, so a card the gym replaced
+   * fails here rather than anywhere near the member's row -- which is what
+   * makes "ออกบัตรใหม่" a single counter going up instead of a hunt for
+   * whatever copies of the old picture exist in the world.
+   */
+  function resolveCard(raw) {
+    const card = decodeCardQr(raw);
+    if (!card) return { denied: UNREADABLE };
+    const id = `${card.member.slice(0, 8)}-${card.member.slice(8, 12)}-${card.member.slice(12, 16)}-${card.member.slice(16, 20)}-${card.member.slice(20)}`;
+    const member = memberRow(id);
+    if (!member) return { denied: UNREADABLE };
+    if (!cardSignatureMatches(secret, member.id, card.version, card.signature)) return { denied: UNREADABLE };
+    if (card.version !== member.card_version) {
+      return { denied: 'บัตรใบนี้ถูกยกเลิกแล้ว กรุณาส่งบัตรใบใหม่ให้สมาชิก', extra: { member_id: member.id } };
+    }
+    return { member };
+  }
+
+  /**
+   * The QR the old member app minted a minute at a time. Kept so a member who
+   * has one in front of them is not turned away; nothing issues them any more.
+   */
+  function resolveOneTimeToken(decoded, req) {
+    const expected = sign(decoded.id);
+    if (!timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(decoded.signature, 'hex'))) return { denied: UNREADABLE };
+    const token = db.prepare('SELECT * FROM check_in_tokens WHERE id=?').get(decoded.id);
+    if (!token) return { denied: UNREADABLE };
+    const extra = { member_id: token.member_id, token_id: token.id };
+    if (token.consumed_at !== null) return { denied: 'QR นี้ถูกใช้ไปแล้ว กรุณาให้สมาชิกเปิดรหัสใหม่', extra };
+    // Always the server clock: a member whose phone is an hour out still works,
+    // and one whose phone is set forward gains nothing.
+    if (token.expires_at <= now()) return { denied: 'QR หมดอายุแล้ว กรุณาให้สมาชิกกดรีเฟรชรหัส', extra };
+    // One-time use: claim the token first, and only proceed if this request is
+    // the one that claimed it. Two scanners at once cannot both win.
+    const claimed = db.prepare('UPDATE check_in_tokens SET consumed_at=?, consumed_by=? WHERE id=? AND consumed_at IS NULL')
+      .run(now(), req.user.id, token.id);
+    if (claimed.changes !== 1) return { denied: 'QR นี้ถูกใช้ไปแล้ว กรุณาให้สมาชิกเปิดรหัสใหม่', extra };
+    return { member: memberRow(token.member_id), token_id: token.id };
+  }
+
   app.post('/api/check-ins/verify', counter, (req, res) => {
     limit(`checkin-verify:${req.user.id}`, 300, 900000);
     const input = parse(scanSchema, req.body);
@@ -114,34 +115,15 @@ export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
     });
 
     const outcome = transaction(db, () => {
-      if (!decoded) return record(deny('QR ไม่ถูกต้อง กรุณาให้สมาชิกเปิดรหัสใหม่จากแอป'));
-      // Constant-time so a wrong signature cannot be found by timing the reply.
-      const expected = sign(decoded.id);
-      const valid = timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(decoded.signature, 'hex'));
-      if (!valid) return record(deny('QR ไม่ถูกต้อง กรุณาให้สมาชิกเปิดรหัสใหม่จากแอป'));
+      // Two kinds of code arrive at this scanner. The card is the one members
+      // carry now: a picture in a chat app, signed, good until the gym issues
+      // a new one. The old one-time QR is still honoured while any remain
+      // unexpired, so nobody who had the member app is turned away mid-week.
+      const resolved = decoded ? resolveOneTimeToken(decoded, req) : resolveCard(input.qr);
+      if (resolved.denied) return record(deny(resolved.denied, resolved.extra ?? {}));
 
-      const token = db.prepare('SELECT * FROM check_in_tokens WHERE id=?').get(decoded.id);
-      if (!token) return record(deny('QR ไม่ถูกต้อง กรุณาให้สมาชิกเปิดรหัสใหม่จากแอป'));
-      if (token.consumed_at !== null) {
-        return record(deny('QR นี้ถูกใช้ไปแล้ว กรุณาให้สมาชิกเปิดรหัสใหม่', { member_id: token.member_id, token_id: token.id }));
-      }
-      // Always the server clock: a member whose phone is an hour out still works,
-      // and one whose phone is set forward gains nothing.
-      if (token.expires_at <= now()) {
-        return record(deny('QR หมดอายุแล้ว กรุณาให้สมาชิกกดรีเฟรชรหัส', { member_id: token.member_id, token_id: token.id }));
-      }
-
-      // One-time use: claim the token first, and only proceed if this request is
-      // the one that claimed it. Two scanners at once cannot both win.
-      const claimed = db.prepare('UPDATE check_in_tokens SET consumed_at=?, consumed_by=? WHERE id=? AND consumed_at IS NULL')
-        .run(now(), req.user.id, token.id);
-      if (claimed.changes !== 1) {
-        return record(deny('QR นี้ถูกใช้ไปแล้ว กรุณาให้สมาชิกเปิดรหัสใหม่', { member_id: token.member_id, token_id: token.id }));
-      }
-
-      const member = db.prepare('SELECT m.*, u.email FROM members m JOIN users u ON u.id=m.user_id WHERE m.id=?')
-        .get(token.member_id);
-      const base = { member_id: member.id, token_id: token.id, device_label: input.device_label, scanned_by: req.user.id };
+      const { member, token_id: tokenId } = resolved;
+      const base = { member_id: member.id, token_id: tokenId ?? null, device_label: input.device_label, scanned_by: req.user.id };
 
       // Membership status comes before any package: a suspended member is
       // refused even while their package is still valid.
@@ -190,14 +172,23 @@ export function registerCheckInRoutes({ app, db, now, admin, secret, limit }) {
       return { ...checkIn, _entitlement: after };
     });
 
+    // The photograph is the answer, not a detail. The person at the counter has
+    // to compare a face with the person in front of them before they let anyone
+    // in -- a card is a picture in a chat app and can be forwarded to a friend,
+    // so the screen has to make looking easier than not looking (Designer).
     const member = outcome.member_id
-      ? db.prepare('SELECT name, member_code, status FROM members WHERE id=?').get(outcome.member_id) : null;
+      ? db.prepare('SELECT id, name, member_code, status, photo_stored_name FROM members WHERE id=?').get(outcome.member_id)
+      : null;
     const entitlement = outcome._entitlement ?? null;
     res.status(outcome.result === 'allowed' ? 200 : 409).json({
       result: outcome.result,
       failure_reason: outcome.failure_reason,
       checked_in_at: outcome.checked_in_at,
-      member,
+      member: member && {
+        id: member.id, name: member.name, member_code: member.member_code, status: member.status,
+        has_photo: !!member.photo_stored_name,
+        photo_url: member.photo_stored_name ? `/api/members/${member.id}/photo` : null,
+      },
       remaining: entitlement
         ? { sessions_remaining: entitlement.sessions_remaining, expires_at: entitlement.expires_at }
         : null,

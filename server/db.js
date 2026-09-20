@@ -9,6 +9,20 @@ export const MIGRATIONS = [
   { version: 2, name: '002_gym_config' },
   { version: 3, name: '003_orders' },
   { version: 4, name: '004_checkin' },
+  { version: 5, name: '005_manual_grant' },
+  { version: 6, name: '006_user_status' },
+  { version: 7, name: '007_counter_app' },
+  { version: 8, name: '008_password_setup' },
+  { version: 9, name: '009_gym_branding' },
+  { version: 10, name: '010_appbar_style' },
+  { version: 11, name: '011_problem_reports' },
+  { version: 12, name: '012_report_counter' },
+  { version: 13, name: '013_self_signup' },
+  { version: 14, name: '014_verify_and_invite' },
+  { version: 15, name: '015_mail_settings' },
+  { version: 16, name: '016_member_portal' },
+  { version: 17, name: '017_member_content' },
+  { version: 18, name: '018_audit_survives_delete' },
 ];
 
 const sql = (name, direction) =>
@@ -44,45 +58,93 @@ export function transaction(db, fn, { attempts = 5 } = {}) {
 }
 const applied = (db, version) => !!db.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(version);
 
-export function migrate(db) {
-  for (const { version, name } of MIGRATIONS) {
-    if (applied(db, version)) continue;
-    transaction(db, () => {
-      db.exec(sql(name, 'up'));
-      db.prepare('INSERT INTO schema_migrations VALUES (?)').run(version);
-    });
+/**
+ * Runs the pending migrations with foreign keys off, then checks them.
+ *
+ * SQLite cannot relax a NOT NULL column in place: the table has to be rebuilt
+ * and the old one dropped, which every table pointing at it would otherwise
+ * refuse. `PRAGMA foreign_keys` is ignored inside a transaction, so it is
+ * turned off around the whole run and `foreign_key_check` verifies afterwards
+ * that nothing was left dangling -- the safety the pragma was giving, applied
+ * once at the end instead of row by row.
+ */
+function withoutForeignKeys(db, fn) {
+  db.exec('PRAGMA foreign_keys=OFF');
+  try {
+    fn();
+    const broken = db.prepare('PRAGMA foreign_key_check').all();
+    if (broken.length) {
+      throw new Error(`migration left ${broken.length} row(s) pointing at rows that do not exist`);
+    }
+  } finally {
+    db.exec('PRAGMA foreign_keys=ON');
   }
+}
+
+export function migrate(db) {
+  const pending = MIGRATIONS.filter(({ version }) => !applied(db, version));
+  if (!pending.length) return;
+  withoutForeignKeys(db, () => {
+    for (const { version, name } of pending) {
+      transaction(db, () => {
+        db.exec(sql(name, 'up'));
+        db.prepare('INSERT INTO schema_migrations VALUES (?)').run(version);
+      });
+    }
+  });
 }
 /** Rolls back the newest applied migration, or every one when `all` is set. */
 export function rollback(db, { all = false } = {}) {
-  for (const { version, name } of [...MIGRATIONS].reverse()) {
-    if (!applied(db, version)) continue;
-    transaction(db, () => {
-      db.exec(sql(name, 'down'));
-      db.prepare('DELETE FROM schema_migrations WHERE version=?').run(version);
-    });
-    if (!all) return;
-  }
+  withoutForeignKeys(db, () => {
+    for (const { version, name } of [...MIGRATIONS].reverse()) {
+      if (!applied(db, version)) continue;
+      transaction(db, () => {
+        db.exec(sql(name, 'down'));
+        db.prepare('DELETE FROM schema_migrations WHERE version=?').run(version);
+      });
+      if (!all) return;
+    }
+  });
 }
-export const memberSelect = `SELECT m.*, u.email FROM members m JOIN users u ON u.id=m.user_id`;
+// LEFT JOIN, not JOIN: a member signed up at the counter has no account, and
+// an inner join here made every one of them invisible to the screens that
+// list, search and open members.
+export const memberSelect = `SELECT m.*, u.email FROM members m LEFT JOIN users u ON u.id=m.user_id`;
 export function getMember(db, id) { return db.prepare(`${memberSelect} WHERE m.id=?`).get(id); }
 export function publicMember(row) {
   if (!row) return null;
-  const { user_id, ...member } = row;
-  return member;
+  // The stored file name is the one thing about the photograph that must not
+  // leave the server: it is the whole of the path the bytes sit at.
+  const { user_id, photo_stored_name, photo_content_type, ...member } = row;
+  return { ...member, email: member.email ?? null, has_photo: !!photo_stored_name };
 }
+/**
+ * What gets written down, filtered only where there is something to filter.
+ *
+ * `publicMember` exists to keep the stored photograph's file name out of
+ * places it does not belong, so it is applied to the rows that carry one.
+ * Running it over everything else -- an order row, a `{ reason }` note, an
+ * already-public user -- stamped `"email":null,"has_photo":false` onto every
+ * row in the table whatever the action was (QA). Noise in an audit trail is
+ * not harmless: it is the table somebody reads when they need to know exactly
+ * what happened.
+ */
+const carriesPhotoPath = value => !!value && typeof value === 'object'
+  && ('photo_stored_name' in value || 'member_code' in value);
+
 export function audit(db, actor, action, id, before, after, now, entityType = 'member') {
+  const written = value => (value ? JSON.stringify(carriesPhotoPath(value) ? publicMember(value) : value) : null);
   db.prepare(`INSERT INTO audit_logs(id,actor_id,action,entity_id,before_json,after_json,created_at,entity_type)
     VALUES(?,?,?,?,?,?,?,?)`).run(
-    randomUUID(), actor, action, id, before ? JSON.stringify(publicMember(before)) : null,
-    after ? JSON.stringify(publicMember(after)) : null, now, entityType);
+    randomUUID(), actor, action, id, written(before), written(after), now, entityType);
 }
 export function createMember(db, userId, values, actor, now) {
   const id = randomUUID();
   const code = `GYM-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`;
-  db.prepare(`INSERT INTO members(id,user_id,member_code,name,phone,date_of_birth,emergency_contact,status,joined_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, userId, code, values.name, values.phone, values.date_of_birth,
-    values.emergency_contact, values.status ?? 'active', now, now);
+  db.prepare(`INSERT INTO members(id,user_id,member_code,name,phone,date_of_birth,emergency_contact,status,
+    card_issued_at,joined_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, userId ?? null, code, values.name, values.phone, values.date_of_birth,
+      values.emergency_contact, values.status ?? 'active', now, now, now);
   const row = getMember(db, id);
   audit(db, actor, 'member.create', id, null, row, now);
   return publicMember(row);

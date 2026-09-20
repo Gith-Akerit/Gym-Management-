@@ -4,6 +4,7 @@
 //
 //   SLIP_RETENTION_DAYS=365 npm run slips:prune         # delete
 //   SLIP_RETENTION_DAYS=365 npm run slips:prune -- --dry-run
+import './load-env.js';
 import { openDatabase, migrate } from './db.js';
 import { SlipStore } from './slips.js';
 
