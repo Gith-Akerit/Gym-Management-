@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import Brand from '../shared/brand.cjs';
 import { MailSettings } from './mail-settings.jsx';
 import { ContentSettings } from './content-settings.jsx';
+import { AdminReports } from './admin-reports.jsx';
+import { UserAccounts } from './user-accounts.jsx';
 import { api, formatPhone, Loading, Mark, Notice, StateBox, upload, useResource } from './shared.jsx';
 
 /**
@@ -122,10 +124,21 @@ const SettingsTabs = ({ tab, setTab, dot, canEdit }) => <div className="settabs"
       gym's word to its customers, and every route behind this tab is admin. */}
   {canEdit && <a href="#content" aria-current={tab === 'content' ? 'page' : undefined}
     onClick={event => { event.preventDefault(); setTab('content'); }}>เครื่องและโปรแกรม</a>}
+  {/* Both of these are the owner's alone, and not by being greyed out: every
+      route behind them is admin, and a tab a member of staff can see but not
+      open teaches them to keep pressing it. */}
+  {canEdit && <a href="#reports" aria-current={tab === 'reports' ? 'page' : undefined}
+    onClick={event => { event.preventDefault(); setTab('reports'); }}>รายงาน</a>}
+  {canEdit && <a href="#users" aria-current={tab === 'users' ? 'page' : undefined}
+    onClick={event => { event.preventDefault(); setTab('users'); }}>บัญชีผู้ใช้</a>}
 </div>;
 
-export function GymBranding({ role, onAuthError, onSaved }) {
-  const [tab, setTab] = useState('brand');
+export function GymBranding({ role, onAuthError, onSaved, initialTab = 'brand', signedInAs, onSignedOut }) {
+  // Seeded from outside so the corner menu can land straight on a tab: "ผู้ใช้
+  // และสิทธิ์" in that menu is this screen with the accounts tab already open,
+  // rather than a second copy of the same screen somewhere else.
+  const [tab, setTab] = useState(initialTab);
+  useEffect(() => { setTab(initialTab); }, [initialTab]);
   // Read out here rather than inside the tab, because the dot has to be right
   // before anybody opens it -- which is the entire reason the dot exists.
   const mail = useResource('/gym/mail-settings');
@@ -163,6 +176,25 @@ export function GymBranding({ role, onAuthError, onSaved }) {
         · แก้ได้ทุกช่อง ไม่ต้องรอทีมพัฒนา</p>
       <SettingsTabs tab={tab} setTab={setTab} dot={dot} canEdit={canEdit}/>
       <ContentSettings onAuthError={onAuthError} onSaved={onSaved}/>
+    </div>;
+  }
+
+  // Neither of these needs the branding form, so both are answered before the
+  // screen waits for one -- the same shortcut the mail and content tabs take.
+  if (tab === 'reports' && canEdit) {
+    return <div>
+      <h1>ตั้งค่ายิม</h1>
+      <p className="sub">ตัวเลขของยิมนี้ · ดูบนจอ พิมพ์ลงกระดาษ หรือดาวน์โหลดเป็น CSV ไปเปิดใน Excel</p>
+      <SettingsTabs tab={tab} setTab={setTab} dot={dot} canEdit={canEdit}/>
+      <AdminReports/>
+    </div>;
+  }
+
+  if (tab === 'users' && canEdit) {
+    return <div>
+      <h1>ตั้งค่ายิม</h1>
+      <SettingsTabs tab={tab} setTab={setTab} dot={dot} canEdit={canEdit}/>
+      <UserAccounts onAuthError={onAuthError} signedInAs={signedInAs} onSignedOut={onSignedOut}/>
     </div>;
   }
 

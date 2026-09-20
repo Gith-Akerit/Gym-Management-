@@ -747,3 +747,90 @@
 }
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ==========================================================================
+   รายงาน — แถบสรุปวันนี้ · ตัวกรอง · ตาราง · กราฟแท่ง CSS ล้วน
+   ทุกสีมาจากโทเคนใน shared/brand.cjs · ห้าม opacity บนตัวอักษรที่อยู่บนสีแบรนด์
+   เพราะ opacity ลดคอนทราสต์จริงโดยที่ตัวเลขในไฟล์สไตล์ยังดูผ่าน
+   ========================================================================== */
+
+.reportpage h2{margin:var(--sp-6) 0 4px}
+.reportpage h3{margin:var(--sp-6) 0 var(--sp-3);font-size:var(--fs-20)}
+.reportpage .rrange{margin:0 0 var(--sp-4)}
+
+/* แถบสรุปวันนี้ — สี่ตัวเลขแรกที่เจ้าของยิมมองหา ก่อนจะเลือกรายงานด้วยซ้ำ */
+.todaybar{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3);margin-bottom:var(--sp-5)}
+.tcard{background:var(--surface);border:2px solid var(--line);border-left:6px solid var(--brand-surface);
+  border-radius:var(--r-2);padding:var(--sp-4);min-height:104px;display:flex;flex-direction:column;gap:2px}
+.tcard .tlabel{font-size:var(--fs-14);font-weight:700;color:var(--ink-2)}
+.tcard .tvalue{font-family:var(--font-num);font-size:var(--fs-28);font-weight:800;color:var(--ink);
+  line-height:1.2;overflow-wrap:anywhere}
+.tcard .tvalue span{font-family:var(--font);font-size:var(--fs-16);font-weight:700;color:var(--ink-2)}
+
+/* ตัวกรอง — ทั้งก้อนหายไปตอนพิมพ์ กระดาษไม่ต้องรู้ว่าเลือกมายังไง */
+.repfilters{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);
+  padding:var(--sp-4);margin-bottom:var(--sp-5)}
+.repfilter-row{display:flex;flex-wrap:wrap;gap:var(--sp-4);align-items:flex-end}
+.repfilter-row .field{flex:1 1 200px;margin-bottom:0}
+.repfilter-row .quickdays,.repfilter-row .repactions{flex:2 1 320px}
+.repfilter-row .btn-row>.btn{flex:0 1 auto}
+.flabel{display:block;margin-bottom:6px;font-size:var(--fs-16);font-weight:700;color:var(--ink)}
+.repfilters input[type=date],.repfilters select{width:100%;min-height:48px;padding:0 var(--sp-3);
+  border:2px solid var(--line-ctl);border-radius:var(--r-1);background:var(--surface);
+  font-family:var(--font-num);font-size:var(--fs-16);color:var(--ink)}
+
+/* แท็บเลือกรายงาน — ปุ่มจริง ไม่ใช่ลิงก์ เพราะไม่ได้เปลี่ยนที่อยู่ของหน้า */
+.reptabs{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.reptabs button{min-height:48px;padding:0 var(--sp-4);border:2px solid var(--line-ctl);
+  border-radius:999px;background:var(--surface);color:var(--ink);font-weight:700;
+  font-size:var(--fs-16);cursor:pointer}
+.reptabs button:hover{background:var(--panel)}
+.reptabs button[aria-selected=true]{background:var(--brand-surface);border-color:var(--brand-surface);
+  color:var(--on-brand)}
+
+/* ลิงก์ดาวน์โหลดหน้าตาเป็นปุ่ม — ตอนใช้ไม่ได้ให้ลดความอิ่มสี ไม่ใช่ลด opacity */
+a.btn{text-decoration:none;color:var(--ink)}
+a.btn.disabled{background:var(--panel);border-color:var(--line-ctl);color:var(--ink-2);
+  pointer-events:none}
+
+.rtable td.num,.rtable th.num{font-family:var(--font-num);white-space:nowrap}
+.rtable .note{display:block;font-size:var(--fs-14)}
+.rtable .sumrow td{background:var(--brand-soft);border-top:3px solid var(--brand-line)}
+.trunc{background:var(--warn-soft);border:2px solid var(--warn);border-radius:var(--r-1);
+  padding:10px var(--sp-4);margin:0 0 var(--sp-3);font-size:var(--fs-16);
+  font-weight:700;color:var(--warn)}
+
+/* กราฟแท่ง — สองกล่องกับเปอร์เซ็นต์ ไม่มี canvas เพราะหน้านี้ต้องพิมพ์ได้
+   ตัวเลขอยู่ "ข้าง" แท่ง ไม่ใช่ "บน" แท่ง จึงอ่านได้ทั้งแท่งยาวและแท่งสั้น */
+.bars{background:var(--surface);border:2px solid var(--line);border-radius:var(--r-2);
+  padding:var(--sp-4);margin-top:var(--sp-5)}
+.bars .bars-cap{margin:0 0 var(--sp-3);font-weight:700;color:var(--ink)}
+.bars ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.bars li{display:grid;grid-template-columns:72px 1fr 110px;gap:var(--sp-3);align-items:center}
+.bars .blabel{font-family:var(--font-num);font-size:var(--fs-14);color:var(--ink-2);text-align:right}
+.bars .btrack{height:22px;background:var(--panel);border-radius:6px;overflow:hidden}
+.bars .bfill{display:block;height:100%;background:var(--brand-surface);border-radius:6px;min-width:2px}
+.bars .bnum{font-family:var(--font-num);font-size:var(--fs-14);font-weight:700;color:var(--ink)}
+
+@media (max-width:899px){
+  .todaybar{grid-template-columns:1fr 1fr}
+  .repfilter-row{gap:var(--sp-3)}
+  .repfilter-row .field{flex:1 1 100%}
+  .bars li{grid-template-columns:60px 1fr 88px}
+}
+
+/* พิมพ์ — เอาทุกอย่างที่กดได้ออก เหลือหัวเรื่อง ช่วงวันที่ ตาราง และกราฟ */
+@media print{
+  /* Scoped to this screen: the app bar disappearing from every printed page
+     in the product is not what was asked for, and other screens print for
+     other reasons. `:has()` keeps the rule where it belongs. */
+  .noprint{display:none!important}
+  body:has(.reportpage) .appbar,
+  body:has(.reportpage) .settabs,
+  body:has(.reportpage) .pilot-banner,
+  body:has(.reportpage) .bottomnav{display:none!important}
+  .reportpage .table-wrap{overflow:visible}
+  .rtable .sumrow td{background:#EEE;border-top:2px solid #000}
+  .bars,.tcard,.rtable{break-inside:avoid}
+  .bars .bfill{background:#555;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}

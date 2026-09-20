@@ -284,6 +284,51 @@ export function registerAdminReportRoutes({ app, db, now, admin }) {
   /** The label a report shows for whoever did something. */
   const actorLabel = (email, id) => (id === DELETED_USER || !email ? DELETED_ACCOUNT_LABEL : email);
 
+  // ------------------------------------------------ 0 · the bar across the top
+
+  /**
+   * Today, in four numbers, before any report is chosen.
+   *
+   * One route rather than four calls to the reports below. The owner opens
+   * this on the counter's tablet, and a bar built from four requests is a bar
+   * that arrives in pieces -- money first, then check-ins, then the rest --
+   * on the one screen whose whole job is to be glanced at.
+   *
+   * "จะหมดอายุใน 7 วัน" counts members, not entitlements, by the same rule
+   * report 4 uses: the one that runs longest among those still usable. A
+   * member who renewed early has two rows and is still one person, and the
+   * number on the bar has to agree with the list behind it.
+   */
+  app.get('/api/admin/reports/today', admin, (req, res) => {
+    const at = now();
+    const day = new Date(at + TZ_OFFSET_MS).toISOString().slice(0, 10);
+    const startMs = Date.parse(`${day}T00:00:00Z`) - TZ_OFFSET_MS;
+    const endMs = startMs + DAY_MS;
+
+    const sales = db.prepare(`SELECT count(*) AS orders, COALESCE(sum(price_satang_snapshot),0) AS satang
+      FROM orders WHERE status='paid' AND manual_grant=0
+        AND reviewed_at >= ? AND reviewed_at < ?`).get(startMs, endMs);
+    const scans = db.prepare(`SELECT
+      COALESCE(sum(CASE WHEN result='allowed' THEN 1 ELSE 0 END), 0) AS allowed,
+      count(DISTINCT CASE WHEN result='allowed' THEN member_id END) AS people
+      FROM check_ins WHERE checked_in_at >= ? AND checked_in_at < ?`).get(startMs, endMs);
+    const joined = db.prepare('SELECT count(*) AS n FROM members WHERE joined_at >= ? AND joined_at < ?')
+      .get(startMs, endMs).n;
+    const expiring = db.prepare(`SELECT count(*) AS n FROM (
+      SELECT e.member_id, max(e.expires_at) AS expires_at
+      FROM entitlements e JOIN members m ON m.id = e.member_id
+      WHERE e.status='active' AND e.expires_at > ? AND m.status <> 'suspended'
+        AND (e.sessions_total IS NULL OR e.sessions_remaining > 0)
+      GROUP BY e.member_id) WHERE expires_at <= ?`).get(at, at + 7 * DAY_MS).n;
+
+    res.json({
+      day, day_label: thaiDate(day),
+      sales_orders: sales.orders, sales_satang: sales.satang, sales_baht: baht(sales.satang),
+      checkins: scans.allowed, people: scans.people,
+      new_members: joined, expiring_7: expiring,
+    });
+  });
+
   // ------------------------------------------- 1 · what the staff have done
 
   app.get('/api/admin/reports/staff-activity', admin, (req, res) => {

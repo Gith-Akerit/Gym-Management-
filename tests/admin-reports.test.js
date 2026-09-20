@@ -44,7 +44,7 @@ test('the reports belong to the owner, and nobody else gets a row of them', asyn
   await signIn('owner@example.test');
 
   // Case 1: staff get 403 on every one of them, not an empty list.
-  for (const name of ['staff-activity', 'sales', 'checkins', 'members', 'issues']) {
+  for (const name of ['today', 'staff-activity', 'sales', 'checkins', 'members', 'issues']) {
     const refused = await call('get', `/admin/reports/${name}`, desk);
     assert.equal(refused.status, 403, `/${name} ตอบ ${refused.status}`);
     assert.equal((await call('get', `/admin/reports/${name}`, null)).status, 401);
@@ -525,4 +525,45 @@ test('the owner can open an account for somebody and hand them the way in', asyn
   for (const action of ['user.create', 'user.password_link_issued', 'user.role', 'user.suspend']) {
     assert.ok(actions.includes(action), `ต้องบันทึก ${action}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// The four numbers across the top of the screen.
+//
+// They are read at a glance and never looked up again, which is exactly why
+// they have to agree with the reports underneath them. "จะหมดอายุใน 7 วัน"
+// counts PEOPLE by the longest entitlement they still have -- somebody who
+// renewed early has two rows and is one person, and a bar that counts them
+// twice sends the owner chasing a customer who has already paid.
+
+test('the bar across the top counts today, and counts people once', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  const { owner, member, pkg } = await busyGym(fixture);
+
+  const bar = (await call('get', '/admin/reports/today', owner).expect(200)).body;
+  assert.equal(bar.day, dayOf(fixture.at()));
+  assert.equal(bar.sales_orders, 1);
+  assert.equal(bar.sales_baht, '1200.00');
+  assert.equal(bar.checkins, 1);
+  assert.equal(bar.people, 1);
+  assert.equal(bar.new_members, 1);
+  // A membership sold this afternoon for thirty days is not "about to expire".
+  assert.equal(bar.expiring_7, 0);
+
+  // Now bring it inside the week, and sell the same person a second package
+  // that runs longer -- the renewal that used to count somebody twice.
+  const soon = fixture.at() + 3 * 86400000;
+  db.prepare("UPDATE entitlements SET expires_at=? WHERE member_id=?").run(soon, member.id);
+  const warned = (await call('get', '/admin/reports/today', owner).expect(200)).body;
+  assert.equal(warned.expiring_7, 1);
+
+  await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', pkg.id).field('payment_method', 'cash').expect(201);
+  const renewed = (await call('get', '/admin/reports/today', owner).expect(200)).body;
+  assert.equal(renewed.expiring_7, 0, 'ต่ออายุแล้วต้องหายจากรายการที่จะหมดอายุ ไม่ใช่ถูกนับสองครั้ง');
+
+  // And the number on the bar is the number of rows in the report behind it.
+  const list = (await call('get', '/admin/reports/members?view=expiring&days=7', owner).expect(200)).body;
+  assert.equal(renewed.expiring_7, list.total);
 });
