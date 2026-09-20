@@ -50,11 +50,27 @@ const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'รูปแบบว�
  * Both ends are inclusive to the person reading the screen -- "17 to 19" means
  * three whole days -- which is a range that ends at the start of the 20th.
  */
+/**
+ * A day that exists, or the sentence that says which one does not.
+ *
+ * `2026-13-01` and `2026-02-30` both pass the YYYY-MM-DD shape and are both
+ * nothing. Left to the comparison below they came back as "the start must not
+ * be after the end", which sends somebody hunting through a range that was
+ * never the problem (QA).
+ */
+const realDay = (value, which) => {
+  if (Date.parse(`${value}T00:00:00Z`) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value)) {
+    return value;
+  }
+  throw new HttpError(400, `รูปแบบวันที่ไม่ถูกต้อง: ${which} "${value}" ไม่มีอยู่จริง`);
+};
+
 export function rangeFrom({ from, to }, { days = 30 } = {}) {
   const today = new Date(Date.now() + TZ_OFFSET_MS).toISOString().slice(0, 10);
-  const end = to ?? today;
-  const start = from ?? new Date(Date.parse(`${end}T00:00:00Z`) - (days - 1) * DAY_MS)
-    .toISOString().slice(0, 10);
+  const end = to === undefined ? today : realDay(to, 'วันสิ้นสุด');
+  const start = from === undefined
+    ? new Date(Date.parse(`${end}T00:00:00Z`) - (days - 1) * DAY_MS).toISOString().slice(0, 10)
+    : realDay(from, 'วันเริ่ม');
   if (start > end) throw new HttpError(400, 'ช่วงวันที่ไม่ถูกต้อง วันเริ่มต้องไม่เกินวันสิ้นสุด');
   const startMs = Date.parse(`${start}T00:00:00Z`) - TZ_OFFSET_MS;
   const endMs = Date.parse(`${end}T00:00:00Z`) - TZ_OFFSET_MS + DAY_MS;
@@ -336,7 +352,7 @@ export function registerAdminReportRoutes({ app, db, now, admin }) {
     const totals = new Map();
     for (const row of filtered) {
       const day = new Date(row.ts + TZ_OFFSET_MS).toISOString().slice(0, 10);
-      const key = `${day} ${row.actor}`;
+      const key = `${day}\0${row.actor}`;
       const bucket = totals.get(key)
         ?? { day, actor: row.actor, total: 0, signups: 0, sales: 0, checkin_ok: 0, checkin_other: 0 };
       bucket.total += 1;

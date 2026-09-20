@@ -192,20 +192,70 @@ test('five thousand rows are the screen limit, never the file limit', async t =>
   const insert = db.prepare(`INSERT INTO check_ins(id,member_id,entitlement_id,result,failure_reason,
     device_label,scanned_by,checked_in_at) VALUES(?,?,?,?,?,?,?,?)`);
   const staff = db.prepare("SELECT id FROM users WHERE email='desk@example.test'").get();
+  const rangeStart = Date.parse(`${today}T00:00:00+07:00`);
+  const rangeEnd = rangeStart + 86400000;
   for (let i = 0; i < 5100; i += 1) {
     insert.run(`bulk-${i}`, null, null, 'denied', 'QR ไม่ถูกต้อง', 'เคาน์เตอร์ 1', staff.id, fixture.at());
   }
 
   const json = (await call('get', `/admin/reports/staff-activity?from=${today}&to=${today}`, owner)
     .expect(200)).body;
-  assert.equal(json.items.length, 5000);
+  assert.equal(json.items.length, 5000, 'หน้าจอได้ 5,000 แถวแรกพอดี');
   assert.equal(json.truncated, true);
+  // `total` is the whole count, not the truncated one: the screen says
+  // "แสดง 5,000 รายการแรก" and needs the real number to say it against.
+  const everything = db.prepare(`SELECT
+    (SELECT count(*) FROM check_ins WHERE checked_in_at >= ? AND checked_in_at < ?) AS scans,
+    (SELECT count(*) FROM audit_logs WHERE created_at >= ? AND created_at < ?
+      AND action <> 'checkin.allowed') AS logged`)
+    .get(rangeStart, rangeEnd, rangeStart, rangeEnd);
+  assert.equal(json.total, everything.scans + everything.logged);
   assert.ok(json.total > 5000);
 
+  // The file is not the screen: every row is in it, counted exactly rather
+  // than "more than five thousand".
   const csv = await call('get', `/admin/reports/staff-activity?from=${today}&to=${today}&format=csv`, owner)
     .expect(200);
   const lines = csv.text.split('\r\n').filter(line => line.includes('QR ไม่ถูกต้อง'));
-  assert.ok(lines.length > 5000, `CSV ต้องครบทุกแถว ได้ ${lines.length}`);
+  assert.equal(lines.length, 5100, `CSV ต้องครบทุกแถว ได้ ${lines.length}`);
+  assert.ok(csv.text.startsWith('﻿'), 'ไฟล์ใหญ่ก็ยังต้องมี BOM');
+
+  // And the same rule holds on a second report, so this is the shape of every
+  // one of them rather than something staff-activity happens to do.
+  for (let i = 0; i < 5100; i += 1) {
+    db.prepare(`INSERT INTO problem_reports(id,reference,message,screen,status,reported_by,created_at,updated_at)
+      VALUES(?,?,?,?,'new',?,?,?)`)
+      .run(`pr-${i}`, 1000 + i, `เรื่องที่ ${i}`, 'สแกนเช็คอิน', staff.id, fixture.at(), fixture.at());
+  }
+  const issues = (await call('get', '/admin/reports/issues', owner).expect(200)).body;
+  assert.equal(issues.items.length, 5000);
+  assert.equal(issues.truncated, true);
+  assert.equal(issues.total, 5100);
+  const issuesCsv = await call('get', '/admin/reports/issues?format=csv', owner).expect(200);
+  assert.equal(issuesCsv.text.split('\r\n').filter(line => line.startsWith('#')).length, 5100);
+});
+
+test('a date that does not exist is named as such, not blamed on the order', async t => {
+  const fixture = counterFixture(t);
+  const owner = await fixture.signIn('owner@example.test');
+
+  // `2026-13-01` has the right shape and is nothing. Answering "the start must
+  // not be after the end" sent somebody checking a range that was never the
+  // problem (QA).
+  const month13 = await fixture.call('get', '/admin/reports/sales?from=2026-13-01&to=2026-13-05', owner).expect(400);
+  assert.match(month13.body.error, /รูปแบบวันที่ไม่ถูกต้อง/);
+  assert.match(month13.body.error, /2026-13-05/, 'ต้องบอกด้วยว่าวันไหนที่ไม่มีอยู่จริง');
+
+  const feb30 = await fixture.call('get', '/admin/reports/checkins?from=2026-02-30&to=2026-03-01', owner).expect(400);
+  assert.match(feb30.body.error, /รูปแบบวันที่ไม่ถูกต้อง/);
+  assert.match(feb30.body.error, /2026-02-30/);
+
+  // The shape check still comes first for anything that is not a date at all.
+  const notADate = await fixture.call('get', '/admin/reports/sales?from=เมื่อวาน&to=2026-03-01', owner).expect(400);
+  assert.ok(notADate.body.error);
+
+  // And a real range still works, so the new check has not eaten anything.
+  await fixture.call('get', '/admin/reports/sales?from=2026-02-28&to=2026-03-01', owner).expect(200);
 });
 
 test('an action nobody has translated is shown, not hidden', async t => {
