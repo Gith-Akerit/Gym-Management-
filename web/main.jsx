@@ -1064,13 +1064,17 @@ function Users({ onAuthError, signedInAs, onSignedOut }) {
           <tbody>{data.items.map(user => <tr key={user.id}>
             <td data-label="อีเมล"><b>{user.email}</b>{user.member_name && <span className="note"> · {user.member_name}</span>}</td>
             <td data-label="สิทธิ์">
-              <select aria-label={`สิทธิ์ของ ${user.email}`} value={user.role} disabled={working}
+              {/* Your own row is read-only: the server refuses a change to your
+                  own permissions, and a dropdown that always errors is worse
+                  than one that is plainly not yours to use. */}
+              <select aria-label={`สิทธิ์ของ ${user.email}`} value={user.role}
+                disabled={working || endsMyOwnSession(user)}
+                title={endsMyOwnSession(user) ? 'เปลี่ยนสิทธิ์ของตัวเองไม่ได้ ให้ผู้ดูแลระบบอีกคนเป็นคนเปลี่ยนให้' : undefined}
                 onChange={e => act(`/users/${user.id}/role`, { method: 'PUT', body: { role: e.target.value } },
-                  `เปลี่ยนสิทธิ์ของ ${user.email} แล้ว`,
-                  endsMyOwnSession(user) && e.target.value !== user.role
-                    ? 'เปลี่ยนสิทธิ์ของบัญชีคุณแล้ว ออกจากระบบ' : undefined)}>
+                  `เปลี่ยนสิทธิ์ของ ${user.email} แล้ว`)}>
                 {Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-              </select></td>
+              </select>
+              {endsMyOwnSession(user) && <span className="note">บัญชีของคุณเอง</span>}</td>
             <td data-label="รหัสผ่าน">{user.role === 'member'
               ? <span className="muted">ไม่ต้องใช้</span>
               : <span className={`chip ${user.has_password ? 'ok' : 'bad'}`}>

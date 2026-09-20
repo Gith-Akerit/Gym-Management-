@@ -22,6 +22,7 @@ export const MIGRATIONS = [
   { version: 15, name: '015_mail_settings' },
   { version: 16, name: '016_member_portal' },
   { version: 17, name: '017_member_content' },
+  { version: 18, name: '018_audit_survives_delete' },
 ];
 
 const sql = (name, direction) =>

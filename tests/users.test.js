@@ -100,29 +100,34 @@ test('roles move in both directions, and every move is written down', async t =>
 });
 
 test('the last working admin cannot lock the gym out of itself', async t => {
-  const { call, seedAdmin, userRow } = fixture(t);
+  const { call, login, seedAdmin, userRow } = fixture(t);
   const owner = await seedAdmin('owner@example.test');
   const ownerId = userRow('owner@example.test').id;
 
-  for (const attempt of [
-    () => call('put', `/users/${ownerId}/role`, owner, { role: 'staff' }),
-    () => call('put', `/users/${ownerId}/role`, owner, { role: 'member' }),
-    () => call('post', `/users/${ownerId}/suspend`, owner, {}),
-  ]) {
-    const refused = await attempt().expect(409);
-    assert.match(refused.body.error, /ผู้ดูแลระบบคนสุดท้าย/);
+  // Suspending yourself is the way an owner locks the gym out of itself, and
+  // the guard names that reason.
+  const lastAdmin = await call('post', `/users/${ownerId}/suspend`, owner, {}).expect(409);
+  assert.match(lastAdmin.body.error, /ผู้ดูแลระบบคนสุดท้าย/);
+
+  // Changing your own permissions is refused before that guard is even
+  // reached: there is no good version of it, and the press that does it signs
+  // you out of the screen you needed the permission to open.
+  for (const role of ['staff', 'member']) {
+    const refused = await call('put', `/users/${ownerId}/role`, owner, { role }).expect(409);
+    assert.match(refused.body.error, /ตัวเอง/);
   }
   assert.equal(userRow('owner@example.test').role, 'admin');
   assert.equal(userRow('owner@example.test').status, 'active');
 
-  // With somebody else holding the keys it is allowed -- this is how an owner
-  // hands the gym over.
+  // Handing the gym over is done BY the person taking it on, not by the person
+  // leaving: the new owner is made an admin, signs in, and demotes the old one.
   const second = (await call('post', '/users', owner, { email: 'second@example.test', role: 'admin', password: PASSWORD }).expect(201)).body;
-  await call('put', `/users/${ownerId}/role`, owner, { role: 'staff' }).expect(200);
+  const successor = await login('second@example.test');
+  await call('put', `/users/${ownerId}/role`, successor, { role: 'staff' }).expect(200);
   assert.equal(userRow('owner@example.test').role, 'staff');
 
-  // Demoting yourself signs you out on the spot rather than leaving an admin
-  // screen open that no longer matches what you may do.
+  // And the demotion lands on the spot rather than leaving an admin screen
+  // open that no longer matches what the person may do.
   await call('get', '/me', owner).expect(401);
   await call('post', `/users/${second.id}/suspend`, owner, {}).expect(401);
 });
@@ -152,8 +157,10 @@ test('suspending an account stops it signing in, and restoring lets it back', as
   const again = await login('leaver@example.test');
   await call('get', '/me', again).expect(200);
 
+  // Signing in is on the trail now too, which is what lets a report say who
+  // was on shift rather than only what they touched.
   assert.deepEqual(auditFor(created.id).map(row => row.action),
-    ['user.create', 'user.suspend', 'user.restore']);
+    ['user.create', 'user.login', 'user.suspend', 'user.restore', 'user.login']);
 });
 
 test('a wrong password says the same thing whoever typed it', async t => {

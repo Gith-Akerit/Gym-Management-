@@ -46,8 +46,10 @@ test('data survives close/reopen and a migration on an existing database', () =>
     let db = openDatabase(join(dir, 'test.sqlite')); migrate(db);
     db.prepare('INSERT INTO users(id,email,created_at) VALUES(?,?,?)').run('one', 'one@example.test', Date.now()); db.close();
     db = openDatabase(join(dir, 'test.sqlite')); migrate(db);
-    assert.equal(db.prepare('SELECT count(*) n FROM users').get().n, 1); db.close();
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+    assert.equal(db.prepare("SELECT count(*) n FROM users WHERE id<>'deleted-user'").get().n, 1); db.close();
+  // maxRetries: on Windows the WAL companion files are released a beat after
+  // close(), and a bare rmSync loses that race with EPERM.
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }); }
 });
 test('admin CRUD/search/deactivate creates transactionally complete audit trail', async t => {
   const { login, call, db } = fixture(t); const admin = await login('admin@example.test', 'admin');
@@ -70,8 +72,13 @@ test('duplicate normalized email/phone returns 409 and rolls back user/audit ins
   await call('post', '/members', admin, member()).expect(201);
   await call('post', '/members', admin, { ...member(2), email: member().email.toUpperCase() }).expect(409);
   await call('post', '/members', admin, { ...member(2), phone: '+66 89-000-0001' }).expect(409);
-  assert.equal(db.prepare('SELECT count(*) n FROM users').get().n, 2);
-  assert.equal(db.prepare('SELECT count(*) n FROM audit_logs').get().n, 1);
+  // The placeholder that migration 018 adds for deleted accounts' history is
+  // a row in this table but not an account; counting it here would make this
+  // assertion about the migration rather than about the rollback.
+  assert.equal(db.prepare("SELECT count(*) n FROM users WHERE id<>'deleted-user'").get().n, 2);
+  // Signing in writes a row of its own now, so this counts the rows the
+  // member routes wrote: one create, and nothing from the two that rolled back.
+  assert.equal(db.prepare("SELECT count(*) n FROM audit_logs WHERE action LIKE 'member.%'").get().n, 1);
 });
 test('validation rejects empty, long, malformed, future and invalid calendar dates', async t => {
   const { login, call } = fixture(t); const admin = await login('admin@example.test', 'admin');

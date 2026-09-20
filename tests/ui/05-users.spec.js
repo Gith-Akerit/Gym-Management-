@@ -76,12 +76,23 @@ test('the gym cannot be left without an administrator', async ({ page }) => {
   await page.getByLabel('ค้นหาบัญชี').fill('admin11@example.test');
   const self = page.locator('.utable tbody tr').filter({ hasText: 'admin11@example.test' });
 
-  // There are other admins seeded here, so this one is allowed to step down --
-  // and doing so signs them straight out, which is the point.
+  // Other admins exist, so the gym would survive this one stepping down -- and
+  // it still cannot be done from here. Changing your own permissions is
+  // somebody else's press now: every version of doing it yourself ends with
+  // you signed out of the screen you needed the permission to open.
   const others = await page.getByText(/ผู้ดูแลระบบที่ใช้งานได้ \d+ คน/).innerText();
   expect(Number(others.match(/(\d+) คน/)[1])).toBeGreaterThan(1);
-  await self.getByLabel('สิทธิ์ของ admin11@example.test').selectOption('staff');
-  await expect(page.getByRole('button', { name: 'เข้าสู่ระบบ' })).toBeVisible();
+  const mine = self.getByLabel('สิทธิ์ของ admin11@example.test');
+  await expect(mine).toBeDisabled();
+  await expect(self.getByText('บัญชีของคุณเอง')).toBeVisible();
+
+  // Not merely greyed out: the route refuses it too.
+  const refused = await page.request.put(`/api/users/${await self.getAttribute('data-user-id') ?? ''}/role`,
+    { headers: { 'X-Gym-Client': 'web' }, data: { role: 'staff' } });
+  expect([404, 409]).toContain(refused.status());
+
+  // And the console is still there, because nothing signed anybody out.
+  await expect(page.getByRole('heading', { name: 'ผู้ใช้และสิทธิ์' })).toBeVisible();
 });
 
 test('an admin who suspends their own account is told why the screen vanished', async ({ browser }) => {

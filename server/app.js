@@ -11,6 +11,9 @@ import { issueSetupToken, readSetupToken, setupPath, setupTokenHash, verifyPath 
 import { registerPaymentRoutes } from './payments.js';
 import { registerPublicThemeRoutes, registerSettingsRoutes } from './settings-routes.js';
 import { registerReportRoutes } from './reports-routes.js';
+// The owner's five read-only reports. A different thing entirely from the
+// problem reports above, which is why it is a different name.
+import { registerAdminReportRoutes } from './admin-reports.js';
 import { registerMemberAuthRoutes, registerMemberPortalRoutes } from './member-routes.js';
 import { registerContentRoutes, registerPublicContentRoutes } from './content-routes.js';
 import multer from 'multer';
@@ -269,6 +272,12 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     const result = transaction(db, () => {
       db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(token), user.id, now() + 43200000);
       clearSignInFailures(input.email);
+      // Written down only when it worked. A failed attempt is already held by
+      // the rate limit and the lockout, and recording the address somebody
+      // typed wrong would be keeping data about a person who may have nothing
+      // to do with this gym. The role and nothing else: no IP, no browser --
+      // the report needs to say who was on shift, not where they stood.
+      audit(db, user.id, 'user.login', user.id, null, { role: user.role }, now(), 'user');
       return me(user);
     });
     if (req.get('X-Gym-Client') === 'mobile') return res.json({ ...result, token, expires_in: 43200 });
@@ -454,6 +463,11 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   });
   app.post('/api/auth/logout', (req, res) => {
     db.prepare('DELETE FROM sessions WHERE token_hash=?').run(req.user.token_hash);
+    // The other half of "who was on shift". A session that simply expires
+    // leaves no row, which is honest: nobody pressed anything.
+    if (req.user.role !== 'member') {
+      audit(db, req.user.id, 'user.logout', req.user.id, null, null, now(), 'user');
+    }
     res.clearCookie('gym_session', { path: '/api', httpOnly: true, sameSite: 'strict', secure: production });
     res.sendStatus(204);
   });
@@ -544,6 +558,9 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
 
   // Check-in at the counter.
   registerCheckInRoutes({ app, db, now, admin, counter, secret, limit });
+  // Five read-only reports for the owner. Registered after everything that
+  // writes, because they only ever read what those wrote.
+  registerAdminReportRoutes({ app, db, now, admin });
   /**
    * What a member's membership currently is, in the shape every screen needs:
    * the list row, the summary panel before a sale, and the card footer all ask
@@ -776,6 +793,14 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     has_password: !!row.password_hash, password_set_at: row.password_set_at ?? null,
     member_id: row.member_id ?? null, member_name: row.member_name ?? null,
   });
+  /**
+   * The row a deleted account's history points at afterwards (migration 018).
+   *
+   * It exists in `users` because a foreign key needs somewhere to land, not
+   * because anybody works here: suspended, no password, unable to sign in. It
+   * must never appear in the list of accounts or be counted as one.
+   */
+  const DELETED_USER = 'deleted-user';
   const userWithMember = () => `SELECT u.*, m.id AS member_id, m.name AS member_name
     FROM users u LEFT JOIN members m ON m.user_id=u.id`;
   const activeAdmins = (exceptId = '') =>
@@ -798,7 +823,9 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
       q: z.string().trim().max(120).optional(),
       page: z.coerce.number().int().min(1).max(10000).optional(),
     }).strict(), req.query);
-    const where = q ? `WHERE (u.email LIKE ? ESCAPE '\\' OR m.name LIKE ? ESCAPE '\\')` : '';
+    const where = q
+      ? `WHERE u.id <> '${DELETED_USER}' AND (u.email LIKE ? ESCAPE '\\' OR m.name LIKE ? ESCAPE '\\')`
+      : `WHERE u.id <> '${DELETED_USER}'`;
     const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
     const args = q ? [like, like] : [];
     const total = db.prepare(`SELECT count(*) AS n FROM users u LEFT JOIN members m ON m.user_id=u.id ${where}`).get(...args).n;
@@ -899,9 +926,16 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
           input.password ? now() : null, now());
       const after = db.prepare(`${userWithMember()} WHERE u.id=?`).get(id);
       audit(db, req.user.id, 'user.create', id, null, publicUser(after), now(), 'user');
-      return after;
+      // An account with no password is an account nobody can use, and the
+      // owner has no way to set one for somebody else that does not involve
+      // reading it out loud. So the link comes with the account: twenty-four
+      // hours, one use, handed over face to face.
+      if (input.password) return { after, link: null };
+      const { token, expiresAt } = issueSetupToken(db, { userId: id, now: now(), issuedBy: req.user.id });
+      audit(db, req.user.id, 'user.password_link_issued', id, null, { email: input.email }, now(), 'user');
+      return { after, link: { url: `${origin}${setupPath(token)}`, expires_at: expiresAt } };
     });
-    res.status(201).json(publicUser(created));
+    res.status(201).json({ ...publicUser(created.after), setup_link: created.link });
   });
 
   function changeUser(req, changes) {
@@ -984,7 +1018,21 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     res.json(publicUser(result));
   });
 
-  app.put('/api/users/:id/role', admin, (req, res) => res.json(changeUser(req, parse(roleSchema, req.body))));
+  /**
+   * Changing what somebody may do -- somebody else, always.
+   *
+   * An owner cannot change their own role here. Not because it would break
+   * anything (the last-admin guard already stops the fatal case) but because
+   * every use of it is a mistake: there is no reason to demote yourself from
+   * the screen you need the demoted permission to open, and the press that
+   * does it logs you out mid-sentence.
+   */
+  app.put('/api/users/:id/role', admin, (req, res) => {
+    if (req.params.id === req.user.id) {
+      throw new HttpError(409, 'เปลี่ยนสิทธิ์ของตัวเองไม่ได้ ให้ผู้ดูแลระบบอีกคนเป็นคนเปลี่ยนให้');
+    }
+    res.json(changeUser(req, parse(roleSchema, req.body)));
+  });
   app.post('/api/users/:id/suspend', admin, (req, res) => res.json(changeUser(req, { status: 'suspended' })));
   app.post('/api/users/:id/restore', admin, (req, res) => res.json(changeUser(req, { status: 'active' })));
   app.get('/api/users/:id/audit', admin, (req, res) => {
