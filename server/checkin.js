@@ -57,12 +57,42 @@ export function registerCheckInRoutes({ app, db, now, admin, counter, secret, li
   }
 
   const scanSchema = z.object({
-    qr: z.string().trim().min(1, 'กรุณาสแกน QR ของสมาชิก').max(200, 'รหัสยาวเกินไป'),
+    qr: z.string().trim().min(1, 'กรุณาสแกน QR หรือพิมพ์รหัสสมาชิก').max(200, 'รหัสยาวเกินไป'),
     device_label: z.string().trim().max(60, 'ชื่ออุปกรณ์ยาวได้ไม่เกิน 60 ตัวอักษร').default(''),
   }).strict();
 
   const memberRow = id => db.prepare('SELECT m.*, u.email FROM members m LEFT JOIN users u ON u.id=m.user_id WHERE m.id=?').get(id);
   const UNREADABLE = 'QR ไม่ถูกต้อง กรุณาให้สมาชิกเปิดรูปบัตรอีกครั้ง';
+  const NO_SUCH_CODE = 'ไม่พบรหัสสมาชิกนี้ กรุณาตรวจตัวอักษรอีกครั้ง หรือให้สมาชิกเปิดรูปบัตรให้สแกน';
+
+  /**
+   * The member code printed under the QR, typed in by hand.
+   *
+   * Staff read it off the card when the camera cannot (ผลทดสอบของผู้ใช้ ข้อ 2):
+   * before this, the only thing this endpoint understood was the signed payload
+   * *inside* the QR, so a correctly typed `GYM-…` was filed as an unreadable
+   * scan and the counter was told "ไม่ทราบสมาชิก" about a member who was
+   * standing right there and whose card scanned fine.
+   *
+   * It is a name, not a secret -- it is printed on the card in plain sight --
+   * so it proves nothing on its own. It does not have to: only signed-in staff
+   * reach this route, and what stops a card being passed between friends is
+   * the photograph the screen puts in front of the person at the counter, not
+   * the code. For the same reason a typed code is not stopped by the card
+   * version: the member is not holding a cancelled card, they are being looked
+   * up by name.
+   */
+  function resolveMemberCode(raw) {
+    const typed = String(raw ?? '').trim().toUpperCase().replace(/\s+/g, '');
+    // Both halves of what people actually type: the whole code off the card,
+    // or just the part after the prefix everybody's code shares.
+    const code = /^[0-9A-Z]{12}$/.test(typed) ? `GYM-${typed}` : typed;
+    if (!/^GYM-[0-9A-Z]{12}$/.test(code)) return null;
+    const member = db.prepare(`SELECT m.*, u.email FROM members m
+      LEFT JOIN users u ON u.id=m.user_id WHERE m.member_code=?`).get(code);
+    if (!member) return { denied: NO_SUCH_CODE };
+    return { member, by_code: true };
+  }
 
   /**
    * A card. The signature covers the card number, so a card the gym replaced
@@ -115,11 +145,14 @@ export function registerCheckInRoutes({ app, db, now, admin, counter, secret, li
     });
 
     const outcome = transaction(db, () => {
-      // Two kinds of code arrive at this scanner. The card is the one members
+      // Three kinds of code arrive at this scanner. The card is the one members
       // carry now: a picture in a chat app, signed, good until the gym issues
       // a new one. The old one-time QR is still honoured while any remain
       // unexpired, so nobody who had the member app is turned away mid-week.
-      const resolved = decoded ? resolveOneTimeToken(decoded, req) : resolveCard(input.qr);
+      // And the member code printed under the QR, which staff type when the
+      // camera will not read the screen in front of them.
+      const resolved = decoded ? resolveOneTimeToken(decoded, req)
+        : resolveMemberCode(input.qr) ?? resolveCard(input.qr);
       if (resolved.denied) return record(deny(resolved.denied, resolved.extra ?? {}));
 
       const { member, token_id: tokenId } = resolved;
@@ -167,7 +200,8 @@ export function registerCheckInRoutes({ app, db, now, admin, counter, secret, li
       }
       const after = db.prepare('SELECT * FROM entitlements WHERE id=?').get(entitlement.id);
       const checkIn = record({ ...base, result: 'allowed', entitlement_id: entitlement.id });
-      audit(db, req.user.id, 'checkin.allowed', checkIn.id, null, { member_id: member.id, entitlement_id: entitlement.id },
+      audit(db, req.user.id, 'checkin.allowed', checkIn.id, null,
+        { member_id: member.id, entitlement_id: entitlement.id, entry: resolved.by_code ? 'member_code' : 'qr' },
         now(), 'check_in');
       return { ...checkIn, _entitlement: after };
     });

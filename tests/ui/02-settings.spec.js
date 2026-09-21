@@ -48,8 +48,19 @@ test('a package cannot go on sale without a price', async ({ page }) => {
   await expect(page.getByText('ต้องกรอกราคาก่อนจึงจะเปิดขายแพ็กเกจได้')).toBeVisible();
 
   await page.getByLabel('ราคา (บาท)', { exact: false }).fill('1200');
+  // ผลทดสอบของผู้ใช้ ข้อ 4: มีแต่ชื่อกับราคา ไม่มีที่ให้เจ้าของยิมเขียนเงื่อนไข
+  // หรือโปรโมชัน ทั้งที่ตารางเก็บช่องนี้ไว้ตั้งแต่ต้น
+  await page.getByLabel('รายละเอียดและเงื่อนไข', { exact: false })
+    .fill('รวมคลาสกลุ่มทุกคลาส · เพื่อนมาด้วยได้เดือนละ 1 ครั้ง');
   await page.getByRole('button', { name: 'บันทึกแพ็กเกจ' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'บันทึกแพ็กเกจแล้ว' })).toBeVisible();
   await expect(page.getByText('1,200 ฿').first()).toBeVisible();
   await expect(page.getByText('✓ เปิดขาย').first()).toBeVisible();
+  await expect(page.getByText('เพื่อนมาด้วยได้เดือนละ 1 ครั้ง').first()).toBeVisible();
+
+  // และกลับมาแก้ได้จริง ไม่ใช่เขียนแล้วหายไปจากฟอร์ม
+  await page.getByRole('button', { name: 'แก้ไข รายเดือน Unlimited' }).click();
+  await expect(page.getByLabel('รายละเอียดและเงื่อนไข', { exact: false }))
+    .toHaveValue('รวมคลาสกลุ่มทุกคลาส · เพื่อนมาด้วยได้เดือนละ 1 ครั้ง');
+  await page.getByRole('button', { name: 'ยกเลิก' }).click();
 });

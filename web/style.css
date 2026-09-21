@@ -167,8 +167,14 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 
 .field{margin-bottom:var(--sp-4)}
 .field label{display:block;font-size:var(--fs-16);font-weight:700;margin-bottom:8px}
+/* สีตัวอักษรต้องระบุคู่กับพื้นเสมอ ห้ามปล่อยให้สืบทอดมา: ช่องกรอกมีพื้นขาว
+   (--surface) ตายตัว แต่ `color:inherit` ทำให้ในจอมืดอย่างหน้าจุดสแกนตัวอักษร
+   กลายเป็นสีขาวบนพื้นขาว — พิมพ์แล้วไม่เห็นอะไรเลยจนกว่าจะลากเมาส์คลุม
+   (ผลทดสอบของผู้ใช้ ข้อ 1) */
 .field input,.field select,.field textarea{width:100%;min-height:var(--tap);padding:0 var(--sp-4);
-  border:2px solid var(--line-strong);border-radius:var(--r-1);background:var(--surface);font-size:var(--fs-18)}
+  border:2px solid var(--line-strong);border-radius:var(--r-1);background:var(--surface);
+  color:var(--ink);font-size:var(--fs-18)}
+.field input::placeholder,.field textarea::placeholder{color:var(--ink-2);opacity:1}
 .field textarea{min-height:110px;padding:var(--sp-3) var(--sp-4);line-height:1.6}
 .field .hint{margin:6px 0 0;font-size:var(--fs-14);color:var(--ink-2)}
 /* ข้อผิดพลาดติดกับช่องที่ผิดเสมอ ไม่รวมไว้บนสุดของฟอร์ม */

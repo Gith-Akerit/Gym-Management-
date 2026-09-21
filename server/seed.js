@@ -23,21 +23,26 @@ export const GYM_HOURS = [
   ...[1, 2, 3, 4, 5, 6].map(weekday => ({ weekday, closed: 0, open_time: '15:00', close_time: '21:00' })),
 ];
 
+// `description` is read by the customer at the counter while they decide, so
+// it says what the package gives them and nothing else. That these are drafts
+// waiting for the owner's real price is carried by `status` and by the empty
+// `price_satang`, which is where the screens already look for it -- not by a
+// note to ourselves in the middle of the sales copy.
 export const PACKAGE_DRAFTS = [
   {
     code: 'UNLIMITED_30D', name_th: 'รายเดือน Unlimited', type: 'unlimited',
     duration_days: 30, session_limit: null, price_satang: null, sort_order: 10,
-    description: 'เข้าใช้บริการได้ไม่จำกัดครั้งภายใน 30 วัน — รอเจ้าของยิมกรอกราคาจริงก่อนเปิดขาย',
+    description: 'เข้าใช้บริการได้ไม่จำกัดครั้งภายใน 30 วันนับจากวันที่เริ่มใช้',
   },
   {
     code: 'VISIT_10_90D', name_th: '10 ครั้ง ใช้ได้ 90 วัน', type: 'limited_sessions',
     duration_days: 90, session_limit: 10, price_satang: null, sort_order: 20,
-    description: 'เข้าใช้บริการได้ 10 ครั้งภายใน 90 วัน — รอเจ้าของยิมกรอกราคาจริงก่อนเปิดขาย',
+    description: 'เข้าใช้บริการได้ 10 ครั้ง ภายใน 90 วันนับจากวันที่เริ่มใช้',
   },
   {
     code: 'TRIAL_1_VISIT', name_th: 'ทดลองเล่นฟรี 1 ครั้ง', type: 'limited_sessions',
     duration_days: 7, session_limit: 1, price_satang: 0, sort_order: 30,
-    description: 'directory สาธารณะระบุว่ามีบัตรทดลองเล่นฟรี — รอเจ้าของยิมยืนยันก่อนเปิดขาย',
+    description: 'ทดลองเล่นฟรี 1 ครั้ง ใช้ได้ภายใน 7 วัน สำหรับผู้ที่ยังไม่เคยเป็นสมาชิก',
   },
 ];
 

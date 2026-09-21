@@ -34,6 +34,9 @@ test('the three steps go in order and the photograph comes first', async ({ page
   await expect(next).toBeEnabled();
   await next.click();
 
+  // สิ่งที่ลูกค้าถามก่อนจ่ายเงินอยู่ตรงหน้าคนขาย ไม่ใช่แค่ชื่อกับราคา
+  // (ผลทดสอบของผู้ใช้ ข้อ 4 · เจ้าของยิมกรอกไว้ใน 02-settings)
+  await expect(page.getByText('เพื่อนมาด้วยได้เดือนละ 1 ครั้ง')).toBeVisible();
   await page.getByRole('radio', { name: MONTHLY }).check();
   await expect(page.getByText('รวมที่ต้องเก็บ')).toBeVisible();
   await expect(page.getByRole('radio', { name: 'เงินสด' })).toBeChecked();

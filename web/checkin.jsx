@@ -120,10 +120,15 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
         {typing && <form className="soft" style={{ marginTop: 'var(--sp-4)', background: 'transparent', borderColor: 'rgba(255,255,255,.4)' }}
           onSubmit={e => { e.preventDefault(); submit(); }}>
           <div className="field">
-            <label htmlFor="qr" style={{ color: 'var(--on-dark)' }}>รหัสจาก QR ของสมาชิก</label>
+            <label htmlFor="qr" style={{ color: 'var(--on-dark)' }}>รหัสสมาชิก หรือรหัสจาก QR</label>
             <input ref={input} id="qr" name="qr" value={code} autoComplete="off"
-              placeholder="สแกนด้วยเครื่องอ่าน หรือวางรหัสที่นี่"
+              placeholder="เช่น GYM-1A2B3C4D5E6F"
               onChange={e => setCode(e.target.value)}/>
+            {/* ผลทดสอบของผู้ใช้ ข้อ 2: ป้ายเดิมบอกว่า "รหัสจาก QR" ซึ่งเป็นสิ่งที่
+                ไม่มีใครอ่านออกจากบัตร คนที่หน้าเคาน์เตอร์จึงพิมพ์รหัสสมาชิกที่
+                พิมพ์อยู่ใต้ QR ลงไป — ตอนนี้รับได้จริงแล้ว ป้ายจึงบอกตามนั้น */}
+            <p className="hint" style={{ color: 'var(--on-dark-2)' }}>
+              พิมพ์รหัสสมาชิกที่อยู่ใต้ QR บนบัตรได้เลย หรือใช้เครื่องอ่านบัตรวางรหัสจาก QR ลงช่องนี้</p>
           </div>
           <Field name="device" label="ชื่อจุดสแกน (บันทึกไว้ในประวัติ)" value={device} onChange={setDevice}
             maxLength={60} placeholder="เช่น เคาน์เตอร์ 1"/>

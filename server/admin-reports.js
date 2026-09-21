@@ -215,6 +215,11 @@ export function failureGroup(reason) {
   if (text.includes('หมดอายุ') || text.includes('ใช้ครบ')) return 'แพ็กเกจหมดอายุ / ใช้ครบแล้ว';
   if (text.includes('ยังไม่มีแพ็กเกจ')) return 'ยังไม่มีแพ็กเกจ';
   if (text.includes('ระงับ')) return 'สมาชิกถูกระงับ';
+  // A code typed in at the counter and a QR that would not read are two
+  // different problems with two different answers -- one is a keyboard, the
+  // other is a camera -- so they are not allowed to land in the same bucket,
+  // and neither is allowed to fall through to 'อื่น ๆ'.
+  if (text.includes('ไม่พบรหัสสมาชิก')) return 'พิมพ์รหัสสมาชิกผิด';
   if (text.includes('QR')) return 'QR ไม่ถูกต้อง';
   if (text.includes('เช็คอินไปแล้ว')) return 'สแกนซ้ำ (ไม่ได้หักสิทธิ์)';
   return 'อื่น ๆ';

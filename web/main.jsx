@@ -372,7 +372,9 @@ const PackagePicker = ({ packages, value, onChange }) => <div className="stack">
     <input type="radio" name="package" checked={value === item.id} onChange={() => onChange(item.id)}
       aria-label={`${item.name_th} ${item.price_thb} บาท`}/>
     <span className="n"><b>{item.name_th}</b>
-      <span className="sm">{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}</span></span>
+      <span className="sm">{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}</span>
+      {/* สิ่งที่ลูกค้าถามก่อนจ่ายเงินอยู่ในบรรทัดนี้ ไม่ใช่ในหัวคนขายของ */}
+      {item.description && <span className="sm">{item.description}</span>}</span>
     <b className="num">{item.price_thb.toLocaleString('th-TH')} ฿</b>
   </label>)}
 </div>;
@@ -499,12 +501,14 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   // finds out is here, where they can photograph the member again.
   const brokenPhoto = data?.photo_readable === false;
 
-  /** Replaces the photograph from this screen, which is where the news lands. */
-  const [emailed, setEmailed] = useState('');
+  // What just happened to this card, whichever way it was handed over: posted
+  // to the member's address, or saved onto the machine in front of somebody.
+  const [handoff, setHandoff] = useState('');
   // One live portal link on screen at a time, like the staff one: a list of
   // them is a list of ways into customers' accounts on a counter tablet.
   const [portal, setPortal] = useState(null), [portalCopied, setPortalCopied] = useState(false);
 
+  /** Replaces the photograph from this screen, which is where the news lands. */
   async function savePhoto(file) {
     setWorking(true); setPhotoFailure(null);
     const form = new FormData();
@@ -548,23 +552,63 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
    * problem. Here somebody pressed a button and is owed an answer.
    */
   async function emailCard() {
-    setWorking(true); setFailure(null); setEmailed('');
+    setWorking(true); setFailure(null); setHandoff('');
     try {
       const result = await api(`/members/${member.id}/welcome`, { method: 'POST', body: {} });
-      setEmailed(`ส่งบัตรไปที่ ${result.to} แล้ว`);
+      setHandoff(`ส่งบัตรไปที่ ${result.to} แล้ว`);
       await reload().catch(() => {});
     } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
+  /**
+   * Handing the card over.
+   *
+   * On a phone this is the share sheet, which is why the counter prefers the
+   * phone. On a desktop browser there is no share sheet, and what this used to
+   * do instead -- `window.open` -- is a pop-up opened several awaits after the
+   * click, so the browser had already forgotten there was a click and blocked
+   * it. Nothing appeared and nothing said why (ผลทดสอบของผู้ใช้ ข้อ 5).
+   *
+   * The desktop path now saves the PNG the same way the button beside it does:
+   * a download of the image already in hand, which no pop-up blocker touches
+   * and which leaves the file ready to attach in LINE. A share sheet that is
+   * offered and then refused falls through to the same place rather than
+   * leaving the member with nothing.
+   */
+  function saveCardFile(blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${member.member_code}.png`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Freed on a timer rather than immediately: revoking it in the same tick
+    // can cancel the download that was just started.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   async function share() {
-    setFailure(null);
+    setFailure(null); setHandoff('');
+    let blob;
     try {
       const response = await fetch(src, { credentials: 'include' });
       if (!response.ok) throw new Error('โหลดรูปบัตรไม่สำเร็จ กรุณาลองใหม่');
-      const file = new File([await response.blob()], `${member.member_code}.png`, { type: 'image/png' });
-      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: member.name });
-      else window.open(src, '_blank', 'noopener');
-    } catch (e) { if (e.name !== 'AbortError') setFailure(e); }
+      blob = await response.blob();
+    } catch (e) { setFailure(e); return; }
+
+    const file = new File([blob], `${member.member_code}.png`, { type: 'image/png' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: member.name });
+        return;
+      } catch (e) {
+        // "ยกเลิก" ในหน้าต่างแชร์ไม่ใช่ความผิดพลาด และไม่ต้องบันทึกไฟล์ให้
+        if (e.name === 'AbortError') return;
+      }
+    }
+    saveCardFile(blob);
+    setHandoff(`บันทึกรูปบัตรของ ${member.name} ลงเครื่องแล้ว (${member.member_code}.png) — เปิด LINE หรืออีเมลแล้วแนบไฟล์นี้ส่งให้ลูกค้าได้เลย`);
   }
 
   async function reissue() {
@@ -674,8 +718,8 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
               gave no address is not a member with a broken button. */}
           {data.member?.email && <button className="btn xl" disabled={working} onClick={emailCard}>
             {data.member.welcome_sent_at ? 'ส่งบัตรทางอีเมลอีกครั้ง' : 'ส่งบัตรทางอีเมล'}</button>}
-          {emailed && <div className="banner ok" role="status">
-            <div className="ic" aria-hidden="true">✓</div><div><b>{emailed}</b></div></div>}
+          {handoff && <div className="banner ok" role="status">
+            <div className="ic" aria-hidden="true">✓</div><div><b>{handoff}</b></div></div>}
           <button className="btn ghost" disabled={working} onClick={resend}>ส่งบัตรซ้ำ (ลิงก์ 7 วัน)</button>
           {/* Offered only when there is an account to let them into. Without an
               address there is no member account, and the button would be a
@@ -908,6 +952,14 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
       <Field name="price_satang" label="ราคา (บาท)" value={form.price_satang} onChange={v => set('price_satang', v)}
         error={errors.price_thb ?? errors.price_satang} inputMode="decimal"
         hint="แพ็กเกจที่ยังไม่กรอกราคาจะมอบให้ใครไม่ได้ · ราคา 0 บาทคือแพ็กเกจฟรีจริง"/>
+      {/* ผลทดสอบของผู้ใช้ ข้อ 4: ตารางและ API เก็บรายละเอียดแพ็กเกจมาตลอด แต่ฟอร์มนี้
+          ไม่เคยมีช่องให้กรอก เจ้าของยิมจึงเขียนเงื่อนไขหรือโปรโมชันลงไปไม่ได้เลย
+          และหน้าเลือกแพ็กเกจก็ไม่มีอะไรจะแสดงนอกจากชื่อกับราคา */}
+      <Field name="description" label="รายละเอียดและเงื่อนไข (ไม่บังคับ)" value={form.description}
+        onChange={v => set('description', v)} error={errors.description}
+        hint="ขึ้นให้ลูกค้าเห็นตอนเลือกแพ็กเกจ · เขียนสิ่งที่ลูกค้าต้องรู้ก่อนจ่าย เช่น โปรโมชัน ของแถม ข้อจำกัดเวลาเข้าใช้">
+        <textarea maxLength={500} rows={4}/>
+      </Field>
       <Field name="status" label="สถานะแพ็กเกจ" value={form.status} onChange={v => set('status', v)} error={errors.status}>
         <select>{Object.entries(packageStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
       </Field>
@@ -938,7 +990,8 @@ function Packages({ onAuthError }) {
     {busy ? <Loading label="กำลังโหลดแพ็กเกจ…" avatar={false}/> : !error && <div className="list">
       {data.items.map(item => <div className="item" key={item.id}>
         <div className="who"><b>{item.name_th}</b>
-          <span>{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}</span></div>
+          <span>{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}
+            {item.description ? ` · ${item.description}` : ''}</span></div>
         <b className="num" style={{ fontSize: 'var(--fs-24)', color: item.price_thb === null ? 'var(--warn)' : undefined }}>
           {item.price_thb === null ? 'ยังไม่ตั้งราคา' : `${item.price_thb.toLocaleString('th-TH')} ฿`}</b>
         <span className={`chip ${item.price_thb === null ? 'warn' : item.status === 'active' ? 'ok' : 'neutral'}`}>

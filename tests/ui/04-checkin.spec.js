@@ -111,8 +111,8 @@ test('a browser that refuses the camera leaves the counter still working', async
 
   // And the way to carry on is one button, not a paragraph to read first.
   await page.getByRole('button', { name: 'พิมพ์รหัสจากบัตรแทน' }).click();
-  await expect(page.getByLabel('รหัสจาก QR ของสมาชิก')).toBeVisible();
-  await page.getByLabel('รหัสจาก QR ของสมาชิก').fill('GYMCARD1.' + 'a'.repeat(32) + '.1.' + 'f'.repeat(32));
+  await expect(page.getByLabel('รหัสสมาชิก หรือรหัสจาก QR')).toBeVisible();
+  await page.getByLabel('รหัสสมาชิก หรือรหัสจาก QR').fill('GYMCARD1.' + 'a'.repeat(32) + '.1.' + 'f'.repeat(32));
   await page.getByRole('button', { name: 'ตรวจสอบ' }).click();
   await expect(page.locator('.result')).toContainText('เข้าใช้บริการไม่ได้');
   await context.close();
@@ -125,4 +125,24 @@ test('the history screen separates real visits from unreadable codes', async ({ 
   await expect(page.getByText('ชัยชนะ มาออกกำลัง').first()).toBeVisible();
   await page.getByRole('button', { name: /QR ไม่ถูกต้อง/ }).click();
   await expect(page.getByText('ไม่ให้กลบประวัติการเข้าใช้บริการจริง', { exact: false })).toBeVisible();
+});
+
+test('the code printed on the card works when it is typed in', async ({ page }) => {
+  // ผลทดสอบของผู้ใช้ ข้อ 2: the counter typed in the member code off the card
+  // and was told "ไม่ทราบสมาชิก" about somebody whose QR scanned fine a minute
+  // earlier -- the box only understood the signed payload inside the QR.
+  await signIn(page, 'admin-typed@example.test');
+  await signUpMember(page, { name: 'พิมพ์รหัสเข้ายิม', phone: '0893337788', pkg: MONTHLY });
+  const member = await cardToken(page, 'พิมพ์รหัสเข้ายิม');
+
+  await scan(page, member.code, { device: 'เคาน์เตอร์ 2' });
+  const result = page.locator('.result');
+  await expect(result).toContainText('เข้าใช้บริการได้');
+  await expect(result).toContainText('พิมพ์รหัสเข้ายิม');
+
+  // A code nobody has sends staff back to the code, not to the camera.
+  await page.getByRole('button', { name: 'ยืนยันให้เข้า · สแกนคนถัดไป' }).click();
+  await scan(page, 'GYM-000000000404');
+  await expect(result).toContainText('เข้าใช้บริการไม่ได้');
+  await expect(result).toContainText('ไม่พบรหัสสมาชิกนี้');
 });

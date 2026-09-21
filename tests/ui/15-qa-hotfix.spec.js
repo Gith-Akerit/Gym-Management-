@@ -230,3 +230,34 @@ test('the way back in on the front screen is big enough to hit', async ({ page }
   if (/\d/.test(shown)) expect(shown, 'เบอร์บนหน้าแรกต้องจัดรูปแบบเหมือนหน้าอื่น').toMatch(/\d{2,3}-\d{3}-\d{3,4}/);
   await page.setViewportSize({ width: 1280, height: 900 });
 });
+
+test('on a desktop browser, handing the card over saves the file instead of failing silently',
+  async ({ page }) => {
+    // ผลทดสอบของผู้ใช้ ข้อ 5: "การใช้งานในโทรศัพท์จะเสถียรกว่าในคอม เวลาส่งหรือ
+    // บันทึก QR ให้กับสมาชิก" — the phone gets a share sheet; the desktop got a
+    // `window.open` fired several awaits after the click, which the browser had
+    // already stopped treating as a click and blocked. Nothing opened and
+    // nothing said so.
+    await page.addInitScript(() => {
+      // A desktop browser with no share sheet, which is most of them. Defined
+      // over rather than deleted: these live on Navigator.prototype, so
+      // `delete navigator.canShare` removes an own property that was never
+      // there and leaves the real one answering.
+      for (const name of ['canShare', 'share']) {
+        Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+      }
+    });
+    await signIn(page, 'handoff-admin@example.test');
+    await signUpMember(page, { name: 'ส่งบัตรจากคอม', phone: '0895550011' });
+
+    const download = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/^GYM-[0-9A-Z]+\.png$/);
+
+    // And it says where the file went, because a download that appears in a
+    // corner of the browser is not an answer to "did the customer get it".
+    await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปบัตรของ ส่งบัตรจากคอม ลงเครื่องแล้ว' }))
+      .toBeVisible();
+    await expect(page.getByText('แนบไฟล์นี้ส่งให้ลูกค้าได้เลย', { exact: false })).toBeVisible();
+  });

@@ -417,6 +417,9 @@ test('the pieces the reports are built from behave on their own', () => {
   assert.equal(failureGroup('บัตรใบนี้ถูกยกเลิกแล้ว ออกบัตรใหม่ให้ลูกค้า'), 'บัตรถูกยกเลิก (ออกบัตรใหม่แล้ว)');
   assert.equal(failureGroup('แพ็กเกจหมดอายุเมื่อ 3 วันก่อน'), 'แพ็กเกจหมดอายุ / ใช้ครบแล้ว');
   assert.equal(failureGroup('QR ไม่ถูกต้อง'), 'QR ไม่ถูกต้อง');
+  // เคาน์เตอร์พิมพ์รหัสผิดกับกล้องอ่านบัตรไม่ออก คนละปัญหา คนละทางแก้
+  assert.equal(failureGroup('ไม่พบรหัสสมาชิกนี้ กรุณาตรวจตัวอักษรอีกครั้ง หรือให้สมาชิกเปิดรูปบัตรให้สแกน'),
+    'พิมพ์รหัสสมาชิกผิด');
   assert.equal(failureGroup('อะไรที่ไม่เคยเจอมาก่อน'), 'อื่น ๆ');
 
   // Field names only, never values.
