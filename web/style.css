@@ -206,6 +206,10 @@ h2{margin:0 0 var(--sp-4);font-size:var(--fs-20);font-weight:700}
 .banner.ok .ic{background:rgba(255,255,255,.2)}
 .banner.bad{background:var(--bad);color:#fff}
 .banner.bad .ic{background:rgba(255,255,255,.2)}
+/* "ตรวจอีกครั้งก่อนบันทึก" ไม่ใช่ "ผิด" — คนละสีกับ .bad เพราะคนละความหมาย
+   สิ่งที่ทักด้วยสีนี้กดบันทึกต่อได้เสมอ */
+.banner.warn{background:var(--warn);color:#fff}
+.banner.warn .ic{background:rgba(255,255,255,.2)}
 
 /* -------------------------------------------------- 5. สี่สถานะของทุกหน้า ---
    มีข้อมูล = markup ปกติ · อีกสามสถานะใช้บล็อกด้านล่าง                        */

@@ -246,3 +246,26 @@ test('a reissued card does not lock the counter out of typing the code', async t
   const typed = await scan(counter, who.code).expect(200);
   assert.equal(typed.body.result, 'allowed');
 });
+
+test('a package with one visit in a year lets that visit through, then says so', async t => {
+  // ยิมตั้งแพ็กเกจจริงมาแบบนี้ทั้งห้าตัว — รายปี 10,000 บาท ใส่ "1 ครั้ง" —
+  // สมาชิกจึงสแกนเข้าได้หนแรกหนเดียวแล้วสิทธิ์หมดทั้งปี ทุกบรรทัดของระบบทำถูก
+  // ตามที่ถูกตั้งค่าไว้ เทสต์นี้ตรึงพฤติกรรมนั้นไว้ เพราะหน้าจอที่เพิ่งแก้ไป
+  // (คำเตือนตอนตั้งแพ็กเกจ และประโยค "ครั้งนี้เป็นครั้งสุดท้าย" ตอนสแกน)
+  // ยืนอยู่บนตัวเลข sessions_remaining ตัวนี้ตัวเดียว
+  const { member, staff, grant, scan, tick } = fixture(t);
+  const counter = staff('staff-lastvisit@example.test');
+  const who = member('รายปีเข้าได้ครั้งเดียว');
+  grant(who.id, { days: 365, sessions: 1 });
+
+  const first = await scan(counter, who.qr).expect(200);
+  assert.equal(first.body.result, 'allowed');
+  assert.equal(first.body.remaining.sessions_remaining, 0,
+    'จอสแกนอ่านเลขนี้เพื่อบอกว่าเป็นครั้งสุดท้าย');
+
+  // ครั้งหน้าที่มา แพ็กเกจยังไม่หมดอายุ แต่เข้าไม่ได้แล้ว
+  tick(2 * DAY);
+  const next = await scan(counter, who.qr).expect(409);
+  assert.equal(next.body.result, 'denied');
+  assert.match(next.body.failure_reason, /ใช้ครบจำนวนครั้ง|หมดอายุ/);
+});

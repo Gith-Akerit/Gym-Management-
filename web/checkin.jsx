@@ -67,6 +67,10 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
   const member = outcome?.member ?? null;
   const remaining = outcome?.remaining ?? null;
   const revoked = outcome?.result === 'denied' && /ถูกยกเลิก/.test(outcome.failure_reason ?? '');
+  // สิทธิ์หมดพอดีกับครั้งนี้ — นับเฉพาะตอนที่เข้าได้จริง ไม่ใช่ตอนถูกปฏิเสธ
+  // (ถูกปฏิเสธเพราะสิทธิ์หมด มีข้อความของมันเองอยู่แล้ว)
+  const lastVisit = (outcome?.result === 'allowed' || outcome?.result === 'duplicate')
+    && remaining?.sessions_remaining === 0;
 
   return <div className="scanstage">
     <div className="scanbar">
@@ -221,6 +225,12 @@ export function StaffScanner({ brand = 'ยิมของเรา', branding, 
                   ? 'ไม่จำกัดครั้ง' : `เหลือ ${remaining.sessions_remaining} ครั้ง`}</b></div>
                 <div><span>ใช้ได้ถึง</span><b className="num">{formatDateTime(remaining.expires_at)}</b></div>
               </div>}
+              {/* "เข้าใช้บริการได้" คู่กับ "เหลือ 0 ครั้ง" เป็นคู่ที่อ่านแล้วงง
+                  ที่จริงมันแปลว่าเพิ่งใช้ครั้งสุดท้ายไป ซึ่งเป็นเรื่องที่ต้องบอก
+                  ตอนลูกค้ายังยืนอยู่ตรงหน้า ไม่ใช่ให้เขารู้ตอนมาครั้งหน้าแล้วสแกนไม่ผ่าน
+                  (เจอในผลทดสอบของผู้ใช้ รอบที่ 2 — สมาชิกรายปีที่ถูกตั้งแพ็กเกจไว้ 1 ครั้ง) */}
+              {lastVisit && <p className="reason"><b>ครั้งนี้เป็นครั้งสุดท้ายของแพ็กเกจนี้</b> —
+                บอกลูกค้าตอนนี้เลยว่าครั้งหน้าต้องต่อแพ็กเกจก่อนถึงจะเข้าได้</p>}
               {outcome.failure_reason && <p className="reason">{outcome.failure_reason}</p>}
             </div>
           </section>
