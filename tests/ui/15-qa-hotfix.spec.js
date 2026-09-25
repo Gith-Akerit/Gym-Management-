@@ -321,3 +321,170 @@ test('replacing the photograph also retires what the screen says was handed over
     await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปถ่ายใหม่แล้ว' })).toBeVisible();
     await expect(bar).toBeHidden();
   });
+
+// ------------------------------------------------- the slow machine at the gym
+//
+// QA, retest of bfa3cdb: clearing the message was not clearing the work behind
+// it. Press "ส่งบัตรให้ลูกค้า", and while the picture is still coming down the
+// wire, cancel the card / replace the face / correct the name. The old response
+// landed afterwards, downloaded the card that had just been thrown away and put
+// the green bar back under it -- so staff attached a dead card and sent it to
+// the member over LINE, which is the complaint this whole issue started from.
+//
+// The window is not hypothetical: the user's own report is that the desktop is
+// slower than the phone at exactly this, so the machine with the widest window
+// is the machine they work on.
+
+/** A desktop browser: no share sheet, so handing a card over is a download. */
+const noShareSheet = page => page.addInitScript(() => {
+  for (const name of ['canShare', 'share']) {
+    Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+  }
+});
+
+/**
+ * Holds one request open until the test lets go of it.
+ *
+ * `arrived` resolves once the app has actually asked for it, so a test can be
+ * sure the work is in flight before it changes the card underneath it.
+ */
+async function hold(page, url) {
+  const target = new URL(url, page.url());
+  let release, started;
+  const gate = new Promise(r => { release = r; });
+  const arrived = new Promise(r => { started = r; });
+  await page.route(u => u.pathname === target.pathname && u.search === target.search,
+    async route => {
+      const response = await route.fetch();
+      started();
+      await gate;
+      await route.fulfill({ response });
+    });
+  return { arrived, release: () => release() };
+}
+
+const STALE = 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังทำรายการนี้';
+
+/** The three ways the card on this screen can change under a pending request. */
+const MUTATIONS = [
+  {
+    key: 'reissue', phone: '0895551101', label: 'ออกบัตรใหม่',
+    async run(page) {
+      await page.getByText('เมนูเพิ่มเติม').click();
+      await page.getByRole('button', { name: 'ออกบัตรใหม่', exact: true }).click();
+      await page.getByRole('button', { name: 'ยืนยัน ออกบัตรใหม่' }).click();
+      await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: 'บัตรใบเดิมใช้ไม่ได้ทันที' })).toBeVisible();
+    },
+  },
+  {
+    key: 'photo', phone: '0895551102', label: 'เปลี่ยนรูปถ่าย',
+    async run(page) {
+      await page.getByLabel('เลือกรูปจากเครื่องแทน')
+        .setInputFiles({ name: 'changed.png', mimeType: 'image/png', buffer: PNG_PIXEL });
+      await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปถ่ายใหม่แล้ว' })).toBeVisible();
+    },
+  },
+  {
+    key: 'name', phone: '0895551103', label: 'แก้ชื่อสมาชิก',
+    async run(page, name) {
+      await page.getByRole('button', { name: 'แก้ไขข้อมูลสมาชิก' }).click();
+      await page.getByLabel('ชื่อ–นามสกุล').fill(name + ' แก้แล้ว');
+      await page.getByRole('button', { name: 'บันทึกการแก้ไข' }).click();
+      await expect(page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name + ' แก้แล้ว' })).toBeVisible();
+    },
+  },
+];
+
+for (const mutation of MUTATIONS) {
+  test('a card that arrives after ' + mutation.label + ' is not downloaded and not announced',
+    async ({ page }) => {
+      await noShareSheet(page);
+      await signIn(page, 'handoff-admin@example.test');
+      const name = 'รอไฟล์แล้ว' + mutation.key;
+      await signUpMember(page, { name, phone: mutation.phone });
+
+      const picture = page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name });
+      await expect.poll(() => picture.evaluate(img => img.naturalWidth)).toBe(1080);
+      const gated = await hold(page, await picture.getAttribute('src'));
+
+      const downloads = [];
+      page.on('download', file => downloads.push(file));
+
+      await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+      await gated.arrived;
+      await mutation.run(page, name);
+      gated.release();
+
+      // The guard reports rather than doing nothing: a button that goes quiet
+      // is the desktop bug this issue already fixed once (ข้อ 5).
+      await expect(page.getByRole('alert').filter({ hasText: STALE })).toBeVisible();
+      // No file left the browser, so there is nothing to attach by mistake...
+      expect(downloads, 'บัตรใบเก่าถูกดาวน์โหลดทั้งที่บัตรบนจอเปลี่ยนไปแล้ว').toEqual([]);
+      // ...and the green bar never came back to tell anybody to attach it.
+      await expect(page.getByRole('status').filter({ hasText: 'เปิด LINE' })).toHaveCount(0);
+    });
+}
+
+
+test('a letter that lands after the card changes says so instead of reporting success',
+  async ({ page }) => {
+    // This one cannot be called back: the letter is already gone, with the card
+    // as it was inside it. So the green "sent" bar would be true and useless --
+    // what staff have to know is that the member has the wrong card in their
+    // inbox and needs the new one.
+    //
+    // The card is moved here by correcting the name rather than by cancelling
+    // it, because "แก้ไขข้อมูลสมาชิก" is the one button on this screen that is
+    // not locked while something else is in flight -- so it is the door a
+    // person can actually walk through mid-request.
+    await signIn(page, 'handoff-admin@example.test');
+    const name = 'ส่งอีเมลแล้วแก้ชื่อ';
+    await signUpMember(page, { name, phone: '0895551105' });
+    await page.getByRole('button', { name: 'แก้ไขข้อมูลสมาชิก' }).click();
+    await page.getByLabel('อีเมล', { exact: false }).fill('race-mail@example.test');
+    await page.getByRole('button', { name: 'บันทึกการแก้ไข' }).click();
+    await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+    const id = await page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name })
+      .evaluate(img => new URL(img.src).pathname.split('/')[3]);
+
+    const gated = await hold(page, '/api/members/' + id + '/welcome');
+    await page.getByRole('button', { name: /ส่งบัตรทางอีเมล/ }).click();
+    await gated.arrived;
+    await MUTATIONS[2].run(page, name);
+    gated.release();
+
+    const told = page.getByRole('alert').filter({ hasText: 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังส่ง' });
+    await expect(told).toBeVisible();
+    await expect(told).toContainText('race-mail@example.test');
+    await expect(page.getByRole('status').filter({ hasText: 'ส่งบัตรไปที่' })).toHaveCount(0);
+  });
+
+test('a seven-day link is not thrown away by a change that does not kill it', async ({ page }) => {
+  // The other half of the contract, and the reason the link is checked against
+  // the card *number* rather than against the picture: a link is signed over
+  // the number, and the card is drawn fresh every time the link is opened. So
+  // renaming a member -- or rephotographing them -- leaves the URL already in
+  // somebody's hand working, and now serving the corrected card.
+  //
+  // Guarding links with the same test as the file would have looked safe and
+  // quietly taken a working link off the screen.
+  await signIn(page, 'handoff-admin@example.test');
+  const name = 'ขอลิงก์แล้วแก้ชื่อ';
+  await signUpMember(page, { name, phone: '0895551104' });
+  const id = await page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name })
+    .evaluate(img => new URL(img.src).pathname.split('/')[3]);
+
+  const gated = await hold(page, '/api/members/' + id + '/card/link');
+  await page.getByRole('button', { name: 'ส่งบัตรซ้ำ (ลิงก์ 7 วัน)' }).click();
+  await gated.arrived;
+  await MUTATIONS[2].run(page, name);
+  gated.release();
+
+  const box = page.getByLabel('ลิงก์บัตร');
+  await expect(box).toBeVisible();
+  // And it is a link that really opens the card, not just a string on screen.
+  const card = await page.request.get(await box.inputValue());
+  expect(card.status()).toBe(200);
+  expect(card.headers()['content-type']).toBe('image/png');
+});

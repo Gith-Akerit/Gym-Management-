@@ -88,12 +88,22 @@ test('the owner hands a new member of staff a link instead of a password', async
   await page.getByRole('button', { name: 'สร้างบัญชี' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'สร้างบัญชีแล้ว' })).toBeVisible();
 
+  // Creating the account already hands one over, so the panel and its heading
+  // are on screen before the button below is pressed -- and pressing it mints
+  // a second link, which retires the first. Reading the box the moment the
+  // heading appears therefore reads the link that is about to be cancelled,
+  // and the rest of this test then tries to use it (QA: this is the race, the
+  // behaviour underneath is sound). Watched changing instead of read once.
+  const box = page.getByLabel('ลิงก์', { exact: true });
+  const retired = await box.inputValue();
+
   await page.getByLabel('ค้นหาบัญชี').fill('linkstaff@example.test');
   const row = page.locator('.utable tbody tr').filter({ hasText: 'linkstaff@example.test' });
   await row.getByRole('button', { name: /^สร้างลิงก์ตั้งรหัสผ่านของ/ }).click();
 
   await expect(page.getByRole('heading', { name: /^ลิงก์ตั้งรหัสผ่านของ/ })).toBeVisible();
-  const link = await page.getByLabel('ลิงก์', { exact: true }).inputValue();
+  await expect.poll(() => box.inputValue()).not.toBe(retired);
+  const link = await box.inputValue();
   expect(link).toMatch(/\?setpw=[A-Za-z0-9_-]{43}$/);
   await expect(page.getByText(/อย่าโพสต์ลงกลุ่ม/)).toBeVisible();
   await page.screenshot({ path: 'artifacts/password-link-1280.png', fullPage: true });

@@ -411,7 +411,7 @@ const MethodPicker = ({ value, onChange, onSlip, slip }) => <>
  * not a narrower permission but the audit row written on every save: who
  * changed what, and when.
  */
-function MemberEdit({ member, onCancel, onSaved, onReissue, onAuthError }) {
+function MemberEdit({ member, onCancel, onSaved, onSaving, onReissue, onAuthError }) {
   const [value, setValue] = useState({
     name: member.name ?? '', phone: member.phone ?? '', email: member.email ?? '',
     date_of_birth: member.date_of_birth ?? '', emergency_contact: member.emergency_contact ?? '',
@@ -424,6 +424,10 @@ function MemberEdit({ member, onCancel, onSaved, onReissue, onAuthError }) {
 
   async function save() {
     setBusy(true); setError(null);
+    // The card screen behind this one is told as the save *starts*: the name
+    // on this form is drawn on the card, so anything it has in the air from
+    // before now is carrying a card in the old name.
+    onSaving?.();
     try {
       const saved = await api(`/members/${member.id}`, { method: 'PUT', body: {
         name: value.name, phone: value.phone, email: value.email || null,
@@ -508,6 +512,40 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   // and the message to staff all quoting the code on the card just cancelled.
   const current = data?.member ?? member;
 
+  /**
+   * Which card this screen is on, readable from inside a pending `await`.
+   *
+   * Clearing `handoff` was not enough (QA). It wipes the message but not the
+   * `fetch` behind it, and on the machine at the gym -- the slow one the user
+   * reported, which is where cards are handed over -- that fetch can still be
+   * in the air when the owner cancels the card. It came back afterwards,
+   * downloaded the cancelled card's bytes and put the green bar back, so the
+   * next thing staff did was send a dead card to the member over LINE.
+   *
+   * Two counters rather than one, because two different things go stale:
+   *
+   * - `drawn` moves whenever the picture changes -- cancelled, rephotographed,
+   *   renamed. Anything holding bytes drawn before it moved is holding the
+   *   wrong picture.
+   * - `numbered` moves only when the card number does, which is the only thing
+   *   that kills a seven-day link. A new photograph does not: the link redraws
+   *   the card every time it is opened, so it starts serving the new face.
+   *
+   * Both are raised where the change *starts*, not where it finishes. Raising
+   * them on success would leave the gap between the request going out and the
+   * screen catching up -- which is the gap this whole thing lives in.
+   *
+   * `useRef` throughout: these are read by closures an earlier render made, and
+   * a captured `const` would compare the old card against itself.
+   */
+  const drawn = useRef(0), numbered = useRef(0);
+  /** What the press that is starting now is for. */
+  const holding = () => ({ drawn: drawn.current, numbered: numbered.current });
+  const pictureMoved = held => held.drawn !== drawn.current;
+  const numberMoved = held => held.numbered !== numbered.current;
+  const MOVED = 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังทำรายการนี้ จึงไม่ได้ส่งบัตรใบเดิมออกไป'
+    + ' — กดอีกครั้งเพื่อส่งบัตรใบล่าสุด';
+
   // What just happened to this card, whichever way it was handed over: posted
   // to the member's address, or saved onto the machine in front of somebody.
   const [handoff, setHandoff] = useState('');
@@ -518,6 +556,9 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   /** Replaces the photograph from this screen, which is where the news lands. */
   async function savePhoto(file) {
     setWorking(true); setPhotoFailure(null); setHandoff('');
+    // The face on the card changes; the card number does not, so a link
+    // already handed out keeps working and starts serving the new face.
+    drawn.current += 1;
     const form = new FormData();
     form.append('photo', file);
     try {
@@ -531,8 +572,17 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   async function resend() {
     setWorking(true); setFailure(null);
-    try { setLink(await api(`/members/${member.id}/card/link`, { method: 'POST', body: {} })); }
-    catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
+    const held = holding();
+    try {
+      const fresh = await api(`/members/${member.id}/card/link`, { method: 'POST', body: {} });
+      // The signature covers the card number, so a link minted either side of
+      // a reissue is a link that is already dead. Putting it on screen would
+      // hand staff a URL to read out that answers "ลิงก์นี้หมดอายุหรือถูก
+      // ยกเลิกแล้ว" to the member. `numbered` rather than `drawn`: a new
+      // photograph does not kill a link, it just changes what it draws.
+      if (numberMoved(held)) return setFailure(new Error(MOVED));
+      setLink(fresh);
+    } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
   /**
@@ -560,10 +610,20 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
    */
   async function emailCard() {
     setWorking(true); setFailure(null); setHandoff('');
+    const held = holding();
     try {
       const result = await api(`/members/${member.id}/welcome`, { method: 'POST', body: {} });
-      setHandoff(`ส่งบัตรไปที่ ${result.to} แล้ว`);
       await reload().catch(() => {});
+      // The letter has already gone, so this one cannot be cancelled the way
+      // a download can -- but the green bar still must not say the card was
+      // delivered when the card it carried has since been thrown away. Said
+      // out loud instead of dropped, because "an email went out with the old
+      // card in it" is precisely what somebody has to act on.
+      if (pictureMoved(held)) {
+        throw new Error(`ส่งอีเมลไปที่ ${result.to} แล้ว แต่บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังส่ง`
+          + ' อีเมลฉบับนั้นจึงเป็นบัตรใบเดิม — กด "ส่งบัตรทางอีเมลอีกครั้ง" เพื่อส่งใบล่าสุดให้ลูกค้า');
+      }
+      setHandoff(`ส่งบัตรไปที่ ${result.to} แล้ว`);
     } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
@@ -597,12 +657,20 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   async function share() {
     setFailure(null); setHandoff('');
+    // The card this press is for. Read once, before anything is awaited.
+    const held = holding();
     let blob;
     try {
       const response = await fetch(src, { credentials: 'include' });
       if (!response.ok) throw new Error('โหลดรูปบัตรไม่สำเร็จ กรุณาลองใหม่');
       blob = await response.blob();
     } catch (e) { setFailure(e); return; }
+
+    // Checked before the file exists, not after it has been handed over:
+    // nothing is downloaded, no share sheet opens and the green bar never
+    // comes back. Saying so rather than doing nothing, because a button that
+    // silently does nothing is how the desktop bug started (ข้อ 5).
+    if (pictureMoved(held)) return setFailure(new Error(MOVED));
 
     const file = new File([blob], `${current.member_code}.png`, { type: 'image/png' });
     if (navigator.canShare?.({ files: [file] })) {
@@ -613,6 +681,9 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
         // "ยกเลิก" ในหน้าต่างแชร์ไม่ใช่ความผิดพลาด และไม่ต้องบันทึกไฟล์ให้
         if (e.name === 'AbortError') return;
       }
+      // The sheet is a wait of its own, and a card can be cancelled while it
+      // is open.
+      if (pictureMoved(held)) return setFailure(new Error(MOVED));
     }
     saveCardFile(blob);
     setHandoff(`บันทึกรูปบัตรของ ${current.name} ลงเครื่องแล้ว (${current.member_code}.png) — เปิด LINE หรืออีเมลแล้วแนบไฟล์นี้ส่งให้ลูกค้าได้เลย`);
@@ -620,6 +691,10 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   async function reissue() {
     setWorking(true); setFailure(null);
+    // Raised before the request, not after it: from this moment the card on
+    // this screen is on its way out, and nothing already in flight is carrying
+    // a card anybody should be handed.
+    drawn.current += 1; numbered.current += 1;
     try {
       await api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason } });
       setConfirm(false); setLink(null); setHandoff('');
@@ -664,6 +739,10 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     return <MemberEdit member={data?.member ?? member} onAuthError={onAuthError}
       onCancel={() => setEditing(false)}
       onReissue={() => { setEditing(false); setConfirm(true); }}
+      // Raised as the save starts, for the same reason as the other two: the
+      // member's name is drawn on the card, so a file fetched before it and
+      // arriving after it is a card in somebody's old name.
+      onSaving={() => { drawn.current += 1; }}
       onSaved={(saved, message) => {
         setEditing(false);
         onChanged(message);
