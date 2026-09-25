@@ -30,6 +30,24 @@ export const CARD_LINK_TTL_MS = 7 * 86400000;
 const dateTh = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' })
   .format(new Date(value));
 
+/**
+ * Which card a picture is, in one string.
+ *
+ * Written by the server that drew the bytes and sent back on the picture
+ * itself, so whoever ends up holding a file can ask "is this still the card?"
+ * without trusting anything a screen remembers about when it asked.
+ *
+ * Everything drawn on a card moves one of these numbers: `card_version` when it
+ * is reissued, the member's row version when the photograph is replaced or the
+ * name corrected, the settings version when the gym changes its colours or
+ * logo. A screen comparing this against the card as the server has it *now* is
+ * comparing two facts; a screen comparing counters it kept itself is comparing
+ * two guesses, which is how a cancelled card reached a member over LINE three
+ * times running (QA).
+ */
+export const cardRevision = (member, settings) =>
+  `${member.id}.${member.card_version}.${member.version}.${settings?.version ?? 1}`;
+
 export function registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret }) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_PHOTO_BYTES, files: 1 } });
 
@@ -98,13 +116,17 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
    * same picture the counter sees, drawn by the same code with the same
    * colours. A second renderer would be a second card.
    */
-  const handles = { drawCard: draw, membershipFor };
+  const handles = { drawCard: draw, membershipFor, revisionOf: member => cardRevision(member, settingsRow(db)) };
 
   function sendCard(res, member, png) {
     res.set('Content-Type', 'image/png');
     // The name the browser suggests when staff save it to send on: a folder of
     // card.png files helps nobody.
     res.set('Content-Disposition', `inline; filename="${member.member_code}.png"`);
+    // And which card it is, for whoever is about to hand it to a member. The
+    // bytes and the answer travel together, so a slow hand-over can be refused
+    // instead of sent.
+    res.set('X-Card-Revision', cardRevision(member, settingsRow(db)));
     res.send(png);
   }
 
@@ -226,6 +248,7 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
     // `null` means there is no photograph to judge; `false` covers both a file
     // that will not decode and one that is no longer on the disk at all.
     const readable = !member.photo_stored_name ? null : bytes ? await photoIsDrawable(bytes) : false;
+    const settings = settingsRow(db);
     res.json({
       member: publicMember(member),
       qr: cardQrFor(secret, member),
@@ -235,7 +258,11 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
       photo_readable: readable,
       // Moves when the gym's colours or logo change, so the picture on this
       // screen is the picture that would be sent, not the browser's memory.
-      theme_version: settingsRow(db)?.version ?? 1,
+      theme_version: settings?.version ?? 1,
+      // The same string the picture itself carries, from the same function:
+      // this is what "the current card" means when a file in hand is checked
+      // against it.
+      card_revision: cardRevision(member, settings),
     });
   });
 

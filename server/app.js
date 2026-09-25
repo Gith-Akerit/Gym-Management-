@@ -535,7 +535,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
   }
 
   // The photograph and the card it goes on.
-  const { drawCard, membershipFor } = registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret });
+  const { drawCard, membershipFor, revisionOf } = registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret });
   registerSettingsRoutes({ app, db, now, admin, counter, logoStore });
   registerReportRoutes({ app, db, now, admin, counter, reportStore });
   registerMailSettingsRoutes({ app, db, now, admin, counter, limit, mailer,
@@ -647,6 +647,11 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     }
     limit(`welcome:${member.id}`, 5, 3600000);
     const png = await drawCard(member);
+    // Which card actually went in the envelope. Read beside the drawing rather
+    // than reported by the caller, because a letter cannot be recalled: if the
+    // card is cancelled a moment later, the counter has to be told that the one
+    // in the member's inbox is the dead one.
+    const sentCard = revisionOf(member);
     const membership = membershipFor(member.id);
     // Seven days, because it arrives while they are walking out of the gym and
     // they will open it that evening at the earliest. Minted before the send
@@ -669,7 +674,7 @@ export function createApp({ db, secret, origin = 'http://localhost:5173', produc
     db.prepare('UPDATE members SET welcome_sent_at=?,portal_invited_at=? WHERE id=?')
       .run(now(), now(), member.id);
     audit(db, req.user.id, 'member.card_emailed', member.id, null, { to: member.email }, now());
-    res.json({ sent: true, to: member.email });
+    res.json({ sent: true, to: member.email, card_revision: sentCard });
   });
 
   /**

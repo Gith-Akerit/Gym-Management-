@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cardToken, go, PNG_PIXEL, scan, signIn, signUpMember } from './counter.js';
+import { cardToken, go, openMember, PNG_PIXEL, scan, signIn, signUpMember } from './counter.js';
 
 // What QA found on the real machine, kept fixed.
 //
@@ -348,20 +348,37 @@ const noShareSheet = page => page.addInitScript(() => {
  * `arrived` resolves once the app has actually asked for it, so a test can be
  * sure the work is in flight before it changes the card underneath it.
  */
-async function hold(page, url) {
+async function hold(page, url, { sendFirst = true } = {}) {
   const target = new URL(url, page.url());
-  let release, started;
+  let release, started, taken = false;
   const gate = new Promise(r => { release = r; });
   const arrived = new Promise(r => { started = r; });
   await page.route(u => u.pathname === target.pathname && u.search === target.search,
     async route => {
-      const response = await route.fetch();
-      started();
-      await gate;
-      await route.fulfill({ response });
+      // Only the first one is slow. Everything after it behaves normally, the
+      // way one slow response on a real network does.
+      if (taken) return route.continue();
+      taken = true;
+      if (sendFirst) {
+        // The server does the work now and the answer waits: a slow download.
+        const response = await route.fetch();
+        started();
+        await gate;
+        await route.fulfill({ response });
+      } else {
+        // The request has not left the browser yet: a write nobody has acted
+        // on, which is what "ยกเลิก" leaves behind.
+        started();
+        await gate;
+        await route.fulfill({ response: await route.fetch() });
+      }
     });
   return { arrived, release: () => release() };
 }
+
+/** The id of the member whose card is on screen. */
+const openCardId = (page, name) => page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name })
+  .evaluate(img => new URL(img.src).pathname.split('/')[3]);
 
 const STALE = 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังทำรายการนี้';
 
@@ -487,4 +504,91 @@ test('a seven-day link is not thrown away by a change that does not kill it', as
   const card = await page.request.get(await box.inputValue());
   expect(card.status()).toBe(200);
   expect(card.headers()['content-type']).toBe('image/png');
+});
+
+test('a card asked for on a screen that is gone is never saved', async ({ page }) => {
+  // QA: press "ส่งบัตรให้ลูกค้า", go back to the list before the picture lands,
+  // open the same member again and cancel the card, then let the old response
+  // in. It still saved the cancelled card -- the screen that was watching for
+  // that had been thrown away, and the fresh screen knew nothing about a press
+  // made on the old one. Work belongs to the screen that started it and ends
+  // with it, so this is not a comparison any more, it is a cancellation.
+  await noShareSheet(page);
+  await signIn(page, 'handoff-admin@example.test');
+  const name = 'ออกจากหน้าแล้วกลับมา';
+  await signUpMember(page, { name, phone: '0895551106' });
+
+  const picture = page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name });
+  await expect.poll(() => picture.evaluate(img => img.naturalWidth)).toBe(1080);
+  const gated = await hold(page, await picture.getAttribute('src'));
+
+  const downloads = [];
+  page.on('download', file => downloads.push(file));
+
+  await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+  await gated.arrived;
+  await page.getByRole('button', { name: '← กลับรายชื่อสมาชิก' }).click();
+  await openMember(page, name);
+  await MUTATIONS[0].run(page, name);
+  gated.release();
+
+  // A round trip through the app after the release, so anything the old screen
+  // was still going to do has had its turn.
+  const current = await cardToken(page, name);
+  await expect(page.locator('.sub').filter({ hasText: current.code })).toBeVisible();
+
+  expect(downloads, 'บัตรใบเก่าถูกบันทึกจากหน้าจอที่ถูกปิดไปแล้ว').toEqual([]);
+  await expect(page.getByRole('status').filter({ hasText: 'เปิด LINE' })).toHaveCount(0);
+  // And nothing is shouted at whoever is on the new screen: they did not press
+  // anything, and the card in front of them is fine.
+  await expect(page.getByRole('alert').filter({ hasText: STALE })).toHaveCount(0);
+});
+
+test('cancelling the confirmation does not call back the reissue behind it', async ({ page }) => {
+  // QA: press "ยืนยัน ออกบัตรใหม่", press "ยกเลิก" while the request is still
+  // in the air, hand the card over from the screen you land back on, then let
+  // the reissue through. The screen looked idle, so a check that asks the
+  // screen said yes -- while the card was in the middle of being cancelled.
+  await noShareSheet(page);
+  await signIn(page, 'handoff-admin@example.test');
+  const name = 'ยกเลิกแล้วส่งบัตร';
+  await signUpMember(page, { name, phone: '0895551107' });
+
+  const picture = page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name });
+  await expect.poll(() => picture.evaluate(img => img.naturalWidth)).toBe(1080);
+  const src = await picture.getAttribute('src');
+  const id = await openCardId(page, name);
+
+  // The reissue is held before it leaves; the picture is drawn while it is
+  // still held, so the bytes are the card that is about to be cancelled.
+  const pending = await hold(page, '/api/members/' + id + '/card/reissue', { sendFirst: false });
+  const gated = await hold(page, src);
+
+  const downloads = [];
+  page.on('download', file => downloads.push(file));
+
+  await page.getByText('เมนูเพิ่มเติม').click();
+  await page.getByRole('button', { name: 'ออกบัตรใหม่', exact: true }).click();
+  await page.getByRole('button', { name: 'ยืนยัน ออกบัตรใหม่' }).click();
+  await pending.arrived;
+  await page.getByRole('button', { name: 'ยกเลิก' }).click();
+  await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+  await gated.arrived;
+  pending.release();
+  await expect(page.getByRole('status').filter({ hasText: 'บัตรใบเดิมใช้ไม่ได้ทันที' })).toBeVisible();
+  gated.release();
+
+  await expect(page.getByRole('alert').filter({ hasText: STALE })).toBeVisible();
+  expect(downloads, 'บัตรที่กำลังถูกยกเลิกถูกบันทึกลงเครื่อง').toEqual([]);
+  await expect(page.getByRole('status').filter({ hasText: 'เปิด LINE' })).toHaveCount(0);
+
+  // And the way forward works: press again and the card that comes down is the
+  // one the member should be holding.
+  const saved = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+  const file = await saved;
+  const current = await cardToken(page, name);
+  expect(file.suggestedFilename()).toBe(current.code + '.png');
 });

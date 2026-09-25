@@ -411,7 +411,7 @@ const MethodPicker = ({ value, onChange, onSlip, slip }) => <>
  * not a narrower permission but the audit row written on every save: who
  * changed what, and when.
  */
-function MemberEdit({ member, onCancel, onSaved, onSaving, onReissue, onAuthError }) {
+function MemberEdit({ member, onCancel, onSaved, onChanging, onReissue, onAuthError }) {
   const [value, setValue] = useState({
     name: member.name ?? '', phone: member.phone ?? '', email: member.email ?? '',
     date_of_birth: member.date_of_birth ?? '', emergency_contact: member.emergency_contact ?? '',
@@ -424,10 +424,7 @@ function MemberEdit({ member, onCancel, onSaved, onSaving, onReissue, onAuthErro
 
   async function save() {
     setBusy(true); setError(null);
-    // The card screen behind this one is told as the save *starts*: the name
-    // on this form is drawn on the card, so anything it has in the air from
-    // before now is carrying a card in the old name.
-    onSaving?.();
+    onChanging?.(true);
     try {
       const saved = await api(`/members/${member.id}`, { method: 'PUT', body: {
         name: value.name, phone: value.phone, email: value.email || null,
@@ -437,7 +434,7 @@ function MemberEdit({ member, onCancel, onSaved, onSaving, onReissue, onAuthErro
       } });
       if (saved.card_went_to) { setWentTo(saved.card_went_to); return; }
       onSaved(saved, 'บันทึกข้อมูลสมาชิกแล้ว');
-    } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); }
+    } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); onChanging?.(false); }
   }
 
   if (wentTo) {
@@ -513,36 +510,69 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   const current = data?.member ?? member;
 
   /**
-   * Which card this screen is on, readable from inside a pending `await`.
+   * Handing a card over, when the card can change while it is being handed.
    *
-   * Clearing `handoff` was not enough (QA). It wipes the message but not the
-   * `fetch` behind it, and on the machine at the gym -- the slow one the user
-   * reported, which is where cards are handed over -- that fetch can still be
-   * in the air when the owner cancels the card. It came back afterwards,
-   * downloaded the cancelled card's bytes and put the green bar back, so the
-   * next thing staff did was send a dead card to the member over LINE.
+   * Three rounds of this were fixed by remembering, at the moment of the press,
+   * what the card was, and comparing that afterwards. It kept springing new
+   * leaks because it answers the wrong question: what a *screen* remembers is
+   * not what a *file* is. Leave the screen and come back and the memory is a
+   * fresh one belonging to a different screen; ask for a change and the memory
+   * moves before the card does. So the comparison is made from two facts
+   * instead:
    *
-   * Two counters rather than one, because two different things go stale:
+   * - **what the bytes are.** The server stamps every card it draws with
+   *   `X-Card-Revision`, so the file answers for itself.
+   * - **what the card is now.** Asked of the server at the moment of handing
+   *   over, not of this screen.
    *
-   * - `drawn` moves whenever the picture changes -- cancelled, rephotographed,
-   *   renamed. Anything holding bytes drawn before it moved is holding the
-   *   wrong picture.
-   * - `numbered` moves only when the card number does, which is the only thing
-   *   that kills a seven-day link. A new photograph does not: the link redraws
-   *   the card every time it is opened, so it starts serving the new face.
-   *
-   * Both are raised where the change *starts*, not where it finishes. Raising
-   * them on success would leave the gap between the request going out and the
-   * screen catching up -- which is the gap this whole thing lives in.
-   *
-   * `useRef` throughout: these are read by closures an earlier render made, and
-   * a captured `const` would compare the old card against itself.
+   * Two things still have to come from here, because no request can report
+   * them, and both are about time rather than identity.
    */
-  const drawn = useRef(0), numbered = useRef(0);
-  /** What the press that is starting now is for. */
-  const holding = () => ({ drawn: drawn.current, numbered: numbered.current });
-  const pictureMoved = held => held.drawn !== drawn.current;
-  const numberMoved = held => held.numbered !== numbered.current;
+
+  /**
+   * This screen's own lifetime. Work started here must not finish after the
+   * screen is gone: a download landing on a page nobody is looking at is a file
+   * staff never asked for, of a card that may since have been cancelled (QA --
+   * leave the card, come back, reissue, and the first press still saved the
+   * dead one, because the screen that was checking had been replaced).
+   */
+  const alive = useRef(null);
+  if (!alive.current) alive.current = new AbortController();
+  useEffect(() => () => alive.current.abort(), []);
+
+  /**
+   * How many changes to this card have been asked for and not yet answered.
+   *
+   * Raised before the request leaves and lowered when it settles, whichever way
+   * it settles. While it is above zero there is no true answer to "what is the
+   * card", so nothing may be handed to anybody. Pressing "ยกเลิก" on the
+   * confirmation closes the screen but does not call back a reissue already in
+   * the air, which is the gap QA walked through.
+   */
+  const changing = useRef(0);
+  async function whileChanging(work) {
+    changing.current += 1;
+    try { return await work(); } finally { changing.current -= 1; }
+  }
+
+  /**
+   * The card as the server has it now, or `null` when nothing may be handed to
+   * a member: this screen is gone, a change to it is still unanswered, or the
+   * server could not be asked at all. The last one refuses rather than assumes
+   * -- a card that cannot be shown to be current is one staff should send
+   * again, not one a member should be given.
+   *
+   * Deliberately not `reload()`: that puts the screen back into its loading
+   * state, and taking the card off the screen to check that the card is still
+   * there would be a bug of its own.
+   */
+  async function cardNow() {
+    if (alive.current.signal.aborted || changing.current > 0) return null;
+    const fresh = await api(`/members/${member.id}/card`).catch(() => null);
+    if (alive.current.signal.aborted || changing.current > 0) return null;
+    return fresh;
+  }
+
   const MOVED = 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังทำรายการนี้ จึงไม่ได้ส่งบัตรใบเดิมออกไป'
     + ' — กดอีกครั้งเพื่อส่งบัตรใบล่าสุด';
 
@@ -556,13 +586,10 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   /** Replaces the photograph from this screen, which is where the news lands. */
   async function savePhoto(file) {
     setWorking(true); setPhotoFailure(null); setHandoff('');
-    // The face on the card changes; the card number does not, so a link
-    // already handed out keeps working and starts serving the new face.
-    drawn.current += 1;
     const form = new FormData();
     form.append('photo', file);
     try {
-      const saved = await upload(`/members/${member.id}/photo`, form, 'PUT');
+      const saved = await whileChanging(() => upload(`/members/${member.id}/photo`, form, 'PUT'));
       setPreview(url => { if (url) URL.revokeObjectURL(url); return URL.createObjectURL(file); });
       setStamp(saved.photo_updated_at ?? Date.now());
       await reload().catch(() => {});
@@ -572,15 +599,16 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   async function resend() {
     setWorking(true); setFailure(null);
-    const held = holding();
     try {
       const fresh = await api(`/members/${member.id}/card/link`, { method: 'POST', body: {} });
-      // The signature covers the card number, so a link minted either side of
-      // a reissue is a link that is already dead. Putting it on screen would
-      // hand staff a URL to read out that answers "ลิงก์นี้หมดอายุหรือถูก
-      // ยกเลิกแล้ว" to the member. `numbered` rather than `drawn`: a new
-      // photograph does not kill a link, it just changes what it draws.
-      if (numberMoved(held)) return setFailure(new Error(MOVED));
+      // The link reports the card number it was signed over, and the signature
+      // covers that number, so a link minted either side of a reissue is dead
+      // before it reaches the screen. Putting it up would hand staff a URL to
+      // read out that answers "ลิงก์นี้หมดอายุหรือถูกยกเลิกแล้ว" to the member.
+      // The card number and not the whole revision: a new photograph does not
+      // kill a link, it only changes what the link draws.
+      const now = await cardNow();
+      if (!now || now.card_version !== fresh.card_version) return setFailure(new Error(MOVED));
       setLink(fresh);
     } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
@@ -610,16 +638,18 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
    */
   async function emailCard() {
     setWorking(true); setFailure(null); setHandoff('');
-    const held = holding();
     try {
       const result = await api(`/members/${member.id}/welcome`, { method: 'POST', body: {} });
+      // The letter says which card went in it, so this needs no memory either.
+      // It cannot be called back the way a download can -- but the green bar
+      // still must not report the card delivered when the card it carried has
+      // since been thrown away. Said out loud rather than dropped, because "an
+      // email went out with the dead card in it" is the thing somebody has to
+      // act on.
+      const now = await cardNow();
       await reload().catch(() => {});
-      // The letter has already gone, so this one cannot be cancelled the way
-      // a download can -- but the green bar still must not say the card was
-      // delivered when the card it carried has since been thrown away. Said
-      // out loud instead of dropped, because "an email went out with the old
-      // card in it" is precisely what somebody has to act on.
-      if (pictureMoved(held)) {
+      if (alive.current.signal.aborted) return;
+      if (!now || now.card_revision !== result.card_revision) {
         throw new Error(`ส่งอีเมลไปที่ ${result.to} แล้ว แต่บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังส่ง`
           + ' อีเมลฉบับนั้นจึงเป็นบัตรใบเดิม — กด "ส่งบัตรทางอีเมลอีกครั้ง" เพื่อส่งใบล่าสุดให้ลูกค้า');
       }
@@ -657,20 +687,26 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   async function share() {
     setFailure(null); setHandoff('');
-    // The card this press is for. Read once, before anything is awaited.
-    const held = holding();
-    let blob;
+    let blob, drawnAs;
     try {
-      const response = await fetch(src, { credentials: 'include' });
+      // Tied to this screen, so walking away from it really does stop this.
+      const response = await fetch(src, { credentials: 'include', signal: alive.current.signal });
       if (!response.ok) throw new Error('โหลดรูปบัตรไม่สำเร็จ กรุณาลองใหม่');
+      // What the server says it drew, rather than what this screen asked for.
+      drawnAs = response.headers.get('X-Card-Revision');
       blob = await response.blob();
-    } catch (e) { setFailure(e); return; }
+    } catch (e) {
+      // There is nobody on this screen left to tell.
+      if (e.name === 'AbortError') return;
+      setFailure(e); return;
+    }
 
-    // Checked before the file exists, not after it has been handed over:
-    // nothing is downloaded, no share sheet opens and the green bar never
-    // comes back. Saying so rather than doing nothing, because a button that
-    // silently does nothing is how the desktop bug started (ข้อ 5).
-    if (pictureMoved(held)) return setFailure(new Error(MOVED));
+    // Asked before the file exists, not after it has been handed over: nothing
+    // is downloaded, no share sheet opens, and the green bar never appears only
+    // to be cleared again. Said out loud rather than done quietly, because a
+    // button that is pressed and does nothing is how ข้อ 5 started.
+    const still = await cardNow();
+    if (!still || still.card_revision !== drawnAs) return setFailure(new Error(MOVED));
 
     const file = new File([blob], `${current.member_code}.png`, { type: 'image/png' });
     if (navigator.canShare?.({ files: [file] })) {
@@ -683,7 +719,8 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
       }
       // The sheet is a wait of its own, and a card can be cancelled while it
       // is open.
-      if (pictureMoved(held)) return setFailure(new Error(MOVED));
+      const after = await cardNow();
+      if (!after || after.card_revision !== drawnAs) return setFailure(new Error(MOVED));
     }
     saveCardFile(blob);
     setHandoff(`บันทึกรูปบัตรของ ${current.name} ลงเครื่องแล้ว (${current.member_code}.png) — เปิด LINE หรืออีเมลแล้วแนบไฟล์นี้ส่งให้ลูกค้าได้เลย`);
@@ -691,12 +728,9 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   async function reissue() {
     setWorking(true); setFailure(null);
-    // Raised before the request, not after it: from this moment the card on
-    // this screen is on its way out, and nothing already in flight is carrying
-    // a card anybody should be handed.
-    drawn.current += 1; numbered.current += 1;
     try {
-      await api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason } });
+      await whileChanging(() =>
+        api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason } }));
       setConfirm(false); setLink(null); setHandoff('');
       await reload().catch(() => {});
       onChanged('ออกบัตรใหม่แล้ว บัตรใบเดิมใช้ไม่ได้ทันที รวมถึงรหัสสมาชิกที่พิมพ์อยู่บนใบเดิม อย่าลืมส่งใบใหม่ให้ลูกค้า');
@@ -739,10 +773,11 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     return <MemberEdit member={data?.member ?? member} onAuthError={onAuthError}
       onCancel={() => setEditing(false)}
       onReissue={() => { setEditing(false); setConfirm(true); }}
-      // Raised as the save starts, for the same reason as the other two: the
-      // member's name is drawn on the card, so a file fetched before it and
-      // arriving after it is a card in somebody's old name.
-      onSaving={() => { drawn.current += 1; }}
+      // The member's name is drawn on the card, so a save here is a change to
+      // the card and this screen has to know it is unanswered. Both edges, from
+      // the form's own `finally`, so a save that fails does not leave the card
+      // screen believing a change is pending for ever.
+      onChanging={pending => { changing.current += pending ? 1 : -1; }}
       onSaved={(saved, message) => {
         setEditing(false);
         onChanged(message);
