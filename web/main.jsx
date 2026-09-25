@@ -517,7 +517,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   /** Replaces the photograph from this screen, which is where the news lands. */
   async function savePhoto(file) {
-    setWorking(true); setPhotoFailure(null);
+    setWorking(true); setPhotoFailure(null); setHandoff('');
     const form = new FormData();
     form.append('photo', file);
     try {
@@ -607,7 +607,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     const file = new File([blob], `${current.member_code}.png`, { type: 'image/png' });
     if (navigator.canShare?.({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: member.name });
+        await navigator.share({ files: [file], title: current.name });
         return;
       } catch (e) {
         // "ยกเลิก" ในหน้าต่างแชร์ไม่ใช่ความผิดพลาด และไม่ต้องบันทึกไฟล์ให้
@@ -622,7 +622,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     setWorking(true); setFailure(null);
     try {
       await api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason } });
-      setConfirm(false); setLink(null);
+      setConfirm(false); setLink(null); setHandoff('');
       await reload().catch(() => {});
       onChanged('ออกบัตรใหม่แล้ว บัตรใบเดิมใช้ไม่ได้ทันที รวมถึงรหัสสมาชิกที่พิมพ์อยู่บนใบเดิม อย่าลืมส่งใบใหม่ให้ลูกค้า');
     } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
@@ -630,7 +630,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   if (confirm) {
     return <div style={{ maxWidth: 620 }}>
-      <h1>ออกบัตรใหม่ให้ {member.name}</h1>
+      <h1>ออกบัตรใหม่ให้ {current.name}</h1>
       <p className="sub">ตรวจให้แน่ใจก่อน การกระทำนี้ย้อนกลับไม่ได้</p>
       <div className="confirm">
         <h2>สิ่งที่จะเกิดขึ้นทันที</h2>
@@ -668,7 +668,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
         setEditing(false);
         onChanged(message);
         reload().catch(() => {});
-        if (saved) setStamp(Date.now());
+        if (saved) { setStamp(Date.now()); setHandoff(''); }
       }}/>;
   }
 
@@ -698,7 +698,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
               <span>บัตรออกได้ แต่พนักงานจะเทียบหน้าตอนสแกนไม่ได้ ซึ่งเป็นด่านเดียวที่กันการส่งบัตรต่อ</span></div></div>}
       <div className="cardgrid">
         <div>
-          <img className="cardshot" src={src} alt={`บัตรสมาชิกของ ${member.name}`}/>
+          <img className="cardshot" src={src} alt={`บัตรสมาชิกของ ${current.name}`}/>
           <p className="note" style={{ marginTop: 'var(--sp-3)' }}>
             ไฟล์ PNG 1080 × 1350 px — สัดส่วนเดียวกับรูปที่ LINE แสดงเต็มความกว้างในแชต
             ลูกค้าเปิดแล้ว QR เต็มจอทันที ไม่ต้องกดซูม</p>

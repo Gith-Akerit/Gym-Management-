@@ -261,3 +261,63 @@ test('on a desktop browser, handing the card over saves the file instead of fail
       .toBeVisible();
     await expect(page.getByText('แนบไฟล์นี้ส่งให้ลูกค้าได้เลย', { exact: false })).toBeVisible();
   });
+
+test('what the screen says was handed over does not survive the card being cancelled',
+  async ({ page }) => {
+    // QA: hand the card over first, then cancel it from the same screen. The
+    // heading and the picture became the new card, but the green bar still
+    // named the file of the card that had just been thrown away -- so the next
+    // thing staff did was attach a dead card and send it to the customer.
+    await page.addInitScript(() => {
+      for (const name of ['canShare', 'share']) {
+        Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+      }
+    });
+    await signIn(page, 'handoff-admin@example.test');
+    await signUpMember(page, { name: 'ส่งแล้วค่อยยกเลิก', phone: '0895550022' });
+    const before = await cardToken(page, 'ส่งแล้วค่อยยกเลิก');
+
+    const download = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+    await download;
+    const bar = page.getByRole('status').filter({ hasText: 'ลงเครื่องแล้ว' });
+    await expect(bar).toContainText(before.code);
+
+    await page.getByText('เมนูเพิ่มเติม').click();
+    await page.getByRole('button', { name: 'ออกบัตรใหม่', exact: true }).click();
+    await page.getByRole('button', { name: 'ยืนยัน ออกบัตรใหม่' }).click();
+    await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+    await expect(bar).toBeHidden();
+    // Not one corner of the screen still names the cancelled card: the code is
+    // what staff read out, type in and attach files under.
+    await expect(page.getByText(before.code)).toBeHidden();
+    const after = await cardToken(page, 'ส่งแล้วค่อยยกเลิก');
+    expect(after.code).not.toBe(before.code);
+    await expect(page.getByText(after.code).first()).toBeVisible();
+  });
+
+test('replacing the photograph also retires what the screen says was handed over',
+  async ({ page }) => {
+    // The same staleness by the other door, which is why the fix is not one
+    // line: the file staff saved carries the face that was just replaced, so
+    // "attach this and send it" is again advice to send the wrong picture.
+    await page.addInitScript(() => {
+      for (const name of ['canShare', 'share']) {
+        Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+      }
+    });
+    await signIn(page, 'handoff-admin@example.test');
+    await signUpMember(page, { name: 'ส่งแล้วเปลี่ยนรูป', phone: '0895550033' });
+
+    const download = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+    await download;
+    const bar = page.getByRole('status').filter({ hasText: 'ลงเครื่องแล้ว' });
+    await expect(bar).toBeVisible();
+
+    await page.getByLabel('เลือกรูปจากเครื่องแทน')
+      .setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: PNG_PIXEL });
+    await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปถ่ายใหม่แล้ว' })).toBeVisible();
+    await expect(bar).toBeHidden();
+  });
