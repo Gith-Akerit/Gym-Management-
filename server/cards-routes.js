@@ -7,7 +7,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
-import { audit, getGym, getMember, publicMember, transaction } from './db.js';
+import { audit, getGym, getMember, newMemberCode, publicMember, transaction } from './db.js';
 import { cardQrFor, CardRenderError, photoIsDrawable, PhotoUnreadableError, preparePhoto, renderCard } from './cards.js';
 import { detectImageType, SlipError } from './slips.js';
 import { resolveTheme } from './theme.js';
@@ -256,6 +256,15 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
    * Reissuing. The old card stops working the moment this returns, because the
    * counter goes up and every signature is over the counter -- there is no
    * list of cancelled cards to keep, and nothing to go and find.
+   *
+   * Both halves of the card go at once: the QR *and* the member code printed
+   * under it. Cancelling only the QR left the twelve characters on the dead
+   * card still opening the door, because staff can type that code in by hand
+   * and a typed code is a name, not a signature -- so whoever the gym reissued
+   * the card *away from* kept a working way in (Pentester, D1). Typing the
+   * code stays: the customer standing at a counter with a camera that will not
+   * focus is exactly who it is for (ผลทดสอบของผู้ใช้ ข้อ 2). It is the code on
+   * the cancelled card that stops, not the box it goes in.
    */
   app.post('/api/members/:id/card/reissue', admin, (req, res) => {
     const input = parse(z.object({
@@ -263,11 +272,17 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
     }).strict(), req.body);
     const result = transaction(db, () => {
       const before = load(req.params.id);
-      db.prepare('UPDATE members SET card_version=card_version+1,card_issued_at=?,version=version+1,updated_at=? WHERE id=?')
-        .run(now(), now(), before.id);
+      db.prepare(`UPDATE members SET card_version=card_version+1,member_code=?,card_issued_at=?,
+        version=version+1,updated_at=? WHERE id=?`)
+        .run(newMemberCode(db), now(), now(), before.id);
       const after = getMember(db, before.id);
+      // Written as `code_before` / `code_after` rather than `member_code`: the
+      // audit trail redacts any row that looks like a member (`publicMember`),
+      // and a reissue record is not one. Both codes are on the log because
+      // "which card was this?" is the question somebody asks it afterwards.
       audit(db, req.user.id, 'member.card_reissue', before.id,
-        { card_version: before.card_version }, { card_version: after.card_version, reason: input.reason }, now());
+        { card_version: before.card_version, code_before: before.member_code },
+        { card_version: after.card_version, code_after: after.member_code, reason: input.reason }, now());
       return after;
     });
     res.json({ member: publicMember(result), qr: cardQrFor(secret, result) });

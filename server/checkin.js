@@ -78,9 +78,13 @@ export function registerCheckInRoutes({ app, db, now, admin, counter, secret, li
    * so it proves nothing on its own. It does not have to: only signed-in staff
    * reach this route, and what stops a card being passed between friends is
    * the photograph the screen puts in front of the person at the counter, not
-   * the code. For the same reason a typed code is not stopped by the card
-   * version: the member is not holding a cancelled card, they are being looked
-   * up by name.
+   * the code.
+   *
+   * There is nothing here about card versions, and there does not need to be:
+   * reissuing mints the member a new code, so the code on a cancelled card is
+   * a code that belongs to nobody and falls out below as `NO_SUCH_CODE`. That
+   * is the whole of how a reissue reaches the typed box -- this lookup stays a
+   * lookup by name (`server/cards-routes.js`, Pentester D1).
    */
   function resolveMemberCode(raw) {
     const typed = String(raw ?? '').trim().toUpperCase().replace(/\s+/g, '');

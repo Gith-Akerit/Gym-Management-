@@ -142,6 +142,13 @@ test('reissuing kills the old card and nothing else', async t => {
   assert.equal(JSON.parse(entry.after_json).reason, 'บัตรหาย');
   assert.equal(entry.actor_id, db.prepare('SELECT id FROM users WHERE email=?').get('owner@example.test').id);
 
+  // Both codes, so "which card was this?" has an answer afterwards -- and
+  // named so that the audit trail does not mistake the record for a member row
+  // and stamp `has_photo` over it.
+  assert.equal(JSON.parse(entry.before_json).code_before, member.member_code);
+  assert.equal(JSON.parse(entry.after_json).code_after, reissued.body.member.member_code);
+  assert.equal(JSON.parse(entry.after_json).has_photo, undefined);
+
   // A reissue with no reason is refused; the reason is the whole record.
   await call('post', `/members/${member.id}/card/reissue`, owner, { reason: '' }).expect(400);
 });
@@ -177,4 +184,54 @@ test('a forged or edited card is refused and recorded', async t => {
   }
   // Every attempt is kept: somebody will ask about the queue at the door later.
   assert.equal(db.prepare("SELECT count(*) AS n FROM check_ins WHERE result='denied'").get().n, 5);
+});
+
+test('reissuing replaces the code printed on the card as well as the QR', async t => {
+  // Pentester D1. The QR is cancelled by a counter the signature covers, but
+  // the twelve characters printed under it are typed in by hand at the desk
+  // and are matched by nothing but themselves -- so a cancelled card whose
+  // code still worked was a cancelled card that still opened the door.
+  const { call, signIn, addMember, db } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const member = await addMember(owner, { name: 'บัตรหลุดไปถึงคนอื่น' });
+  const printed = member.member_code;
+  assert.match(printed, /^GYM-[0-9A-F]{12}$/);
+
+  const reissued = await call('post', `/members/${member.id}/card/reissue`, owner,
+    { reason: 'บัตรหลุดไปถึงคนอื่น' }).expect(200);
+  const fresh = reissued.body.member.member_code;
+  assert.notEqual(fresh, printed);
+  assert.match(fresh, /^GYM-[0-9A-F]{12}$/, 'still a code somebody can read off a card and type');
+
+  // The row itself moved, not just the answer this one request gave.
+  assert.equal(db.prepare('SELECT member_code FROM members WHERE id=?').get(member.id).member_code, fresh);
+  // And the retired code is gone rather than parked somewhere that could hand
+  // it back out: nothing in the table answers to it any more.
+  assert.equal(db.prepare('SELECT count(*) n FROM members WHERE member_code=?').get(printed).n, 0);
+
+  // Every screen that reads the member reads the new one, including the file
+  // name the counter is about to send to the customer.
+  const card = await call('get', `/members/${member.id}/card`, owner).expect(200);
+  assert.equal(card.body.member.member_code, fresh);
+  const png = await call('get', `/members/${member.id}/card.png`, owner)
+    .buffer(true).parse((res, cb) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => cb(null, Buffer.concat(chunks)));
+    })
+    .expect(200);
+  assert.ok(png.headers['content-disposition'].includes(`${fresh}.png`),
+    'the card being handed over is filed under the code drawn on it');
+});
+
+test('a second reissue gives a third code, and no code is ever reused', async t => {
+  const { call, signIn, addMember } = counterFixture(t);
+  const owner = await signIn('owner@example.test');
+  const member = await addMember(owner);
+  const codes = [member.member_code];
+  for (const reason of ['ครั้งที่หนึ่ง', 'ครั้งที่สอง', 'ครั้งที่สาม']) {
+    const again = await call('post', `/members/${member.id}/card/reissue`, owner, { reason }).expect(200);
+    codes.push(again.body.member.member_code);
+  }
+  assert.equal(new Set(codes).size, codes.length, 'a reissue handed back a code that had already been printed');
 });

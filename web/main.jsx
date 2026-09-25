@@ -501,6 +501,13 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   // finds out is here, where they can photograph the member again.
   const brokenPhoto = data?.photo_readable === false;
 
+  // The member as the server has them now, not as the list had them when it
+  // was drawn. Reissuing mints a new member code, so the row behind this
+  // screen goes stale the moment the owner confirms -- and the stale half is
+  // exactly the printed code, which would have left the heading, the file name
+  // and the message to staff all quoting the code on the card just cancelled.
+  const current = data?.member ?? member;
+
   // What just happened to this card, whichever way it was handed over: posted
   // to the member's address, or saved onto the machine in front of somebody.
   const [handoff, setHandoff] = useState('');
@@ -579,7 +586,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${member.member_code}.png`;
+    link.download = `${current.member_code}.png`;
     document.body.append(link);
     link.click();
     link.remove();
@@ -597,7 +604,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
       blob = await response.blob();
     } catch (e) { setFailure(e); return; }
 
-    const file = new File([blob], `${member.member_code}.png`, { type: 'image/png' });
+    const file = new File([blob], `${current.member_code}.png`, { type: 'image/png' });
     if (navigator.canShare?.({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: member.name });
@@ -608,7 +615,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
       }
     }
     saveCardFile(blob);
-    setHandoff(`บันทึกรูปบัตรของ ${member.name} ลงเครื่องแล้ว (${member.member_code}.png) — เปิด LINE หรืออีเมลแล้วแนบไฟล์นี้ส่งให้ลูกค้าได้เลย`);
+    setHandoff(`บันทึกรูปบัตรของ ${current.name} ลงเครื่องแล้ว (${current.member_code}.png) — เปิด LINE หรืออีเมลแล้วแนบไฟล์นี้ส่งให้ลูกค้าได้เลย`);
   }
 
   async function reissue() {
@@ -617,7 +624,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
       await api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason } });
       setConfirm(false); setLink(null);
       await reload().catch(() => {});
-      onChanged('ออกบัตรใหม่แล้ว บัตรใบเดิมใช้ไม่ได้ทันที');
+      onChanged('ออกบัตรใหม่แล้ว บัตรใบเดิมใช้ไม่ได้ทันที รวมถึงรหัสสมาชิกที่พิมพ์อยู่บนใบเดิม อย่าลืมส่งใบใหม่ให้ลูกค้า');
     } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
@@ -629,7 +636,9 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
         <h2>สิ่งที่จะเกิดขึ้นทันที</h2>
         <ul className="warnlist">
           <li><b>บัตรใบเดิมจะสแกนไม่ผ่านอีกเลย</b> ใครถือรูปเก่าอยู่ก็ใช้ไม่ได้ รวมถึงตัวลูกค้าเอง</li>
-          <li>ระบบสร้างรูปบัตรใบใหม่ให้ทันที ใช้รูปถ่ายและแพ็กเกจเดิม</li>
+          <li><b>รหัสสมาชิกจะเปลี่ยนเป็นรหัสใหม่ด้วย</b> รหัสที่พิมพ์อยู่บนบัตรใบเดิมจะพิมพ์เช็คอินไม่ผ่าน
+            เพราะถ้าไม่เปลี่ยน คนที่ถือบัตรใบเดิมก็ยังเข้ายิมได้ด้วยการอ่านรหัสให้พนักงานพิมพ์</li>
+          <li>ระบบสร้างรูปบัตรใบใหม่ให้ทันที ใช้รูปถ่ายและแพ็กเกจเดิม รหัสใหม่พิมพ์อยู่บนใบใหม่</li>
           <li><b>คุณต้องส่งรูปใบใหม่ให้ลูกค้า</b> ไม่งั้นเขาจะเข้ายิมไม่ได้ในครั้งถัดไป</li>
           <li>สิทธิ์คงเหลือและประวัติเช็คอินไม่เปลี่ยน</li>
         </ul>
@@ -666,7 +675,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   return <>
     <button className="btn auto ghost" style={{ marginBottom: 'var(--sp-4)' }} onClick={onBack}>← กลับรายชื่อสมาชิก</button>
     <h1>บัตรสมาชิก</h1>
-    <p className="sub">{member.name} · <span className="num">{member.member_code}</span></p>
+    <p className="sub">{current.name} · <span className="num">{current.member_code}</span></p>
     <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
     {busy ? <Loading label="กำลังสร้างบัตร…" rows={2} avatar={false}/> : !error && <>
       {/* QA-04: the wizard posts the card letter without waiting for it, so a
@@ -712,7 +721,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
           </details>
         </div>
         <div className="stack">
-          <a className="btn primary xl" href={src} download={`${member.member_code}.png`}>บันทึกรูปบัตร</a>
+          <a className="btn primary xl" href={src} download={`${current.member_code}.png`}>บันทึกรูปบัตร</a>
           <button className="btn xl" onClick={share}>ส่งบัตรให้ลูกค้า</button>
           {/* Only offered when there is somewhere to send it. A member who
               gave no address is not a member with a broken button. */}

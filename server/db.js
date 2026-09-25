@@ -138,9 +138,30 @@ export function audit(db, actor, action, id, before, after, now, entityType = 'm
     VALUES(?,?,?,?,?,?,?,?)`).run(
     randomUUID(), actor, action, id, written(before), written(after), now, entityType);
 }
+/**
+ * The code printed under the QR, which staff type when the camera will not read.
+ *
+ * Minted here rather than at each call site because it is handed out twice: to
+ * a member joining, and to a member whose card was reissued -- a reissue that
+ * left the old code working would cancel the picture and leave the twelve
+ * characters printed on the dead card still opening the door (Pentester, D1).
+ *
+ * `UNIQUE` on the column is the real guarantee; the loop is so that the one
+ * collision in 16^12 becomes a second draw rather than an error at a counter
+ * with a customer standing at it.
+ */
+export function newMemberCode(db) {
+  const exists = db.prepare('SELECT 1 FROM members WHERE member_code=?');
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = `GYM-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`;
+    if (!exists.get(code)) return code;
+  }
+  throw new Error('ออกรหัสสมาชิกใหม่ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+}
+
 export function createMember(db, userId, values, actor, now) {
   const id = randomUUID();
-  const code = `GYM-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`;
+  const code = newMemberCode(db);
   db.prepare(`INSERT INTO members(id,user_id,member_code,name,phone,date_of_birth,emergency_contact,status,
     card_issued_at,joined_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, userId ?? null, code, values.name, values.phone, values.date_of_birth,

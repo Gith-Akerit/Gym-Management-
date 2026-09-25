@@ -59,6 +59,14 @@ test('a cancelled card is refused, told apart, and the new one works', async ({ 
   await page.getByRole('button', { name: 'สแกนคนถัดไป' }).click();
   await scan(page, fresh.qr);
   await expect(result).toContainText('เข้าใช้บริการได้');
+
+  // The code printed under the cancelled QR goes with it. Typing it in is the
+  // way round the camera, so leaving it alive would have left the cancelled
+  // card working for anybody who could read twelve characters off it.
+  await page.getByRole('button', { name: 'ยืนยันให้เข้า · สแกนคนถัดไป' }).click();
+  await scan(page, old.code);
+  await expect(result).toContainText('เข้าใช้บริการไม่ได้');
+  await expect(result).toContainText('ไม่พบรหัสสมาชิกนี้');
 });
 
 test('a forged code is refused and kept out of the member history', async ({ page }) => {

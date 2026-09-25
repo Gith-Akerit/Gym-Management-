@@ -53,6 +53,8 @@ function fixture(t) {
     return { id, code, qr: cardQrFor(secret, { id, card_version: 1 }) };
   }
   const staff = email => session(user(email, 'staff'));
+  /** Reissuing a card is the owner's, so the tests that do it need one. */
+  const owner = email => session(user(email, 'admin'));
   /** Hands a member a membership without walking the whole sale. */
   function grant(memberId, { days = 30, sessions = null } = {}) {
     const pkg = db.prepare("SELECT id FROM packages WHERE code='UNLIMITED_30D'").get();
@@ -68,7 +70,7 @@ function fixture(t) {
   }
   const scan = (token, qr) => call('post', '/check-ins/verify', token, { qr, device_label: 'เคาน์เตอร์ 1' });
 
-  return { db, app, call, member, staff, grant, scan, tick: ms => { time += ms; }, at: () => time };
+  return { db, app, call, member, staff, owner, grant, scan, tick: ms => { time += ms; }, at: () => time };
 }
 
 test('the sweeper still clears the one-time tokens the member app left behind', async t => {
@@ -230,19 +232,59 @@ test('a typed code still obeys everything a scanned card obeys', async t => {
   assert.match(nothing.body.failure_reason, /ยังไม่มีแพ็กเกจ/);
 });
 
-test('a reissued card does not lock the counter out of typing the code', async t => {
-  // The cancelled card is the picture, not the person: the old photograph in a
-  // chat app stops working, and the member standing at the counter is still a
-  // member. Staff compare the face on screen either way.
-  const { db, member, staff, grant, scan } = fixture(t);
+// ------------------------------------------------------------- reissue vs the code
+//
+// Pentester D1: cancelling a card cancelled the QR and left the twelve
+// characters printed under it working. Staff type those in by hand, so the
+// person a card was taken away from could read the code off the dead card and
+// still be let in. Reissuing now mints a new code as well.
+
+test('reissuing retires the code printed on the cancelled card', async t => {
+  const { call, member, staff, owner, grant, scan, tick } = fixture(t);
   const counter = staff('staff-reissued@example.test');
+  const boss = owner('owner-reissued@example.test');
   const who = member('ออกบัตรใหม่แล้ว');
-  grant(who.id);
-  db.prepare('UPDATE members SET card_version=2 WHERE id=?').run(who.id);
+  grant(who.id, { days: 90, sessions: 10 });
+
+  // Before the reissue the printed code is a way in, which is the point of it.
+  assert.equal((await scan(counter, who.code).expect(200)).body.result, 'allowed');
+  tick(6 * 60000);
+
+  const reissued = await call('post', `/members/${who.id}/card/reissue`, boss,
+    { reason: 'ลูกค้าแจ้งว่าบัตรหลุดไปถึงคนอื่น' }).expect(200);
+  const fresh = reissued.body.member.member_code;
+  assert.notEqual(fresh, who.code, 'the code on the cancelled card is still the member’s code');
+  assert.match(fresh, /^GYM-[0-9A-F]{12}$/);
 
   const oldCard = await scan(counter, who.qr).expect(409);
   assert.match(oldCard.body.failure_reason, /บัตรใบนี้ถูกยกเลิกแล้ว/);
 
-  const typed = await scan(counter, who.code).expect(200);
+  // Every shape the box accepts a code in, because refusing only the tidy one
+  // is refusing nothing: whole, lower case, and without the shared prefix.
+  for (const form of [who.code, who.code.toLowerCase(), who.code.slice(4), who.code.slice(4).toLowerCase()]) {
+    const refused = await scan(counter, form).expect(409);
+    assert.equal(refused.body.result, 'denied', `${form} still opened the door`);
+    assert.match(refused.body.failure_reason, /ไม่พบรหัสสมาชิกนี้/);
+    assert.equal(refused.body.member, null, 'and it is not somebody the counter recognises');
+    tick(60000);
+  }
+});
+
+test('the member holding the new card can still be typed in', async t => {
+  // The other half of D1: the fix must not be "stop typing codes", which is
+  // the thing ผลทดสอบของผู้ใช้ ข้อ 2 asked for in the first place.
+  const { call, member, staff, owner, grant, scan, tick } = fixture(t);
+  const counter = staff('staff-newcode@example.test');
+  const boss = owner('owner-newcode@example.test');
+  const who = member('ถือบัตรใบใหม่');
+  grant(who.id, { days: 90, sessions: 5 });
+
+  const fresh = (await call('post', `/members/${who.id}/card/reissue`, boss,
+    { reason: 'ลูกค้าทำรูปหาย ขอใหม่' }).expect(200)).body.member.member_code;
+  tick(6 * 60000);
+
+  const typed = await scan(counter, fresh.slice(4).toLowerCase()).expect(200);
   assert.equal(typed.body.result, 'allowed');
+  assert.equal(typed.body.member.member_code, fresh);
+  assert.equal(typed.body.remaining.sessions_remaining, 4, 'the visit is counted like any other');
 });
