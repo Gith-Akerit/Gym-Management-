@@ -918,6 +918,39 @@ function PaymentGrant({ member, packages, onDone, onPickMember, onAuthError }) {
 
 // ---------------------------------------------------------------- packages
 
+/**
+ * "แพ็กเกจนี้เข้าได้กี่ครั้งกันแน่" ถามก่อนกดบันทึก
+ *
+ * A package that runs for a year and admits one visit is a legal thing to
+ * want -- a single personal-training session sold with a year to use it up is
+ * exactly that -- so this warns and never blocks. What it will not do is let
+ * "365 วัน · 1 ครั้ง · 10,000 บาท" be saved without anybody being asked out
+ * loud whether that is really the intention. The gym's own five packages were
+ * all entered that way.
+ *
+ * The test is days-per-visit rather than a fixed pair of numbers, so "10 ครั้ง
+ * ใน 90 วัน" (9 days a visit, a normal package) stays quiet while "1 ครั้ง ใน
+ * 30 วัน" does not.
+ */
+const DAYS_PER_VISIT_SUSPECT = 15;
+
+function SessionLimitWarning({ type, days, limit }) {
+  if (type !== 'limited_sessions') return null;
+  const duration = Number(days), visits = Number(limit);
+  if (!Number.isFinite(duration) || !Number.isFinite(visits) || visits < 1 || duration < 1) return null;
+  if (duration / visits < DAYS_PER_VISIT_SUSPECT) return null;
+  return <div className="banner warn" role="status" style={{ marginBottom: 'var(--sp-4)' }}>
+    <div className="ic" aria-hidden="true">!</div>
+    <div><b>ตรวจอีกครั้ง: แพ็กเกจนี้เข้ายิมได้ {visits.toLocaleString('th-TH')} ครั้ง
+      ตลอด {duration.toLocaleString('th-TH')} วัน</b>
+      {/* `strong` ไม่ใช่ `b` โดยตั้งใจ: `.banner b` คือสไตล์ของหัวข้อแบนเนอร์
+          ซึ่งเป็นบล็อกและตัวใหญ่ ถ้าใช้ตรงนี้ประโยคจะถูกหักกลางเป็นสองท่อน */}
+      <span>"จำนวนครั้ง" คือจำนวนครั้งที่สมาชิกสแกนเข้ายิมได้ ครบแล้วสแกนไม่ผ่านแม้แพ็กเกจยังไม่หมดอายุ ·
+        ถ้าตั้งใจขายเป็นแบบเข้าได้ทุกวัน ให้เปลี่ยน "ประเภท" เป็น <strong>ไม่จำกัดครั้ง</strong> ·
+        ถ้าตั้งใจให้เข้าได้ {visits.toLocaleString('th-TH')} ครั้งจริง ๆ กดบันทึกได้เลย</span></div>
+  </div>;
+}
+
 function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
   const toForm = row => ({ ...blankPackage, ...row, session_limit: row.session_limit ?? '', price_satang: row.price_thb ?? '' });
   const [form, setForm] = useState(item ? toForm(item) : { ...blankPackage });
@@ -958,6 +991,13 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
         <Field name="duration_days" label="อายุแพ็กเกจ (วัน)" value={form.duration_days} onChange={v => set('duration_days', v)} error={errors.duration_days} type="number" min={1}/>
         {form.type === 'limited_sessions' && <Field name="session_limit" label="จำนวนครั้ง" value={form.session_limit} onChange={v => set('session_limit', v)} error={errors.session_limit} type="number" min={1}/>}
       </div>
+      {/* แพ็กเกจรายปีราคาหนึ่งหมื่น ที่เข้าได้ครั้งเดียวทั้งปี
+          ยิมตั้งแพ็กเกจจริงมาแบบนี้ทั้งห้าตัว — รายปี รายเดือน รายวัน ใส่ "1 ครั้ง"
+          เหมือนกันหมด เพราะช่อง "จำนวนครั้ง" ขึ้นมาให้กรอกโดยไม่มีอะไรบอกว่ามันคือ
+          จำนวนครั้งที่ "เข้ายิมได้" ไม่ใช่จำนวนแพ็กเกจ ผลคือสมาชิกรายปีสแกนเข้าได้
+          ครั้งเดียวแล้วสิทธิ์หมด ระบบไม่ผิดสักบรรทัด แต่เงินจริงหายไปกับความเข้าใจผิด
+          ที่หน้าจอนี้ปล่อยผ่าน จึงทักตรงนี้ ก่อนกดบันทึก ไม่ใช่หลังลูกค้าโวยที่เคาน์เตอร์ */}
+      <SessionLimitWarning type={form.type} days={form.duration_days} limit={form.session_limit}/>
       <Field name="price_satang" label="ราคา (บาท)" value={form.price_satang} onChange={v => set('price_satang', v)}
         error={errors.price_thb ?? errors.price_satang} inputMode="decimal"
         hint="แพ็กเกจที่ยังไม่กรอกราคาจะมอบให้ใครไม่ได้ · ราคา 0 บาทคือแพ็กเกจฟรีจริง"/>

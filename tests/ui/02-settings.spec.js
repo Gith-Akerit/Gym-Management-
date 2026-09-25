@@ -64,3 +64,35 @@ test('a package cannot go on sale without a price', async ({ page }) => {
     .toHaveValue('รวมคลาสกลุ่มทุกคลาส · เพื่อนมาด้วยได้เดือนละ 1 ครั้ง');
   await page.getByRole('button', { name: 'ยกเลิก' }).click();
 });
+
+test('a year-long package that admits one visit is questioned before it is saved', async ({ page }) => {
+  // ผลทดสอบของผู้ใช้ รอบที่ 2: ยิมตั้งแพ็กเกจเองครบทั้งห้าตัว และใส่ "1 ครั้ง"
+  // เหมือนกันหมด รวมทั้งรายปี 10,000 บาท — สมาชิกจึงเข้าได้ครั้งเดียวทั้งปี
+  // หน้าจอเดิมบันทึกให้เงียบ ๆ ไม่ถามอะไรสักคำ
+  await signIn(page, 'admin10@example.test');
+  await go(page, 'แพ็กเกจ');
+  await page.getByRole('button', { name: '＋ เพิ่มแพ็กเกจ' }).click();
+
+  await page.getByLabel('รหัสแพ็กเกจ').fill('YEAR_TRAP');
+  await page.getByLabel('ชื่อแพ็กเกจ').fill('รายปี (1 ปี)');
+  await page.getByLabel('ประเภท').selectOption('limited_sessions');
+  await page.getByLabel('อายุแพ็กเกจ (วัน)').fill('365');
+  await page.getByLabel('จำนวนครั้ง').fill('1');
+
+  const warning = page.getByRole('status').filter({ hasText: 'เข้ายิมได้ 1 ครั้ง ตลอด 365 วัน' });
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('ไม่จำกัดครั้ง');
+  await page.screenshot({ path: 'artifacts/admin-package-session-warning.png', fullPage: true });
+
+  // ทักอย่างเดียว ไม่ขวาง — ขายครั้งเดียวจบก็เป็นแพ็กเกจที่มีจริง
+  await expect(page.getByRole('button', { name: 'บันทึกแพ็กเกจ' })).toBeEnabled();
+
+  // แพ็กเกจปกติต้องไม่โดนทัก ไม่งั้นคำเตือนจะกลายเป็นเสียงรบกวนที่ทุกคนมองข้าม
+  await page.getByLabel('จำนวนครั้ง').fill('30');
+  await expect(warning).toHaveCount(0);
+
+  // และแบบไม่จำกัดครั้งก็ไม่มีช่อง "จำนวนครั้ง" ให้ตั้งผิดตั้งแต่แรก
+  await page.getByLabel('ประเภท').selectOption('unlimited');
+  await expect(page.getByLabel('จำนวนครั้ง')).toHaveCount(0);
+  await page.getByRole('button', { name: 'ยกเลิก' }).click();
+});
