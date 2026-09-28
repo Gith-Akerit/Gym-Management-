@@ -34,6 +34,9 @@ test('the three steps go in order and the photograph comes first', async ({ page
   await expect(next).toBeEnabled();
   await next.click();
 
+  // สิ่งที่ลูกค้าถามก่อนจ่ายเงินอยู่ตรงหน้าคนขาย ไม่ใช่แค่ชื่อกับราคา
+  // (ผลทดสอบของผู้ใช้ ข้อ 4 · เจ้าของยิมกรอกไว้ใน 02-settings)
+  await expect(page.getByText('เพื่อนมาด้วยได้เดือนละ 1 ครั้ง')).toBeVisible();
   await page.getByRole('radio', { name: MONTHLY }).check();
   await expect(page.getByText('รวมที่ต้องเก็บ')).toBeVisible();
   await expect(page.getByRole('radio', { name: 'เงินสด' })).toBeChecked();
@@ -79,6 +82,9 @@ test('"ออกบัตรใหม่" is behind a menu and a page that spell
 
   await expect(page.getByRole('heading', { name: 'ออกบัตรใหม่ให้ บัตรหาย ต้องออกใหม่' })).toBeVisible();
   await expect(page.getByText('บัตรใบเดิมจะสแกนไม่ผ่านอีกเลย')).toBeVisible();
+  // Both halves are listed, because the owner is throwing away both: staff can
+  // type the code on a card, so a reissue that kept it would not be a reissue.
+  await expect(page.getByText('รหัสสมาชิกจะเปลี่ยนเป็นรหัสใหม่ด้วย')).toBeVisible();
   await expect(page.getByText('คุณต้องส่งรูปใบใหม่ให้ลูกค้า')).toBeVisible();
   await page.screenshot({ path: 'artifacts/counter-reissue-confirm.png', fullPage: true });
 
@@ -88,6 +94,10 @@ test('"ออกบัตรใหม่" is behind a menu and a page that spell
 
   const after = await cardToken(page, 'บัตรหาย ต้องออกใหม่');
   expect(after.qr).not.toBe(before.qr);
+  expect(after.code).not.toBe(before.code);
+  // And the screen is showing the new code, not the one on the card it just
+  // cancelled -- it is what staff read out to a customer standing there.
+  await expect(page.getByText(after.code)).toBeVisible();
 });
 
 test('a transfer carries the slip, and a free grant needs a reason', async ({ page }) => {

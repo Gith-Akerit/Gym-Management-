@@ -80,6 +80,18 @@ test('the counter screens can be read once somebody is signed in', async ({ page
   // rule has to hold there.
   expect(tooFaint(await contrastIn(page)), 'หน้าสแกน').toEqual([]);
 
+  // And with the form that is only there when the camera cannot read the card
+  // open, because that is where staff type and where the text they typed was
+  // white on white -- invisible until it was dragged over with a mouse
+  // (ผลทดสอบของผู้ใช้ ข้อ 1). Filled first: an empty box has no text in it to
+  // measure, and the bug was in the text.
+  await page.getByRole('button', { name: 'พิมพ์รหัสเอง' }).click();
+  const code = page.getByLabel('รหัสสมาชิก หรือรหัสจาก QR');
+  await code.fill('GYM-1A2B3C4D5E6F');
+  await expect(code).toBeVisible();
+  expect(tooFaint(await contrastIn(page)), 'หน้าสแกน · พิมพ์รหัสเอง').toEqual([]);
+  await page.getByRole('button', { name: 'พิมพ์รหัสเอง' }).click();
+
   for (const tab of ['สมาชิก', 'สมัครสมาชิก', 'รับเงินและมอบแพ็กเกจ', 'ผู้ใช้และสิทธิ์', 'ข้อมูลยิม']) {
     await go(page, tab);
     expect(tooFaint(await contrastIn(page)), tab).toEqual([]);

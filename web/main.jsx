@@ -372,7 +372,9 @@ const PackagePicker = ({ packages, value, onChange }) => <div className="stack">
     <input type="radio" name="package" checked={value === item.id} onChange={() => onChange(item.id)}
       aria-label={`${item.name_th} ${item.price_thb} บาท`}/>
     <span className="n"><b>{item.name_th}</b>
-      <span className="sm">{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}</span></span>
+      <span className="sm">{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}</span>
+      {/* สิ่งที่ลูกค้าถามก่อนจ่ายเงินอยู่ในบรรทัดนี้ ไม่ใช่ในหัวคนขายของ */}
+      {item.description && <span className="sm">{item.description}</span>}</span>
     <b className="num">{item.price_thb.toLocaleString('th-TH')} ฿</b>
   </label>)}
 </div>;
@@ -409,7 +411,7 @@ const MethodPicker = ({ value, onChange, onSlip, slip }) => <>
  * not a narrower permission but the audit row written on every save: who
  * changed what, and when.
  */
-function MemberEdit({ member, onCancel, onSaved, onReissue, onAuthError }) {
+function MemberEdit({ member, onCancel, onSaved, onChanging, onReissue, onAuthError }) {
   const [value, setValue] = useState({
     name: member.name ?? '', phone: member.phone ?? '', email: member.email ?? '',
     date_of_birth: member.date_of_birth ?? '', emergency_contact: member.emergency_contact ?? '',
@@ -422,6 +424,7 @@ function MemberEdit({ member, onCancel, onSaved, onReissue, onAuthError }) {
 
   async function save() {
     setBusy(true); setError(null);
+    onChanging?.(true);
     try {
       const saved = await api(`/members/${member.id}`, { method: 'PUT', body: {
         name: value.name, phone: value.phone, email: value.email || null,
@@ -431,7 +434,7 @@ function MemberEdit({ member, onCancel, onSaved, onReissue, onAuthError }) {
       } });
       if (saved.card_went_to) { setWentTo(saved.card_went_to); return; }
       onSaved(saved, 'บันทึกข้อมูลสมาชิกแล้ว');
-    } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); }
+    } catch (e) { setError(e); onAuthError(e); } finally { setBusy(false); onChanging?.(false); }
   }
 
   if (wentTo) {
@@ -499,18 +502,94 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
   // finds out is here, where they can photograph the member again.
   const brokenPhoto = data?.photo_readable === false;
 
-  /** Replaces the photograph from this screen, which is where the news lands. */
-  const [emailed, setEmailed] = useState('');
+  // The member as the server has them now, not as the list had them when it
+  // was drawn. Reissuing mints a new member code, so the row behind this
+  // screen goes stale the moment the owner confirms -- and the stale half is
+  // exactly the printed code, which would have left the heading, the file name
+  // and the message to staff all quoting the code on the card just cancelled.
+  const current = data?.member ?? member;
+
+  /**
+   * Handing a card over, when the card can change while it is being handed.
+   *
+   * Three rounds of this were fixed by remembering, at the moment of the press,
+   * what the card was, and comparing that afterwards. It kept springing new
+   * leaks because it answers the wrong question: what a *screen* remembers is
+   * not what a *file* is. Leave the screen and come back and the memory is a
+   * fresh one belonging to a different screen; ask for a change and the memory
+   * moves before the card does. So the comparison is made from two facts
+   * instead:
+   *
+   * - **what the bytes are.** The server stamps every card it draws with
+   *   `X-Card-Revision`, so the file answers for itself.
+   * - **what the card is now.** Asked of the server at the moment of handing
+   *   over, not of this screen.
+   *
+   * Two things still have to come from here, because no request can report
+   * them, and both are about time rather than identity.
+   */
+
+  /**
+   * This screen's own lifetime. Work started here must not finish after the
+   * screen is gone: a download landing on a page nobody is looking at is a file
+   * staff never asked for, of a card that may since have been cancelled (QA --
+   * leave the card, come back, reissue, and the first press still saved the
+   * dead one, because the screen that was checking had been replaced).
+   */
+  const alive = useRef(null);
+  if (!alive.current) alive.current = new AbortController();
+  useEffect(() => () => alive.current.abort(), []);
+
+  /**
+   * How many changes to this card have been asked for and not yet answered.
+   *
+   * Raised before the request leaves and lowered when it settles, whichever way
+   * it settles. While it is above zero there is no true answer to "what is the
+   * card", so nothing may be handed to anybody. Pressing "ยกเลิก" on the
+   * confirmation closes the screen but does not call back a reissue already in
+   * the air, which is the gap QA walked through.
+   */
+  const changing = useRef(0);
+  async function whileChanging(work) {
+    changing.current += 1;
+    try { return await work(); } finally { changing.current -= 1; }
+  }
+
+  /**
+   * The card as the server has it now, or `null` when nothing may be handed to
+   * a member: this screen is gone, a change to it is still unanswered, or the
+   * server could not be asked at all. The last one refuses rather than assumes
+   * -- a card that cannot be shown to be current is one staff should send
+   * again, not one a member should be given.
+   *
+   * Deliberately not `reload()`: that puts the screen back into its loading
+   * state, and taking the card off the screen to check that the card is still
+   * there would be a bug of its own.
+   */
+  async function cardNow() {
+    if (alive.current.signal.aborted || changing.current > 0) return null;
+    const fresh = await api(`/members/${member.id}/card`).catch(() => null);
+    if (alive.current.signal.aborted || changing.current > 0) return null;
+    return fresh;
+  }
+
+  const MOVED = 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังทำรายการนี้ จึงไม่ได้ส่งบัตรใบเดิมออกไป'
+    + ' — กดอีกครั้งเพื่อส่งบัตรใบล่าสุด';
+
+  // What just happened to this card, whichever way it was handed over: posted
+  // to the member's address, or saved onto the machine in front of somebody.
+  const [handoff, setHandoff] = useState('');
   // One live portal link on screen at a time, like the staff one: a list of
   // them is a list of ways into customers' accounts on a counter tablet.
   const [portal, setPortal] = useState(null), [portalCopied, setPortalCopied] = useState(false);
 
+  /** Replaces the photograph from this screen, which is where the news lands. */
   async function savePhoto(file) {
-    setWorking(true); setPhotoFailure(null);
+    setWorking(true); setPhotoFailure(null); setHandoff('');
     const form = new FormData();
     form.append('photo', file);
     try {
-      const saved = await upload(`/members/${member.id}/photo`, form, 'PUT');
+      const saved = await whileChanging(() => upload(`/members/${member.id}/photo`, form, 'PUT'));
       setPreview(url => { if (url) URL.revokeObjectURL(url); return URL.createObjectURL(file); });
       setStamp(saved.photo_updated_at ?? Date.now());
       await reload().catch(() => {});
@@ -520,8 +599,18 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
 
   async function resend() {
     setWorking(true); setFailure(null);
-    try { setLink(await api(`/members/${member.id}/card/link`, { method: 'POST', body: {} })); }
-    catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
+    try {
+      const fresh = await api(`/members/${member.id}/card/link`, { method: 'POST', body: {} });
+      // The link reports the card number it was signed over, and the signature
+      // covers that number, so a link minted either side of a reissue is dead
+      // before it reaches the screen. Putting it up would hand staff a URL to
+      // read out that answers "ลิงก์นี้หมดอายุหรือถูกยกเลิกแล้ว" to the member.
+      // The card number and not the whole revision: a new photograph does not
+      // kill a link, it only changes what the link draws.
+      const now = await cardNow();
+      if (!now || now.card_version !== fresh.card_version) return setFailure(new Error(MOVED));
+      setLink(fresh);
+    } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
   /**
@@ -548,44 +637,117 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
    * problem. Here somebody pressed a button and is owed an answer.
    */
   async function emailCard() {
-    setWorking(true); setFailure(null); setEmailed('');
+    setWorking(true); setFailure(null); setHandoff('');
     try {
       const result = await api(`/members/${member.id}/welcome`, { method: 'POST', body: {} });
-      setEmailed(`ส่งบัตรไปที่ ${result.to} แล้ว`);
+      // The letter says which card went in it, so this needs no memory either.
+      // It cannot be called back the way a download can -- but the green bar
+      // still must not report the card delivered when the card it carried has
+      // since been thrown away. Said out loud rather than dropped, because "an
+      // email went out with the dead card in it" is the thing somebody has to
+      // act on.
+      const now = await cardNow();
       await reload().catch(() => {});
+      if (alive.current.signal.aborted) return;
+      if (!now || now.card_revision !== result.card_revision) {
+        throw new Error(`ส่งอีเมลไปที่ ${result.to} แล้ว แต่บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังส่ง`
+          + ' อีเมลฉบับนั้นจึงเป็นบัตรใบเดิม — กด "ส่งบัตรทางอีเมลอีกครั้ง" เพื่อส่งใบล่าสุดให้ลูกค้า');
+      }
+      setHandoff(`ส่งบัตรไปที่ ${result.to} แล้ว`);
     } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
+  /**
+   * Handing the card over.
+   *
+   * On a phone this is the share sheet, which is why the counter prefers the
+   * phone. On a desktop browser there is no share sheet, and what this used to
+   * do instead -- `window.open` -- is a pop-up opened several awaits after the
+   * click, so the browser had already forgotten there was a click and blocked
+   * it. Nothing appeared and nothing said why (ผลทดสอบของผู้ใช้ ข้อ 5).
+   *
+   * The desktop path now saves the PNG the same way the button beside it does:
+   * a download of the image already in hand, which no pop-up blocker touches
+   * and which leaves the file ready to attach in LINE. A share sheet that is
+   * offered and then refused falls through to the same place rather than
+   * leaving the member with nothing.
+   */
+  function saveCardFile(blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${current.member_code}.png`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Freed on a timer rather than immediately: revoking it in the same tick
+    // can cancel the download that was just started.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   async function share() {
-    setFailure(null);
+    setFailure(null); setHandoff('');
+    let blob, drawnAs;
     try {
-      const response = await fetch(src, { credentials: 'include' });
+      // Tied to this screen, so walking away from it really does stop this.
+      const response = await fetch(src, { credentials: 'include', signal: alive.current.signal });
       if (!response.ok) throw new Error('โหลดรูปบัตรไม่สำเร็จ กรุณาลองใหม่');
-      const file = new File([await response.blob()], `${member.member_code}.png`, { type: 'image/png' });
-      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: member.name });
-      else window.open(src, '_blank', 'noopener');
-    } catch (e) { if (e.name !== 'AbortError') setFailure(e); }
+      // What the server says it drew, rather than what this screen asked for.
+      drawnAs = response.headers.get('X-Card-Revision');
+      blob = await response.blob();
+    } catch (e) {
+      // There is nobody on this screen left to tell.
+      if (e.name === 'AbortError') return;
+      setFailure(e); return;
+    }
+
+    // Asked before the file exists, not after it has been handed over: nothing
+    // is downloaded, no share sheet opens, and the green bar never appears only
+    // to be cleared again. Said out loud rather than done quietly, because a
+    // button that is pressed and does nothing is how ข้อ 5 started.
+    const still = await cardNow();
+    if (!still || still.card_revision !== drawnAs) return setFailure(new Error(MOVED));
+
+    const file = new File([blob], `${current.member_code}.png`, { type: 'image/png' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: current.name });
+        return;
+      } catch (e) {
+        // "ยกเลิก" ในหน้าต่างแชร์ไม่ใช่ความผิดพลาด และไม่ต้องบันทึกไฟล์ให้
+        if (e.name === 'AbortError') return;
+      }
+      // The sheet is a wait of its own, and a card can be cancelled while it
+      // is open.
+      const after = await cardNow();
+      if (!after || after.card_revision !== drawnAs) return setFailure(new Error(MOVED));
+    }
+    saveCardFile(blob);
+    setHandoff(`บันทึกรูปบัตรของ ${current.name} ลงเครื่องแล้ว (${current.member_code}.png) — เปิด LINE หรืออีเมลแล้วแนบไฟล์นี้ส่งให้ลูกค้าได้เลย`);
   }
 
   async function reissue() {
     setWorking(true); setFailure(null);
     try {
-      await api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason } });
-      setConfirm(false); setLink(null);
+      await whileChanging(() =>
+        api(`/members/${member.id}/card/reissue`, { method: 'POST', body: { reason } }));
+      setConfirm(false); setLink(null); setHandoff('');
       await reload().catch(() => {});
-      onChanged('ออกบัตรใหม่แล้ว บัตรใบเดิมใช้ไม่ได้ทันที');
+      onChanged('ออกบัตรใหม่แล้ว บัตรใบเดิมใช้ไม่ได้ทันที รวมถึงรหัสสมาชิกที่พิมพ์อยู่บนใบเดิม อย่าลืมส่งใบใหม่ให้ลูกค้า');
     } catch (e) { setFailure(e); onAuthError(e); } finally { setWorking(false); }
   }
 
   if (confirm) {
     return <div style={{ maxWidth: 620 }}>
-      <h1>ออกบัตรใหม่ให้ {member.name}</h1>
+      <h1>ออกบัตรใหม่ให้ {current.name}</h1>
       <p className="sub">ตรวจให้แน่ใจก่อน การกระทำนี้ย้อนกลับไม่ได้</p>
       <div className="confirm">
         <h2>สิ่งที่จะเกิดขึ้นทันที</h2>
         <ul className="warnlist">
           <li><b>บัตรใบเดิมจะสแกนไม่ผ่านอีกเลย</b> ใครถือรูปเก่าอยู่ก็ใช้ไม่ได้ รวมถึงตัวลูกค้าเอง</li>
-          <li>ระบบสร้างรูปบัตรใบใหม่ให้ทันที ใช้รูปถ่ายและแพ็กเกจเดิม</li>
+          <li><b>รหัสสมาชิกจะเปลี่ยนเป็นรหัสใหม่ด้วย</b> รหัสที่พิมพ์อยู่บนบัตรใบเดิมจะพิมพ์เช็คอินไม่ผ่าน
+            เพราะถ้าไม่เปลี่ยน คนที่ถือบัตรใบเดิมก็ยังเข้ายิมได้ด้วยการอ่านรหัสให้พนักงานพิมพ์</li>
+          <li>ระบบสร้างรูปบัตรใบใหม่ให้ทันที ใช้รูปถ่ายและแพ็กเกจเดิม รหัสใหม่พิมพ์อยู่บนใบใหม่</li>
           <li><b>คุณต้องส่งรูปใบใหม่ให้ลูกค้า</b> ไม่งั้นเขาจะเข้ายิมไม่ได้ในครั้งถัดไป</li>
           <li>สิทธิ์คงเหลือและประวัติเช็คอินไม่เปลี่ยน</li>
         </ul>
@@ -611,18 +773,23 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
     return <MemberEdit member={data?.member ?? member} onAuthError={onAuthError}
       onCancel={() => setEditing(false)}
       onReissue={() => { setEditing(false); setConfirm(true); }}
+      // The member's name is drawn on the card, so a save here is a change to
+      // the card and this screen has to know it is unanswered. Both edges, from
+      // the form's own `finally`, so a save that fails does not leave the card
+      // screen believing a change is pending for ever.
+      onChanging={pending => { changing.current += pending ? 1 : -1; }}
       onSaved={(saved, message) => {
         setEditing(false);
         onChanged(message);
         reload().catch(() => {});
-        if (saved) setStamp(Date.now());
+        if (saved) { setStamp(Date.now()); setHandoff(''); }
       }}/>;
   }
 
   return <>
     <button className="btn auto ghost" style={{ marginBottom: 'var(--sp-4)' }} onClick={onBack}>← กลับรายชื่อสมาชิก</button>
     <h1>บัตรสมาชิก</h1>
-    <p className="sub">{member.name} · <span className="num">{member.member_code}</span></p>
+    <p className="sub">{current.name} · <span className="num">{current.member_code}</span></p>
     <StateBox error={error} onRetry={() => reload().catch(() => {})}/>
     {busy ? <Loading label="กำลังสร้างบัตร…" rows={2} avatar={false}/> : !error && <>
       {/* QA-04: the wizard posts the card letter without waiting for it, so a
@@ -645,7 +812,7 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
               <span>บัตรออกได้ แต่พนักงานจะเทียบหน้าตอนสแกนไม่ได้ ซึ่งเป็นด่านเดียวที่กันการส่งบัตรต่อ</span></div></div>}
       <div className="cardgrid">
         <div>
-          <img className="cardshot" src={src} alt={`บัตรสมาชิกของ ${member.name}`}/>
+          <img className="cardshot" src={src} alt={`บัตรสมาชิกของ ${current.name}`}/>
           <p className="note" style={{ marginTop: 'var(--sp-3)' }}>
             ไฟล์ PNG 1080 × 1350 px — สัดส่วนเดียวกับรูปที่ LINE แสดงเต็มความกว้างในแชต
             ลูกค้าเปิดแล้ว QR เต็มจอทันที ไม่ต้องกดซูม</p>
@@ -668,14 +835,14 @@ function MemberCard({ member, canReissue, onBack, onChanged, onAuthError }) {
           </details>
         </div>
         <div className="stack">
-          <a className="btn primary xl" href={src} download={`${member.member_code}.png`}>บันทึกรูปบัตร</a>
+          <a className="btn primary xl" href={src} download={`${current.member_code}.png`}>บันทึกรูปบัตร</a>
           <button className="btn xl" onClick={share}>ส่งบัตรให้ลูกค้า</button>
           {/* Only offered when there is somewhere to send it. A member who
               gave no address is not a member with a broken button. */}
           {data.member?.email && <button className="btn xl" disabled={working} onClick={emailCard}>
             {data.member.welcome_sent_at ? 'ส่งบัตรทางอีเมลอีกครั้ง' : 'ส่งบัตรทางอีเมล'}</button>}
-          {emailed && <div className="banner ok" role="status">
-            <div className="ic" aria-hidden="true">✓</div><div><b>{emailed}</b></div></div>}
+          {handoff && <div className="banner ok" role="status">
+            <div className="ic" aria-hidden="true">✓</div><div><b>{handoff}</b></div></div>}
           <button className="btn ghost" disabled={working} onClick={resend}>ส่งบัตรซ้ำ (ลิงก์ 7 วัน)</button>
           {/* Offered only when there is an account to let them into. Without an
               address there is no member account, and the button would be a
@@ -865,6 +1032,39 @@ function PaymentGrant({ member, packages, onDone, onPickMember, onAuthError }) {
 
 // ---------------------------------------------------------------- packages
 
+/**
+ * "แพ็กเกจนี้เข้าได้กี่ครั้งกันแน่" ถามก่อนกดบันทึก
+ *
+ * A package that runs for a year and admits one visit is a legal thing to
+ * want -- a single personal-training session sold with a year to use it up is
+ * exactly that -- so this warns and never blocks. What it will not do is let
+ * "365 วัน · 1 ครั้ง · 10,000 บาท" be saved without anybody being asked out
+ * loud whether that is really the intention. The gym's own five packages were
+ * all entered that way.
+ *
+ * The test is days-per-visit rather than a fixed pair of numbers, so "10 ครั้ง
+ * ใน 90 วัน" (9 days a visit, a normal package) stays quiet while "1 ครั้ง ใน
+ * 30 วัน" does not.
+ */
+const DAYS_PER_VISIT_SUSPECT = 15;
+
+function SessionLimitWarning({ type, days, limit }) {
+  if (type !== 'limited_sessions') return null;
+  const duration = Number(days), visits = Number(limit);
+  if (!Number.isFinite(duration) || !Number.isFinite(visits) || visits < 1 || duration < 1) return null;
+  if (duration / visits < DAYS_PER_VISIT_SUSPECT) return null;
+  return <div className="banner warn" role="status" style={{ marginBottom: 'var(--sp-4)' }}>
+    <div className="ic" aria-hidden="true">!</div>
+    <div><b>ตรวจอีกครั้ง: แพ็กเกจนี้เข้ายิมได้ {visits.toLocaleString('th-TH')} ครั้ง
+      ตลอด {duration.toLocaleString('th-TH')} วัน</b>
+      {/* `strong` ไม่ใช่ `b` โดยตั้งใจ: `.banner b` คือสไตล์ของหัวข้อแบนเนอร์
+          ซึ่งเป็นบล็อกและตัวใหญ่ ถ้าใช้ตรงนี้ประโยคจะถูกหักกลางเป็นสองท่อน */}
+      <span>"จำนวนครั้ง" คือจำนวนครั้งที่สมาชิกสแกนเข้ายิมได้ ครบแล้วสแกนไม่ผ่านแม้แพ็กเกจยังไม่หมดอายุ ·
+        ถ้าตั้งใจขายเป็นแบบเข้าได้ทุกวัน ให้เปลี่ยน "ประเภท" เป็น <strong>ไม่จำกัดครั้ง</strong> ·
+        ถ้าตั้งใจให้เข้าได้ {visits.toLocaleString('th-TH')} ครั้งจริง ๆ กดบันทึกได้เลย</span></div>
+  </div>;
+}
+
 function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
   const toForm = row => ({ ...blankPackage, ...row, session_limit: row.session_limit ?? '', price_satang: row.price_thb ?? '' });
   const [form, setForm] = useState(item ? toForm(item) : { ...blankPackage });
@@ -905,9 +1105,24 @@ function PackageEditor({ item, onCancel, onSaved, onAuthError }) {
         <Field name="duration_days" label="อายุแพ็กเกจ (วัน)" value={form.duration_days} onChange={v => set('duration_days', v)} error={errors.duration_days} type="number" min={1}/>
         {form.type === 'limited_sessions' && <Field name="session_limit" label="จำนวนครั้ง" value={form.session_limit} onChange={v => set('session_limit', v)} error={errors.session_limit} type="number" min={1}/>}
       </div>
+      {/* แพ็กเกจรายปีราคาหนึ่งหมื่น ที่เข้าได้ครั้งเดียวทั้งปี
+          ยิมตั้งแพ็กเกจจริงมาแบบนี้ทั้งห้าตัว — รายปี รายเดือน รายวัน ใส่ "1 ครั้ง"
+          เหมือนกันหมด เพราะช่อง "จำนวนครั้ง" ขึ้นมาให้กรอกโดยไม่มีอะไรบอกว่ามันคือ
+          จำนวนครั้งที่ "เข้ายิมได้" ไม่ใช่จำนวนแพ็กเกจ ผลคือสมาชิกรายปีสแกนเข้าได้
+          ครั้งเดียวแล้วสิทธิ์หมด ระบบไม่ผิดสักบรรทัด แต่เงินจริงหายไปกับความเข้าใจผิด
+          ที่หน้าจอนี้ปล่อยผ่าน จึงทักตรงนี้ ก่อนกดบันทึก ไม่ใช่หลังลูกค้าโวยที่เคาน์เตอร์ */}
+      <SessionLimitWarning type={form.type} days={form.duration_days} limit={form.session_limit}/>
       <Field name="price_satang" label="ราคา (บาท)" value={form.price_satang} onChange={v => set('price_satang', v)}
         error={errors.price_thb ?? errors.price_satang} inputMode="decimal"
         hint="แพ็กเกจที่ยังไม่กรอกราคาจะมอบให้ใครไม่ได้ · ราคา 0 บาทคือแพ็กเกจฟรีจริง"/>
+      {/* ผลทดสอบของผู้ใช้ ข้อ 4: ตารางและ API เก็บรายละเอียดแพ็กเกจมาตลอด แต่ฟอร์มนี้
+          ไม่เคยมีช่องให้กรอก เจ้าของยิมจึงเขียนเงื่อนไขหรือโปรโมชันลงไปไม่ได้เลย
+          และหน้าเลือกแพ็กเกจก็ไม่มีอะไรจะแสดงนอกจากชื่อกับราคา */}
+      <Field name="description" label="รายละเอียดและเงื่อนไข (ไม่บังคับ)" value={form.description}
+        onChange={v => set('description', v)} error={errors.description}
+        hint="ขึ้นให้ลูกค้าเห็นตอนเลือกแพ็กเกจ · เขียนสิ่งที่ลูกค้าต้องรู้ก่อนจ่าย เช่น โปรโมชัน ของแถม ข้อจำกัดเวลาเข้าใช้">
+        <textarea maxLength={500} rows={4}/>
+      </Field>
       <Field name="status" label="สถานะแพ็กเกจ" value={form.status} onChange={v => set('status', v)} error={errors.status}>
         <select>{Object.entries(packageStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
       </Field>
@@ -938,7 +1153,8 @@ function Packages({ onAuthError }) {
     {busy ? <Loading label="กำลังโหลดแพ็กเกจ…" avatar={false}/> : !error && <div className="list">
       {data.items.map(item => <div className="item" key={item.id}>
         <div className="who"><b>{item.name_th}</b>
-          <span>{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}</span></div>
+          <span>{item.duration_days} วัน · {item.type === 'unlimited' ? 'ไม่จำกัดครั้ง' : `${item.session_limit} ครั้ง`}
+            {item.description ? ` · ${item.description}` : ''}</span></div>
         <b className="num" style={{ fontSize: 'var(--fs-24)', color: item.price_thb === null ? 'var(--warn)' : undefined }}>
           {item.price_thb === null ? 'ยังไม่ตั้งราคา' : `${item.price_thb.toLocaleString('th-TH')} ฿`}</b>
         <span className={`chip ${item.price_thb === null ? 'warn' : item.status === 'active' ? 'ok' : 'neutral'}`}>

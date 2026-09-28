@@ -309,10 +309,13 @@ test('fifty-nine rows print as a table, on a sane number of sheets', async ({ pa
   const pdf = await page.pdf({ format: 'A4' });
   const sheets = pageCount(pdf);
   // The whole screen, not only the table: this page also prints the summary
-  // bar and the twenty-four hour chart, which is the fourth sheet. Broken, the
-  // table alone was nineteen.
-  expect(sheets, `ทั้งหน้าได้ ${sheets} แผ่น (ตาราง ${tableSheets} + แถบสรุปและกราฟ)`)
-    .toBeLessThanOrEqual(4);
+  // bar, the twenty-four hour chart and the table of refusal reasons, whose
+  // length is however many kinds of refusal this gym has seen. Measured
+  // against the table rather than pinned to a number, so adding a reason to
+  // that list is not a failing print test. Broken, the table alone was
+  // nineteen sheets, which no allowance of two covers.
+  expect(sheets, `ทั้งหน้าได้ ${sheets} แผ่น (ตาราง ${tableSheets} + แถบสรุป กราฟ และเหตุผลที่ไม่ผ่าน)`)
+    .toBeLessThanOrEqual(tableSheets + 2);
   await page.emulateMedia({ media: 'screen' });
 });
 

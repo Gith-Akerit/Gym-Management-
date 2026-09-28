@@ -55,6 +55,51 @@ export async function withScanningPaused(work) {
   try { return await work(); } finally { setScanningPaused(false); }
 }
 
+// ------------------------------------------------- what the scan loop costs
+//
+// The counter's machine is not a phone. On the office PC the whole app was
+// reported as freezing the computer, and this is why: with no BarcodeDetector
+// -- Chrome and Edge on Windows have none -- every frame went through jsQR,
+// in JavaScript, on the main thread, at the camera's full 1280x720. Measured
+// here, one such frame is over 100 ms of solid work. The loop asked for the
+// next one as soon as it finished, so the main thread was never idle: nothing
+// else on the page -- a click, a keystroke, a repaint -- got a turn, which is
+// what "เครื่องค้าง" means when a user says it (ผลทดลองใช้ของผู้ใช้ รอบที่ 2).
+//
+// Two numbers fix it, and they are here rather than in the component so a
+// test can hold them to account without a browser.
+
+/**
+ * The gap between one read and the next.
+ *
+ * Eight reads a second. Nobody presents a card in under 125 ms, so this is
+ * instant to a person, and it leaves the main thread free between reads --
+ * which is the entire difference between a busy tab and a frozen computer.
+ * Much above 200 ms and holding a card up starts to feel like it was ignored.
+ */
+export const SCAN_EVERY_MS = 125;
+
+/**
+ * The longest edge a frame is shrunk to before jsQR is handed it.
+ *
+ * jsQR walks every pixel, so its cost is the pixel count and nothing else:
+ * 1280x720 is 920,000 of them, 640x360 is 230,000. Below about 480 the corner
+ * squares smear and reads start to fail, which is the one thing this screen
+ * must never do -- so the frame is shrunk, not shrunk as far as possible.
+ */
+export const DECODE_EDGE = 640;
+
+/**
+ * The size that frame should be decoded at, keeping its shape.
+ *
+ * Never enlarges: a camera that only offers 320x240 is already cheap, and
+ * blowing it up would add pixels without adding any information to read.
+ */
+export function decodeFrameSize(width, height, edge = DECODE_EDGE) {
+  const scale = Math.min(1, edge / Math.max(width, height));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
 /** How long a picture of the screen is allowed to take before we give up. */
 export const CAPTURE_TIMEOUT_MS = 8000;
 

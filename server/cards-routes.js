@@ -7,7 +7,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
-import { audit, getGym, getMember, publicMember, transaction } from './db.js';
+import { audit, getGym, getMember, newMemberCode, publicMember, transaction } from './db.js';
 import { cardQrFor, CardRenderError, photoIsDrawable, PhotoUnreadableError, preparePhoto, renderCard } from './cards.js';
 import { detectImageType, SlipError } from './slips.js';
 import { resolveTheme } from './theme.js';
@@ -29,6 +29,24 @@ export const CARD_LINK_TTL_MS = 7 * 86400000;
 
 const dateTh = value => new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' })
   .format(new Date(value));
+
+/**
+ * Which card a picture is, in one string.
+ *
+ * Written by the server that drew the bytes and sent back on the picture
+ * itself, so whoever ends up holding a file can ask "is this still the card?"
+ * without trusting anything a screen remembers about when it asked.
+ *
+ * Everything drawn on a card moves one of these numbers: `card_version` when it
+ * is reissued, the member's row version when the photograph is replaced or the
+ * name corrected, the settings version when the gym changes its colours or
+ * logo. A screen comparing this against the card as the server has it *now* is
+ * comparing two facts; a screen comparing counters it kept itself is comparing
+ * two guesses, which is how a cancelled card reached a member over LINE three
+ * times running (QA).
+ */
+export const cardRevision = (member, settings) =>
+  `${member.id}.${member.card_version}.${member.version}.${settings?.version ?? 1}`;
 
 export function registerCardRoutes({ app, db, now, admin, counter, photoStore, logoStore, secret }) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_PHOTO_BYTES, files: 1 } });
@@ -98,13 +116,17 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
    * same picture the counter sees, drawn by the same code with the same
    * colours. A second renderer would be a second card.
    */
-  const handles = { drawCard: draw, membershipFor };
+  const handles = { drawCard: draw, membershipFor, revisionOf: member => cardRevision(member, settingsRow(db)) };
 
   function sendCard(res, member, png) {
     res.set('Content-Type', 'image/png');
     // The name the browser suggests when staff save it to send on: a folder of
     // card.png files helps nobody.
     res.set('Content-Disposition', `inline; filename="${member.member_code}.png"`);
+    // And which card it is, for whoever is about to hand it to a member. The
+    // bytes and the answer travel together, so a slow hand-over can be refused
+    // instead of sent.
+    res.set('X-Card-Revision', cardRevision(member, settingsRow(db)));
     res.send(png);
   }
 
@@ -226,6 +248,7 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
     // `null` means there is no photograph to judge; `false` covers both a file
     // that will not decode and one that is no longer on the disk at all.
     const readable = !member.photo_stored_name ? null : bytes ? await photoIsDrawable(bytes) : false;
+    const settings = settingsRow(db);
     res.json({
       member: publicMember(member),
       qr: cardQrFor(secret, member),
@@ -235,7 +258,11 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
       photo_readable: readable,
       // Moves when the gym's colours or logo change, so the picture on this
       // screen is the picture that would be sent, not the browser's memory.
-      theme_version: settingsRow(db)?.version ?? 1,
+      theme_version: settings?.version ?? 1,
+      // The same string the picture itself carries, from the same function:
+      // this is what "the current card" means when a file in hand is checked
+      // against it.
+      card_revision: cardRevision(member, settings),
     });
   });
 
@@ -256,6 +283,15 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
    * Reissuing. The old card stops working the moment this returns, because the
    * counter goes up and every signature is over the counter -- there is no
    * list of cancelled cards to keep, and nothing to go and find.
+   *
+   * Both halves of the card go at once: the QR *and* the member code printed
+   * under it. Cancelling only the QR left the twelve characters on the dead
+   * card still opening the door, because staff can type that code in by hand
+   * and a typed code is a name, not a signature -- so whoever the gym reissued
+   * the card *away from* kept a working way in (Pentester, D1). Typing the
+   * code stays: the customer standing at a counter with a camera that will not
+   * focus is exactly who it is for (ผลทดสอบของผู้ใช้ ข้อ 2). It is the code on
+   * the cancelled card that stops, not the box it goes in.
    */
   app.post('/api/members/:id/card/reissue', admin, (req, res) => {
     const input = parse(z.object({
@@ -263,11 +299,17 @@ export function registerCardRoutes({ app, db, now, admin, counter, photoStore, l
     }).strict(), req.body);
     const result = transaction(db, () => {
       const before = load(req.params.id);
-      db.prepare('UPDATE members SET card_version=card_version+1,card_issued_at=?,version=version+1,updated_at=? WHERE id=?')
-        .run(now(), now(), before.id);
+      db.prepare(`UPDATE members SET card_version=card_version+1,member_code=?,card_issued_at=?,
+        version=version+1,updated_at=? WHERE id=?`)
+        .run(newMemberCode(db), now(), now(), before.id);
       const after = getMember(db, before.id);
+      // Written as `code_before` / `code_after` rather than `member_code`: the
+      // audit trail redacts any row that looks like a member (`publicMember`),
+      // and a reissue record is not one. Both codes are on the log because
+      // "which card was this?" is the question somebody asks it afterwards.
       audit(db, req.user.id, 'member.card_reissue', before.id,
-        { card_version: before.card_version }, { card_version: after.card_version, reason: input.reason }, now());
+        { card_version: before.card_version, code_before: before.member_code },
+        { card_version: after.card_version, code_after: after.member_code, reason: input.reason }, now());
       return after;
     });
     res.json({ member: publicMember(result), qr: cardQrFor(secret, result) });

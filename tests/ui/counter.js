@@ -127,22 +127,26 @@ export async function openMember(page, name) {
   await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
 }
 
-/** The token printed on the card that is currently on the screen. */
+/**
+ * The card that is currently on the screen: the signed token inside its QR,
+ * and the member code printed underneath it -- which is the thing staff type
+ * when the camera will not read the screen in front of them.
+ */
 export async function cardToken(page, name) {
   const id = await page.getByRole('img', { name: `บัตรสมาชิกของ ${name}` })
     .evaluate(img => new URL(img.src).pathname.split('/')[3]);
   const card = await (await page.request.get(`/api/members/${id}/card`)).json();
-  return { id, qr: card.qr };
+  return { id, qr: card.qr, code: card.member.member_code };
 }
 
 /** Types a code into the scan screen the way a USB reader or a thumb would. */
 export async function scan(page, qr, { device = null } = {}) {
   await go(page, 'สแกนเช็คอิน');
-  if (!await page.getByLabel('รหัสจาก QR ของสมาชิก').isVisible()) {
+  if (!await page.getByLabel('รหัสสมาชิก หรือรหัสจาก QR').isVisible()) {
     await page.getByRole('button', { name: 'พิมพ์รหัสเอง' }).click();
   }
   if (device) await page.getByLabel('ชื่อจุดสแกน', { exact: false }).fill(device);
-  await page.getByLabel('รหัสจาก QR ของสมาชิก').fill(qr);
+  await page.getByLabel('รหัสสมาชิก หรือรหัสจาก QR').fill(qr);
   await page.getByRole('button', { name: 'ตรวจสอบ' }).click();
 }
 
@@ -175,8 +179,16 @@ export function contrastIn(page) {
     // `.mk span` is the gym's initials in the white badge on the top bar. It is
     // a span, so it was invisible to a sweep of text elements -- which is how
     // it stayed white on white through nine passes of this file.
-    for (const label of document.querySelectorAll('label, .note, .hint, p, h1, h2, b, .mk span')) {
-      const text = label.textContent?.trim();
+    // `input`/`textarea`/`select` are in the sweep because what a person types
+    // is text on a background like any other, and this sweep read only
+    // elements with children. A control whose text colour is inherited from a
+    // dark stage while its own background stays white is 1:1 -- white on white
+    // -- and every spec that fills it by label still passes, because the value
+    // is in the DOM either way (ผลทดสอบของผู้ใช้ ข้อ 1).
+    for (const label of document.querySelectorAll(
+      'label, .note, .hint, p, h1, h2, b, .mk span, textarea, select, '
+      + 'input:not([type=file]):not([type=radio]):not([type=checkbox]):not([type=color])')) {
+      const text = label.value || label.placeholder || label.textContent?.trim();
       if (!text || !label.getClientRects().length) continue;
       if (label.querySelector('label, p, h1, h2, b')) continue;      // containers, not text
       const style = getComputedStyle(label);

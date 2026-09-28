@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { scanningPaused } from './capture.js';
+import { decodeFrameSize, SCAN_EVERY_MS, scanningPaused } from './capture.js';
 
 /**
  * Reads a QR from the counter's camera.
  *
  * "Staff or the tablet at the counter" scan, so this cannot assume a USB reader
  * is plugged in. Where the browser ships BarcodeDetector (Chrome and Edge on
- * Android and desktop) that does the work; everywhere else the frames go
- * through jsQR, which is slower but needs nothing installed.
+ * Android and ChromeOS) that does the work; everywhere else -- which includes
+ * Chrome and Edge on Windows, the machine in the office -- the frames go
+ * through jsQR, which needs nothing installed but does all of it in
+ * JavaScript on the main thread. That path is the expensive one, so it is the
+ * one both `SCAN_EVERY_MS` and `DECODE_EDGE` are written for.
  *
  * Refusing permission is reported upward rather than drawn here: the scan
  * screen turns it into a way to carry on working, which is what somebody with
@@ -66,20 +69,25 @@ export function CameraScanner({ onScan, active, onError }) {
         if (cancelled) return;
       }
 
+      // Asked for once rather than on every frame: `getContext` with the same
+      // options hands back the same object, but asking is not free when the
+      // asking happens sixty times a second.
+      let context = null;
+      let lastScan = 0;
+
       const tick = async () => {
-        if (cancelled || !video.current || video.current.readyState < 2) {
-          frame = requestAnimationFrame(tick);
-          return;
-        }
+        frame = requestAnimationFrame(tick);
+        if (cancelled || !video.current || video.current.readyState < 2) return;
         // Something is photographing the screen. Reading a frame into a canvas
         // and hunting it for a QR code, every frame, is what stopped that
         // capture from ever finishing on the machine at the gym (QA BUG-14).
         // The camera keeps running -- the picture has to show what was on
         // screen -- but nothing is decoded until the capture is done.
-        if (scanningPaused()) {
-          frame = requestAnimationFrame(tick);
-          return;
-        }
+        if (scanningPaused()) return;
+        // Paced, not free-running. The clock is written after the work below
+        // finishes, so a slow decode spaces the next one out instead of the
+        // loop queueing up decodes it cannot keep up with.
+        if (Date.now() - lastScan < SCAN_EVERY_MS) return;
         try {
           if (detector) {
             const found = await detector.detect(video.current);
@@ -87,25 +95,48 @@ export function CameraScanner({ onScan, active, onError }) {
           } else {
             const { videoWidth: width, videoHeight: height } = video.current;
             if (width && height) {
-              canvas.current.width = width;
-              canvas.current.height = height;
-              const context = canvas.current.getContext('2d', { willReadFrequently: true });
-              context.drawImage(video.current, 0, 0, width, height);
-              const image = context.getImageData(0, 0, width, height);
-              const found = decode?.(image.data, width, height, { inversionAttempts: 'dontInvert' });
+              // Shrunk on the way into the canvas: the browser scales while it
+              // draws, and everything after that -- reading the pixels back
+              // and walking them -- is a quarter of the size.
+              const { width: w, height: h } = decodeFrameSize(width, height);
+              if (canvas.current.width !== w || canvas.current.height !== h) {
+                canvas.current.width = w;
+                canvas.current.height = h;
+                context = null;              // resizing a canvas resets its context state
+              }
+              context ??= canvas.current.getContext('2d', { willReadFrequently: true });
+              context.drawImage(video.current, 0, 0, w, h);
+              const image = context.getImageData(0, 0, w, h);
+              const found = decode?.(image.data, w, h, { inversionAttempts: 'dontInvert' });
               if (found) emit(found.data);
             }
           }
         } catch { /* a dropped frame is not worth telling the counter about */ }
-        frame = requestAnimationFrame(tick);
+        lastScan = Date.now();
       };
       frame = requestAnimationFrame(tick);
     }
+
+    // A tab nobody is looking at has no business reading a camera.
+    //
+    // `requestAnimationFrame` already stops in a hidden tab, so the decoding
+    // stops on its own -- but the camera track does not, and a webcam
+    // delivering frames nobody consumes still costs the machine. The counter
+    // leaves this screen open all day behind other windows, so that is most
+    // of the day. `enabled` rather than `stop()`: the handle stays open, so
+    // coming back to the tab is instant instead of two seconds of black frame
+    // while the camera warms up again.
+    const followVisibility = () => {
+      const visible = document.visibilityState === 'visible';
+      for (const track of stream.current?.getVideoTracks() ?? []) track.enabled = visible;
+    };
+    document.addEventListener('visibilitychange', followVisibility);
 
     start();
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      document.removeEventListener('visibilitychange', followVisibility);
       stream.current?.getTracks().forEach(track => track.stop());
       stream.current = null;
     };

@@ -59,7 +59,45 @@ test('a cancelled card is refused, told apart, and the new one works', async ({ 
   await page.getByRole('button', { name: 'สแกนคนถัดไป' }).click();
   await scan(page, fresh.qr);
   await expect(result).toContainText('เข้าใช้บริการได้');
+
+  // The code printed under the cancelled QR goes with it. Typing it in is the
+  // way round the camera, so leaving it alive would have left the cancelled
+  // card working for anybody who could read twelve characters off it.
+  await page.getByRole('button', { name: 'ยืนยันให้เข้า · สแกนคนถัดไป' }).click();
+  await scan(page, old.code);
+  await expect(result).toContainText('เข้าใช้บริการไม่ได้');
+  await expect(result).toContainText('ไม่พบรหัสสมาชิกนี้');
 });
+
+test('the visit that uses up the last one says so while the member is still there',
+  async ({ page }) => {
+    // ผลทดสอบของผู้ใช้ รอบที่ 2: the gym's own packages were all entered as
+    // "1 ครั้ง", so a member's first scan was also their last. The screen said
+    // "เข้าใช้บริการได้" and "เหลือ 0 ครั้ง" side by side, which reads as a
+    // contradiction -- and the member walked out not knowing, to find out next
+    // time by being turned away at the door.
+    await signIn(page, 'admin7@example.test');
+    // The gym's own seeded one-visit trial, put on sale: a package whose whole
+    // life is a single scan is the shortest honest way to the last one of them.
+    await go(page, 'แพ็กเกจ');
+    await page.getByRole('button', { name: 'แก้ไข ทดลองเล่นฟรี 1 ครั้ง' }).click();
+    await page.getByLabel('สถานะแพ็กเกจ').selectOption('active');
+    await page.getByRole('button', { name: 'บันทึกแพ็กเกจ' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'บันทึกแพ็กเกจแล้ว' })).toBeVisible();
+    // The wizard reads the price list once, when the console opens, so what
+    // staff would see on their next visit is what this test has to look at.
+    await page.reload();
+
+    await signUpMember(page, { name: 'ครั้งเดียวจบ', phone: '0891114411', pkg: /ทดลองเล่นฟรี 1 ครั้ง/ });
+    const member = await cardToken(page, 'ครั้งเดียวจบ');
+
+    await scan(page, member.qr);
+    const result = page.locator('.result');
+    await expect(result).toContainText('เข้าใช้บริการได้');
+    await expect(result).toContainText('เหลือ 0 ครั้ง');
+    await expect(result).toContainText('ครั้งนี้เป็นครั้งสุดท้ายของแพ็กเกจนี้');
+    await expect(result).toContainText('ครั้งหน้าต้องต่อแพ็กเกจก่อนถึงจะเข้าได้');
+  });
 
 test('a forged code is refused and kept out of the member history', async ({ page }) => {
   await signIn(page, 'staff3-ui@example.test');
@@ -111,8 +149,8 @@ test('a browser that refuses the camera leaves the counter still working', async
 
   // And the way to carry on is one button, not a paragraph to read first.
   await page.getByRole('button', { name: 'พิมพ์รหัสจากบัตรแทน' }).click();
-  await expect(page.getByLabel('รหัสจาก QR ของสมาชิก')).toBeVisible();
-  await page.getByLabel('รหัสจาก QR ของสมาชิก').fill('GYMCARD1.' + 'a'.repeat(32) + '.1.' + 'f'.repeat(32));
+  await expect(page.getByLabel('รหัสสมาชิก หรือรหัสจาก QR')).toBeVisible();
+  await page.getByLabel('รหัสสมาชิก หรือรหัสจาก QR').fill('GYMCARD1.' + 'a'.repeat(32) + '.1.' + 'f'.repeat(32));
   await page.getByRole('button', { name: 'ตรวจสอบ' }).click();
   await expect(page.locator('.result')).toContainText('เข้าใช้บริการไม่ได้');
   await context.close();
@@ -125,4 +163,24 @@ test('the history screen separates real visits from unreadable codes', async ({ 
   await expect(page.getByText('ชัยชนะ มาออกกำลัง').first()).toBeVisible();
   await page.getByRole('button', { name: /QR ไม่ถูกต้อง/ }).click();
   await expect(page.getByText('ไม่ให้กลบประวัติการเข้าใช้บริการจริง', { exact: false })).toBeVisible();
+});
+
+test('the code printed on the card works when it is typed in', async ({ page }) => {
+  // ผลทดสอบของผู้ใช้ ข้อ 2: the counter typed in the member code off the card
+  // and was told "ไม่ทราบสมาชิก" about somebody whose QR scanned fine a minute
+  // earlier -- the box only understood the signed payload inside the QR.
+  await signIn(page, 'admin-typed@example.test');
+  await signUpMember(page, { name: 'พิมพ์รหัสเข้ายิม', phone: '0893337788', pkg: MONTHLY });
+  const member = await cardToken(page, 'พิมพ์รหัสเข้ายิม');
+
+  await scan(page, member.code, { device: 'เคาน์เตอร์ 2' });
+  const result = page.locator('.result');
+  await expect(result).toContainText('เข้าใช้บริการได้');
+  await expect(result).toContainText('พิมพ์รหัสเข้ายิม');
+
+  // A code nobody has sends staff back to the code, not to the camera.
+  await page.getByRole('button', { name: 'ยืนยันให้เข้า · สแกนคนถัดไป' }).click();
+  await scan(page, 'GYM-000000000404');
+  await expect(result).toContainText('เข้าใช้บริการไม่ได้');
+  await expect(result).toContainText('ไม่พบรหัสสมาชิกนี้');
 });
