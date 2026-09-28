@@ -266,3 +266,97 @@ test('the counter can hand a member a way into the portal, without the post', as
   await call('post', `/members/${member.id}/portal-link`, null, {}).expect(401);
   assert.ok(owner);
 });
+
+// ---------------------------------------------------------- suspended, not lapsed
+//
+// The counter has always refused a suspended member at the door (checkin.js).
+// The portal did not agree: a member the gym suspended kept reading paid
+// content from home, on the session they already had and on a fresh sign-in
+// with the same password, right up until whatever package they were on ran
+// out on its own (Pentester). Suspending was never meant to wait for that.
+//
+// Fixed the same way the membership-expiry check above already was: nothing
+// about a suspension is decided at sign-in or carried on the session. Every
+// request re-reads `members.status`, so a suspension reaches an open tab on
+// its very next request, and lifting one reaches the same tab on its next
+// request too -- no sign-out, no new link, because nothing was ever cached
+// long enough to go stale.
+
+/** Puts the member's current row back with only `status` changed. */
+async function setStatus(call, admin, member, status) {
+  const current = (await call('get', `/members/${member.id}`, admin).expect(200)).body;
+  return call('put', `/members/${member.id}`, admin, {
+    name: current.name, phone: current.phone, email: current.email ?? undefined,
+    date_of_birth: current.date_of_birth, emergency_contact: current.emergency_contact ?? '',
+    status, version: current.version,
+  }).expect(200);
+}
+
+test('suspending a member cuts the portal off mid-session, not at its next login', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn } = fixture;
+  const { member } = await joinAndSetPassword(fixture);
+  const owner = await signIn('owner@example.test');
+  const portal = (await call('post', '/auth/member/login', null,
+    { email: MEMBER.email, password: PORTAL_PASSWORD }).expect(200)).body.token;
+
+  // The session is live and the content behind it opens, before anything happens.
+  await call('get', '/m/me', portal).expect(200);
+  await call('get', '/m/home', portal).expect(200);
+
+  await setStatus(call, owner, member, 'suspended');
+
+  // The same token, not a new one: nothing about the session changed, only the
+  // row it is checked against on this request.
+  const me = await call('get', '/m/me', portal).expect(403);
+  assert.match(me.body.error, /ระงับ/);
+  const home = await call('get', '/m/home', portal).expect(403);
+  assert.match(home.body.error, /ระงับ/);
+  // Reading a specific programme is the actual content, not just its listing,
+  // and goes through the identical two guards -- checked directly rather than
+  // trusted to follow from the home route.
+  const program = await call('get', '/m/programs/whatever-code', portal);
+  assert.ok([403, 404].includes(program.status));
+  if (program.status === 403) assert.match(program.body.error, /ระงับ/);
+
+  // A fresh sign-in with the very same, correct password is refused too --
+  // folded into the one sentence every other kind of failure here gets, not a
+  // distinct "บัญชีนี้ถูกระงับ" that would itself tell a stranger this address
+  // belongs to somebody currently held for something.
+  const relogin = await call('post', '/auth/member/login', null,
+    { email: MEMBER.email, password: PORTAL_PASSWORD }).expect(401);
+  const stranger = await call('post', '/auth/member/login', null,
+    { email: 'nobody-at-all@example.test', password: PORTAL_PASSWORD }).expect(401);
+  assert.equal(relogin.body.error, stranger.body.error);
+  assert.doesNotMatch(relogin.body.error, /ระงับ/);
+
+  // The counter's own answer did not move: this is the same fact the door
+  // already had, read the same way, not a second definition of "suspended".
+  const scan = await call('post', '/check-ins/verify', owner,
+    { qr: member.member_code }).expect(409);
+  assert.match(scan.body.failure_reason, /ระงับ/);
+});
+
+test('unsuspending puts the same session straight back to work', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn } = fixture;
+  const { member } = await joinAndSetPassword(fixture);
+  const owner = await signIn('owner@example.test');
+  const portal = (await call('post', '/auth/member/login', null,
+    { email: MEMBER.email, password: PORTAL_PASSWORD }).expect(200)).body.token;
+
+  await setStatus(call, owner, member, 'suspended');
+  await call('get', '/m/me', portal).expect(403);
+
+  await setStatus(call, owner, member, 'active');
+
+  // No sign-out happened and no new link was issued -- the token from before
+  // the suspension is what proves this, not a fresh login.
+  const me = await call('get', '/m/me', portal).expect(200);
+  assert.equal(me.body.active, true);
+  await call('get', '/m/home', portal).expect(200);
+
+  // And a brand new sign-in works again too, the same password as always.
+  await call('post', '/auth/member/login', null,
+    { email: MEMBER.email, password: PORTAL_PASSWORD }).expect(200);
+});

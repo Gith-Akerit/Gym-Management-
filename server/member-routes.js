@@ -69,6 +69,22 @@ export function registerMemberAuthRoutes({ app, db, now, digest, limit, producti
         ? `อีเมลหรือรหัสผ่านไม่ถูกต้อง เหลืออีก ${left} ครั้งก่อนถูกล็อก 15 นาที`
         : 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
     }
+    // A member the gym suspended is refused here too, and folded into the same
+    // sentence as everything above -- not "บัญชีนี้ถูกระงับ" the way a staff
+    // account says it. That message would itself be the leak: it tells a
+    // stranger typing a real password that this address belongs to a member
+    // currently held for something (unpaid balance, a rule broken), which is
+    // worse to hand out than "is a member" already is. `!== 'active'` rather
+    // than singling out `'suspended'`: it is the same test the counter uses to
+    // turn the same person away at the door (`checkin.js`), so login and the
+    // door agree without a second definition of "still a member" to keep in
+    // step. Entitlement expiry is deliberately not this -- see below.
+    if (member.status !== 'active') {
+      const left = recordSignInFailure(input.email);
+      throw new HttpError(401, left > 0
+        ? `อีเมลหรือรหัสผ่านไม่ถูกต้อง เหลืออีก ${left} ครั้งก่อนถูกล็อก 15 นาที`
+        : 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+    }
 
     // An expired membership still signs in. It has to: the screen that says
     // "your membership ended on the 3rd, here is the gym's number" is only
@@ -118,6 +134,18 @@ export function registerMemberPortalRoutes({ app, db, now }) {
    * they must not see a programme -- they can open the counter's own screens
    * for that -- but because a route that quietly accepts three kinds of
    * session is a route whose rules nobody can state.
+   *
+   * `row` is read fresh from the table on every request, the same as
+   * `liveMembership` below -- never carried on the session, and never cached
+   * across a request. A session is minted once and then sits in a phone for up
+   * to twelve hours; if "is this member suspended" were answered from
+   * something decided at login, an owner suspending somebody mid-session would
+   * have locked the gym door without locking the one the member was already
+   * standing inside (Pentester: both the open session and a fresh login with
+   * the same password kept working). Reading it here instead means suspending
+   * takes effect on this member's very next request, and restoring does too --
+   * neither needs a sign-out or a new link, because nothing was ever cached to
+   * go stale.
    */
   const member = (req, res, next) => {
     if (req.user.role !== 'member') {
@@ -125,6 +153,15 @@ export function registerMemberPortalRoutes({ app, db, now }) {
     }
     const row = db.prepare('SELECT * FROM members WHERE user_id=?').get(req.user.id);
     if (!row) return next(new HttpError(403, 'บัญชีนี้ไม่ได้ผูกกับสมาชิกคนไหน'));
+    // The same account-level hold that turns this person away at the front
+    // door (`checkin.js`) turns them away here too, checked the same way: not
+    // whether their package still has time on it -- `paidUp` already answers
+    // that, separately, and on purpose keeps working through it -- but whether
+    // the gym has suspended or ended the membership itself.
+    if (row.status !== 'active') {
+      return next(new HttpError(403, row.status === 'suspended'
+        ? 'สมาชิกถูกระงับ กรุณาติดต่อผู้ดูแลระบบ' : 'สถานะสมาชิกหมดอายุ กรุณาติดต่อผู้ดูแลระบบ'));
+    }
     req.member = row;
     next();
   };
