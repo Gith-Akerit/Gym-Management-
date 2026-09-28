@@ -1,0 +1,10 @@
+# Files that a Linux container has to read must keep LF even when the working
+# copy lives on Windows: `#!/bin/sh\r` is not a shebang, and the build fails
+# with "no such file or directory" pointing at a file that is plainly there.
+*.sh text eol=lf
+*.py text eol=lf
+Dockerfile text eol=lf
+deploy/Caddyfile text eol=lf
+deploy/nginx.conf text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf

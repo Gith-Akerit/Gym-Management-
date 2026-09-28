@@ -1,0 +1,20 @@
+# HTTPS is not optional for this app: the browser refuses to open the tablet
+# camera over plain http, and the app itself refuses to start in production
+# unless APP_ORIGIN is https. Caddy gets and renews the certificate itself.
+{$APP_DOMAIN} {
+	encode gzip
+
+	# The slip images and every /api response already carry no-store from the
+	# app; nothing here should add caching on top of that.
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

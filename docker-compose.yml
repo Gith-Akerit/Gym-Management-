@@ -1,0 +1,68 @@
+# Hostinger VPS, or any machine with a public IP and Docker.
+#
+# Caddy is here for one reason: it gets a Let's Encrypt certificate on its own
+# and renews it, so nobody has to remember a certificate in ninety days. It is
+# the only container with ports open to the internet; the app is reachable only
+# from inside the compose network.
+#
+#   cp .env.example .env   and fill it in (see docs/deploy.md)
+#   docker compose up -d --build
+services:
+  app:
+    build:
+      context: .
+      args:
+        # Set by deploy/up.sh; empty on a plain `docker compose build`.
+        APP_REVISION: ${APP_REVISION:-}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DATABASE_PATH: /data/gym.sqlite
+      SLIP_STORAGE_PATH: /data/slips
+      PHOTO_STORAGE_PATH: /data/photos
+      # The gym own logo. Every path the app writes to has to be under /data,
+      # because /data is the volume and everything else in the container is
+      # thrown away on the next rebuild -- quietly, with no error anywhere
+      # (Infra). tests/deploy-paths.test.js fails if a new one is ever missed.
+      LOGO_STORAGE_PATH: /data/logo
+      # Screenshots attached to problem reports.
+      REPORT_STORAGE_PATH: /data/reports
+      # Photographs of the gym's own machines, for the pages behind the QR
+      # stickers. Not personal data — served to anybody who scans one.
+      MACHINE_STORAGE_PATH: /data/machines
+      # Caddy is the one hop in front of the app. Get this wrong and every
+      # member shares one rate-limit budget, which locks the gym out of login.
+      TRUST_PROXY: "1"
+    volumes:
+      # The database, the WAL files beside it, the slip images, the member
+      # photographs and the gym logo. Everything else in the container can be
+      # thrown away and rebuilt; this cannot.
+      - gym-data:/data
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      # The domain Caddy should get a certificate for, e.g. app.example.com.
+      # Point its DNS A record at this server before starting, or the
+      # certificate request fails and Caddy retries in the background.
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  gym-data:
+  caddy-data:
+  caddy-config:

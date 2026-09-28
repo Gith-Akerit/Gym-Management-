@@ -1,0 +1,594 @@
+import { test, expect } from '@playwright/test';
+import { cardToken, go, openMember, PNG_PIXEL, scan, signIn, signUpMember } from './counter.js';
+
+// What QA found on the real machine, kept fixed.
+//
+// Every test here is a bug somebody hit while using this at a counter, not a
+// thing we thought might go wrong. The two at the top are the pair that could
+// send a member home with a card that has no face on it, which is the one
+// thing the card exists to prevent.
+
+test('a photograph the counter takes can actually be seen', async ({ page }) => {
+  // BUG-01: helmet's default img-src is `'self' data:`, so every blob: preview
+  // in the app was blocked. On screen that was an empty black frame beside the
+  // words "รูปถ่ายเรียบร้อย" -- no error, no clue, nothing to act on.
+  const blocked = [];
+  page.on('console', message => {
+    if (/Content Security Policy/i.test(message.text())) blocked.push(message.text());
+  });
+
+  await signIn(page, 'hotfix-admin@example.test');
+  await go(page, 'สมัครสมาชิก');
+  await page.getByLabel('เลือกรูปจากเครื่องแทน')
+    .setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: PNG_PIXEL });
+
+  const shot = page.locator('.photoframe img');
+  await expect(shot).toBeVisible();
+  // Visible is not enough: a blocked image is still a visible element with a
+  // zero-height box and the alt text showing.
+  expect(await shot.evaluate(img => img.naturalWidth), 'รูปถูก CSP บล็อก').toBeGreaterThan(0);
+  expect(blocked, 'ไม่ควรมีอะไรถูก CSP บล็อกในเส้นทางถ่ายรูป').toEqual([]);
+});
+
+test('the shutter does not pretend the camera is ready, and leaving without a photo asks first', async ({ page }) => {
+  // BUG-02: a real USB camera takes two to three seconds to produce a first
+  // frame. The frame was black, the shutter was live, and pressing it returned
+  // silently. A member was signed up with no photograph during the test.
+  await signIn(page, 'hotfix-admin@example.test');
+  await go(page, 'สมัครสมาชิก');
+
+  // Nothing taken yet, and the frame says so rather than being a black box
+  // that could equally mean "camera on, your face is not in it".
+  await expect(page.getByText('ยังไม่ได้ถ่ายรูป', { exact: false })).toBeVisible();
+
+  // Moving on with an empty frame is still allowed -- a broken camera must not
+  // stop somebody being signed up -- but it is a decision now, and it says
+  // what it costs.
+  await page.getByRole('button', { name: 'ถัดไป · ชื่อและเบอร์' }).click();
+  await expect(page.getByText('ยังไม่มีรูปถ่าย', { exact: false })).toBeVisible();
+  await expect(page.getByText(/ใครยืมไปก็เข้าได้/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ชื่อและเบอร์ติดต่อ' })).toHaveCount(0);
+  await page.screenshot({ path: 'artifacts/hotfix-no-photo-warning-1280.png', fullPage: true });
+
+  await page.getByRole('button', { name: 'ไปต่อโดยไม่มีรูป' }).click();
+  await expect(page.getByRole('heading', { name: 'ชื่อและเบอร์ติดต่อ' })).toBeVisible();
+});
+
+test('"already checked in" is not painted like a refusal', async ({ page }) => {
+  // BUG-03: duplicate shared the refusal's red. A new member of staff reads
+  // red and turns away a customer who is entitled to walk in -- and the list
+  // underneath was already drawing it as a third, neutral state, so the screen
+  // disagreed with itself.
+  await signIn(page, 'hotfix-admin@example.test');
+  await signUpMember(page, { name: 'ซ้ำ ทดสอบสี', phone: '0893330099', pkg: /รายเดือน Unlimited/ });
+  const member = await cardToken(page, 'ซ้ำ ทดสอบสี');
+
+  await scan(page, member.qr, { device: 'เคาน์เตอร์ hotfix' });
+  const result = page.locator('.result');
+  await expect(result).toContainText('เข้าใช้บริการได้');
+  const allowed = await result.evaluate(node => getComputedStyle(node).backgroundColor);
+
+  await page.getByRole('button', { name: 'ยืนยันให้เข้า · สแกนคนถัดไป' }).click();
+  await scan(page, member.qr);
+  await expect(result).toContainText('เช็คอินไปแล้ว');
+
+  // A third colour: neither the pass nor the refusal.
+  await expect(result).toHaveClass(/again/);
+  await expect(result).not.toHaveClass(/deny/);
+  const again = await result.evaluate(node => getComputedStyle(node).backgroundColor);
+  expect(again).not.toBe(allowed);
+
+  // And the button still says the person may come in, which is the thing a
+  // new member of staff is looking for.
+  await expect(page.getByRole('button', { name: 'ยืนยันให้เข้า · สแกนคนถัดไป' })).toBeVisible();
+  await expect(page.getByText('คนนี้เข้าได้ ระบบแค่บันทึกไปแล้วรอบนี้')).toBeVisible();
+  await page.screenshot({ path: 'artifacts/hotfix-duplicate-colour-1280.png', fullPage: true });
+});
+
+test('the lens stops once there is an answer, so history is not a wall of duplicates', async ({ page }) => {
+  // BUG-04: the loop kept reading the card that was still being held up while
+  // staff compared the photograph to the face -- which takes longer than four
+  // seconds every time -- and each read wrote another row. One day's history
+  // was 15 duplicates to 3 real entries.
+  await signIn(page, 'hotfix-admin@example.test');
+  await signUpMember(page, { name: 'ลูป หยุดสแกน', phone: '0893330098', pkg: /รายเดือน Unlimited/ });
+  const member = await cardToken(page, 'ลูป หยุดสแกน');
+
+  await scan(page, member.qr, { device: 'เคาน์เตอร์ hotfix' });
+  await expect(page.locator('.result')).toContainText('เข้าใช้บริการได้');
+  // The camera is off while the answer is on screen, and the frame says so
+  // rather than looking broken.
+  await expect(page.getByText('หยุดสแกนไว้ก่อน', { exact: false })).toBeVisible();
+  await expect(page.locator('.cam .laser')).toHaveCount(0);
+
+  // Long enough that the old four-second loop would have fired twice.
+  await page.waitForTimeout(9000);
+  const rows = await (await page.request.get('/api/check-ins?scope=all')).json();
+  const mine = rows.items.filter(row => row.member_name === 'ลูป หยุดสแกน');
+  expect(mine.length, 'ถือบัตรค้างหน้ากล้องต้องไม่เขียนแถวซ้ำ').toBe(1);
+});
+
+test('the package code rule is on the screen before the press, not after it', async ({ page }) => {
+  // QA จุดสะดุด 5: somebody typed QA-TEST-PKG1, pressed save, and had it
+  // thrown back by a rule nothing had mentioned.
+  await signIn(page, 'hotfix-admin@example.test');
+  await go(page, 'แพ็กเกจ');
+  await page.getByRole('button', { name: 'เพิ่มแพ็กเกจ' }).click();
+  await expect(page.getByText(/ห้ามมีขีด/)).toBeVisible();
+  await expect(page.getByText(/MONTH_30D/)).toBeVisible();
+});
+
+test('the pilot banner is one line and says what staff CAN do', async ({ page }) => {
+  // QA จุดสะดุด 1: two full lines on a 390 screen, on every screen, saying
+  // "no PromptPay account linked" -- which reads as "this system is not live
+  // yet" to somebody who is about to take cash across the counter.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, 'hotfix-admin@example.test');
+  await go(page, 'สมาชิก');
+  const banner = page.locator('.pilot-banner');
+  if (await banner.count()) {
+    await expect(banner).toContainText('รับเงินสด/โอนนอกระบบได้ตามปกติ');
+    const height = await banner.evaluate(node => node.getBoundingClientRect().height);
+    expect(height, 'แถบโหมดทดลองต้องเหลือบรรทัดเดียว').toBeLessThan(44);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+});
+
+test('the browser tab and the phone status bar wear the gym colour', async ({ page }) => {
+  // BUG-08: both were baked into index.html before this gym had a name or a
+  // colour, so Android painted the top of the screen the old green.
+  await page.goto('/');
+  await expect.poll(() => page.title(), { message: 'ชื่อแท็บต้องเป็นชื่อยิม' })
+    .not.toBe('ระบบจัดการยิม');
+  const theme = await page.locator('meta[name="theme-color"]').getAttribute('content');
+  expect(theme).not.toBe('#175C50');
+  expect(theme).toMatch(/^#[0-9A-Fa-f]{6}$/);
+});
+
+test('the camera help names the machine in front of the person reading it', async ({ page }) => {
+  // BUG-07: it told everybody to press "the padlock beside the address bar",
+  // which the counter tablet -- the device the gym bought this for -- does not
+  // have.
+  await page.context().clearPermissions();
+  await signIn(page, 'hotfix-staff@example.test');
+  await expect(page.locator('.scanstage')).toBeVisible();
+  // The help only appears when the camera is actually refused, so this asserts
+  // on the copy being present in the build rather than forcing a refusal the
+  // fake-camera flag makes impossible.
+  const help = await page.evaluate(async () => {
+    const source = await (await fetch('/assets/' + [...document.querySelectorAll('script[src]')]
+      .map(s => s.src.split('/assets/')[1]).find(Boolean))).text();
+    return {
+      tablet: source.includes('แท็บเล็ต/มือถือ Android'),
+      ipad: source.includes('iPad/iPhone'),
+      padlockOnly: source.includes('กดไอคอนรูปกุญแจ 🔒 ข้างช่อง URL'),
+    };
+  });
+  expect(help.tablet, 'ต้องมีวิธีของแท็บเล็ต Android').toBe(true);
+  expect(help.ipad, 'ต้องมีวิธีของ iPad').toBe(true);
+  expect(help.padlockOnly, 'คำแนะนำเดิมที่อ้างกุญแจข้าง URL อย่างเดียวต้องไม่เหลือ').toBe(false);
+});
+
+test('an address typed wrong at the desk is fixed at the desk, by whoever is on shift', async ({ page }) => {
+  // QA-01: there was no screen for this. One character wrong in an address
+  // meant the member's card -- a QR that opens the door -- had been emailed to
+  // a stranger, and nothing in the app could change it.
+  await signIn(page, 'hotfix-staff@example.test');
+  await go(page, 'สมัครสมาชิก');
+  await page.getByLabel('เลือกรูปจากเครื่องแทน')
+    .setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: PNG_PIXEL });
+  await page.getByRole('button', { name: 'ถัดไป · ชื่อและเบอร์' }).click();
+  await page.getByLabel('ชื่อ–นามสกุล').fill('QA-TEST พิมพ์ผิด');
+  await page.getByLabel('เบอร์มือถือ').fill('0899000654');
+  await page.getByLabel('อีเมล (ไม่บังคับ)').fill('wrogn@example.test');
+  await page.getByRole('button', { name: 'ถัดไป · แพ็กเกจและเงิน' }).click();
+  await page.getByRole('button', { name: 'บันทึกและออกบัตร' }).click();
+  await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+  // QA-04: the wizard posts the card without waiting, so a mail server having
+  // a bad minute was completely silent. Said out loud on the card screen.
+  await expect.poll(async () => {
+    const box = await (await page.request.get('/__test/outbox?to=wrogn@example.test')).json();
+    return box.items.length;
+  }).toBeGreaterThan(0);
+
+  // A member of staff -- not the owner -- opens the correction.
+  await page.getByRole('button', { name: 'แก้ไขข้อมูลสมาชิก' }).click();
+  await expect(page.getByRole('heading', { name: 'แก้ไขข้อมูลสมาชิก' })).toBeVisible();
+  await expect(page.getByText(/ทุกการแก้ไขถูกบันทึกไว้/)).toBeVisible();
+  await page.getByLabel('อีเมล (ไม่บังคับ)').fill('right@example.test');
+  await page.getByRole('button', { name: 'บันทึกการแก้ไข' }).click();
+
+  // The card already went to the old address, so the screen says where, and
+  // offers the only thing that actually fixes it.
+  await expect(page.getByRole('heading', { name: /แก้อีเมลแล้ว/ })).toBeVisible();
+  await expect(page.getByText(/wrogn@example\.test/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ออกบัตรใหม่ · ฆ่าบัตรใบเดิม' })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/qa01-email-changed-1280.png', fullPage: true });
+
+  await page.getByRole('button', { name: 'ไม่ต้องออกบัตรใหม่' }).click();
+  await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+  // QA-04 again: the new address has had nothing, and the card screen says so
+  // rather than leaving a button nobody reads as the only signal.
+  await expect(page.getByText('ยังไม่ได้ส่งบัตรทางอีเมล')).toBeVisible();
+  await expect(page.getByText(/right@example\.test/)).toBeVisible();
+  await page.screenshot({ path: 'artifacts/qa04-card-not-sent-1280.png', fullPage: true });
+});
+
+test('the way back in on the front screen is big enough to hit', async ({ page }) => {
+  // QA-03: 26px. The one way back in on the front screen, pressed by somebody
+  // who is already in a hurry, and the only control in the system under 44.
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const box = await page.getByRole('button', { name: 'ลืมรหัสผ่าน' }).boundingBox();
+    expect(box.height, `ปุ่มลืมรหัสผ่านที่ ${width}px สูง ${box.height}px`).toBeGreaterThanOrEqual(44);
+  }
+  // QA-07: every other screen formats the number; these two printed it raw.
+  const shown = await page.locator('.authfoot').innerText();
+  if (/\d/.test(shown)) expect(shown, 'เบอร์บนหน้าแรกต้องจัดรูปแบบเหมือนหน้าอื่น').toMatch(/\d{2,3}-\d{3}-\d{3,4}/);
+  await page.setViewportSize({ width: 1280, height: 900 });
+});
+
+test('on a desktop browser, handing the card over saves the file instead of failing silently',
+  async ({ page }) => {
+    // ผลทดสอบของผู้ใช้ ข้อ 5: "การใช้งานในโทรศัพท์จะเสถียรกว่าในคอม เวลาส่งหรือ
+    // บันทึก QR ให้กับสมาชิก" — the phone gets a share sheet; the desktop got a
+    // `window.open` fired several awaits after the click, which the browser had
+    // already stopped treating as a click and blocked. Nothing opened and
+    // nothing said so.
+    await page.addInitScript(() => {
+      // A desktop browser with no share sheet, which is most of them. Defined
+      // over rather than deleted: these live on Navigator.prototype, so
+      // `delete navigator.canShare` removes an own property that was never
+      // there and leaves the real one answering.
+      for (const name of ['canShare', 'share']) {
+        Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+      }
+    });
+    await signIn(page, 'handoff-admin@example.test');
+    await signUpMember(page, { name: 'ส่งบัตรจากคอม', phone: '0895550011' });
+
+    const download = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/^GYM-[0-9A-Z]+\.png$/);
+
+    // And it says where the file went, because a download that appears in a
+    // corner of the browser is not an answer to "did the customer get it".
+    await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปบัตรของ ส่งบัตรจากคอม ลงเครื่องแล้ว' }))
+      .toBeVisible();
+    await expect(page.getByText('แนบไฟล์นี้ส่งให้ลูกค้าได้เลย', { exact: false })).toBeVisible();
+  });
+
+test('what the screen says was handed over does not survive the card being cancelled',
+  async ({ page }) => {
+    // QA: hand the card over first, then cancel it from the same screen. The
+    // heading and the picture became the new card, but the green bar still
+    // named the file of the card that had just been thrown away -- so the next
+    // thing staff did was attach a dead card and send it to the customer.
+    await page.addInitScript(() => {
+      for (const name of ['canShare', 'share']) {
+        Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+      }
+    });
+    await signIn(page, 'handoff-admin@example.test');
+    await signUpMember(page, { name: 'ส่งแล้วค่อยยกเลิก', phone: '0895550022' });
+    const before = await cardToken(page, 'ส่งแล้วค่อยยกเลิก');
+
+    const download = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+    await download;
+    const bar = page.getByRole('status').filter({ hasText: 'ลงเครื่องแล้ว' });
+    await expect(bar).toContainText(before.code);
+
+    await page.getByText('เมนูเพิ่มเติม').click();
+    await page.getByRole('button', { name: 'ออกบัตรใหม่', exact: true }).click();
+    await page.getByRole('button', { name: 'ยืนยัน ออกบัตรใหม่' }).click();
+    await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+    await expect(bar).toBeHidden();
+    // Not one corner of the screen still names the cancelled card: the code is
+    // what staff read out, type in and attach files under.
+    await expect(page.getByText(before.code)).toBeHidden();
+    const after = await cardToken(page, 'ส่งแล้วค่อยยกเลิก');
+    expect(after.code).not.toBe(before.code);
+    await expect(page.getByText(after.code).first()).toBeVisible();
+  });
+
+test('replacing the photograph also retires what the screen says was handed over',
+  async ({ page }) => {
+    // The same staleness by the other door, which is why the fix is not one
+    // line: the file staff saved carries the face that was just replaced, so
+    // "attach this and send it" is again advice to send the wrong picture.
+    await page.addInitScript(() => {
+      for (const name of ['canShare', 'share']) {
+        Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+      }
+    });
+    await signIn(page, 'handoff-admin@example.test');
+    await signUpMember(page, { name: 'ส่งแล้วเปลี่ยนรูป', phone: '0895550033' });
+
+    const download = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+    await download;
+    const bar = page.getByRole('status').filter({ hasText: 'ลงเครื่องแล้ว' });
+    await expect(bar).toBeVisible();
+
+    await page.getByLabel('เลือกรูปจากเครื่องแทน')
+      .setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: PNG_PIXEL });
+    await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปถ่ายใหม่แล้ว' })).toBeVisible();
+    await expect(bar).toBeHidden();
+  });
+
+// ------------------------------------------------- the slow machine at the gym
+//
+// QA, retest of bfa3cdb: clearing the message was not clearing the work behind
+// it. Press "ส่งบัตรให้ลูกค้า", and while the picture is still coming down the
+// wire, cancel the card / replace the face / correct the name. The old response
+// landed afterwards, downloaded the card that had just been thrown away and put
+// the green bar back under it -- so staff attached a dead card and sent it to
+// the member over LINE, which is the complaint this whole issue started from.
+//
+// The window is not hypothetical: the user's own report is that the desktop is
+// slower than the phone at exactly this, so the machine with the widest window
+// is the machine they work on.
+
+/** A desktop browser: no share sheet, so handing a card over is a download. */
+const noShareSheet = page => page.addInitScript(() => {
+  for (const name of ['canShare', 'share']) {
+    Object.defineProperty(window.navigator, name, { configurable: true, value: undefined });
+  }
+});
+
+/**
+ * Holds one request open until the test lets go of it.
+ *
+ * `arrived` resolves once the app has actually asked for it, so a test can be
+ * sure the work is in flight before it changes the card underneath it.
+ */
+async function hold(page, url, { sendFirst = true } = {}) {
+  const target = new URL(url, page.url());
+  let release, started, taken = false;
+  const gate = new Promise(r => { release = r; });
+  const arrived = new Promise(r => { started = r; });
+  await page.route(u => u.pathname === target.pathname && u.search === target.search,
+    async route => {
+      // Only the first one is slow. Everything after it behaves normally, the
+      // way one slow response on a real network does.
+      if (taken) return route.continue();
+      taken = true;
+      if (sendFirst) {
+        // The server does the work now and the answer waits: a slow download.
+        const response = await route.fetch();
+        started();
+        await gate;
+        await route.fulfill({ response });
+      } else {
+        // The request has not left the browser yet: a write nobody has acted
+        // on, which is what "ยกเลิก" leaves behind.
+        started();
+        await gate;
+        await route.fulfill({ response: await route.fetch() });
+      }
+    });
+  return { arrived, release: () => release() };
+}
+
+/** The id of the member whose card is on screen. */
+const openCardId = (page, name) => page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name })
+  .evaluate(img => new URL(img.src).pathname.split('/')[3]);
+
+const STALE = 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังทำรายการนี้';
+
+/** The three ways the card on this screen can change under a pending request. */
+const MUTATIONS = [
+  {
+    key: 'reissue', phone: '0895551101', label: 'ออกบัตรใหม่',
+    async run(page) {
+      await page.getByText('เมนูเพิ่มเติม').click();
+      await page.getByRole('button', { name: 'ออกบัตรใหม่', exact: true }).click();
+      await page.getByRole('button', { name: 'ยืนยัน ออกบัตรใหม่' }).click();
+      await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: 'บัตรใบเดิมใช้ไม่ได้ทันที' })).toBeVisible();
+    },
+  },
+  {
+    key: 'photo', phone: '0895551102', label: 'เปลี่ยนรูปถ่าย',
+    async run(page) {
+      await page.getByLabel('เลือกรูปจากเครื่องแทน')
+        .setInputFiles({ name: 'changed.png', mimeType: 'image/png', buffer: PNG_PIXEL });
+      await expect(page.getByRole('status').filter({ hasText: 'บันทึกรูปถ่ายใหม่แล้ว' })).toBeVisible();
+    },
+  },
+  {
+    key: 'name', phone: '0895551103', label: 'แก้ชื่อสมาชิก',
+    async run(page, name) {
+      await page.getByRole('button', { name: 'แก้ไขข้อมูลสมาชิก' }).click();
+      await page.getByLabel('ชื่อ–นามสกุล').fill(name + ' แก้แล้ว');
+      await page.getByRole('button', { name: 'บันทึกการแก้ไข' }).click();
+      await expect(page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name + ' แก้แล้ว' })).toBeVisible();
+    },
+  },
+];
+
+for (const mutation of MUTATIONS) {
+  test('a card that arrives after ' + mutation.label + ' is not downloaded and not announced',
+    async ({ page }) => {
+      await noShareSheet(page);
+      await signIn(page, 'handoff-admin@example.test');
+      const name = 'รอไฟล์แล้ว' + mutation.key;
+      await signUpMember(page, { name, phone: mutation.phone });
+
+      const picture = page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name });
+      await expect.poll(() => picture.evaluate(img => img.naturalWidth)).toBe(1080);
+      const gated = await hold(page, await picture.getAttribute('src'));
+
+      const downloads = [];
+      page.on('download', file => downloads.push(file));
+
+      await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+      await gated.arrived;
+      await mutation.run(page, name);
+      gated.release();
+
+      // The guard reports rather than doing nothing: a button that goes quiet
+      // is the desktop bug this issue already fixed once (ข้อ 5).
+      await expect(page.getByRole('alert').filter({ hasText: STALE })).toBeVisible();
+      // No file left the browser, so there is nothing to attach by mistake...
+      expect(downloads, 'บัตรใบเก่าถูกดาวน์โหลดทั้งที่บัตรบนจอเปลี่ยนไปแล้ว').toEqual([]);
+      // ...and the green bar never came back to tell anybody to attach it.
+      await expect(page.getByRole('status').filter({ hasText: 'เปิด LINE' })).toHaveCount(0);
+    });
+}
+
+
+test('a letter that lands after the card changes says so instead of reporting success',
+  async ({ page }) => {
+    // This one cannot be called back: the letter is already gone, with the card
+    // as it was inside it. So the green "sent" bar would be true and useless --
+    // what staff have to know is that the member has the wrong card in their
+    // inbox and needs the new one.
+    //
+    // The card is moved here by correcting the name rather than by cancelling
+    // it, because "แก้ไขข้อมูลสมาชิก" is the one button on this screen that is
+    // not locked while something else is in flight -- so it is the door a
+    // person can actually walk through mid-request.
+    await signIn(page, 'handoff-admin@example.test');
+    const name = 'ส่งอีเมลแล้วแก้ชื่อ';
+    await signUpMember(page, { name, phone: '0895551105' });
+    await page.getByRole('button', { name: 'แก้ไขข้อมูลสมาชิก' }).click();
+    await page.getByLabel('อีเมล', { exact: false }).fill('race-mail@example.test');
+    await page.getByRole('button', { name: 'บันทึกการแก้ไข' }).click();
+    await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+    const id = await page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name })
+      .evaluate(img => new URL(img.src).pathname.split('/')[3]);
+
+    const gated = await hold(page, '/api/members/' + id + '/welcome');
+    await page.getByRole('button', { name: /ส่งบัตรทางอีเมล/ }).click();
+    await gated.arrived;
+    await MUTATIONS[2].run(page, name);
+    gated.release();
+
+    const told = page.getByRole('alert').filter({ hasText: 'บัตรของสมาชิกเปลี่ยนระหว่างที่กำลังส่ง' });
+    await expect(told).toBeVisible();
+    await expect(told).toContainText('race-mail@example.test');
+    await expect(page.getByRole('status').filter({ hasText: 'ส่งบัตรไปที่' })).toHaveCount(0);
+  });
+
+test('a seven-day link is not thrown away by a change that does not kill it', async ({ page }) => {
+  // The other half of the contract, and the reason the link is checked against
+  // the card *number* rather than against the picture: a link is signed over
+  // the number, and the card is drawn fresh every time the link is opened. So
+  // renaming a member -- or rephotographing them -- leaves the URL already in
+  // somebody's hand working, and now serving the corrected card.
+  //
+  // Guarding links with the same test as the file would have looked safe and
+  // quietly taken a working link off the screen.
+  await signIn(page, 'handoff-admin@example.test');
+  const name = 'ขอลิงก์แล้วแก้ชื่อ';
+  await signUpMember(page, { name, phone: '0895551104' });
+  const id = await page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name })
+    .evaluate(img => new URL(img.src).pathname.split('/')[3]);
+
+  const gated = await hold(page, '/api/members/' + id + '/card/link');
+  await page.getByRole('button', { name: 'ส่งบัตรซ้ำ (ลิงก์ 7 วัน)' }).click();
+  await gated.arrived;
+  await MUTATIONS[2].run(page, name);
+  gated.release();
+
+  const box = page.getByLabel('ลิงก์บัตร');
+  await expect(box).toBeVisible();
+  // And it is a link that really opens the card, not just a string on screen.
+  const card = await page.request.get(await box.inputValue());
+  expect(card.status()).toBe(200);
+  expect(card.headers()['content-type']).toBe('image/png');
+});
+
+test('a card asked for on a screen that is gone is never saved', async ({ page }) => {
+  // QA: press "ส่งบัตรให้ลูกค้า", go back to the list before the picture lands,
+  // open the same member again and cancel the card, then let the old response
+  // in. It still saved the cancelled card -- the screen that was watching for
+  // that had been thrown away, and the fresh screen knew nothing about a press
+  // made on the old one. Work belongs to the screen that started it and ends
+  // with it, so this is not a comparison any more, it is a cancellation.
+  await noShareSheet(page);
+  await signIn(page, 'handoff-admin@example.test');
+  const name = 'ออกจากหน้าแล้วกลับมา';
+  await signUpMember(page, { name, phone: '0895551106' });
+
+  const picture = page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name });
+  await expect.poll(() => picture.evaluate(img => img.naturalWidth)).toBe(1080);
+  const gated = await hold(page, await picture.getAttribute('src'));
+
+  const downloads = [];
+  page.on('download', file => downloads.push(file));
+
+  await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+  await gated.arrived;
+  await page.getByRole('button', { name: '← กลับรายชื่อสมาชิก' }).click();
+  await openMember(page, name);
+  await MUTATIONS[0].run(page, name);
+  gated.release();
+
+  // A round trip through the app after the release, so anything the old screen
+  // was still going to do has had its turn.
+  const current = await cardToken(page, name);
+  await expect(page.locator('.sub').filter({ hasText: current.code })).toBeVisible();
+
+  expect(downloads, 'บัตรใบเก่าถูกบันทึกจากหน้าจอที่ถูกปิดไปแล้ว').toEqual([]);
+  await expect(page.getByRole('status').filter({ hasText: 'เปิด LINE' })).toHaveCount(0);
+  // And nothing is shouted at whoever is on the new screen: they did not press
+  // anything, and the card in front of them is fine.
+  await expect(page.getByRole('alert').filter({ hasText: STALE })).toHaveCount(0);
+});
+
+test('cancelling the confirmation does not call back the reissue behind it', async ({ page }) => {
+  // QA: press "ยืนยัน ออกบัตรใหม่", press "ยกเลิก" while the request is still
+  // in the air, hand the card over from the screen you land back on, then let
+  // the reissue through. The screen looked idle, so a check that asks the
+  // screen said yes -- while the card was in the middle of being cancelled.
+  await noShareSheet(page);
+  await signIn(page, 'handoff-admin@example.test');
+  const name = 'ยกเลิกแล้วส่งบัตร';
+  await signUpMember(page, { name, phone: '0895551107' });
+
+  const picture = page.getByRole('img', { name: 'บัตรสมาชิกของ ' + name });
+  await expect.poll(() => picture.evaluate(img => img.naturalWidth)).toBe(1080);
+  const src = await picture.getAttribute('src');
+  const id = await openCardId(page, name);
+
+  // The reissue is held before it leaves; the picture is drawn while it is
+  // still held, so the bytes are the card that is about to be cancelled.
+  const pending = await hold(page, '/api/members/' + id + '/card/reissue', { sendFirst: false });
+  const gated = await hold(page, src);
+
+  const downloads = [];
+  page.on('download', file => downloads.push(file));
+
+  await page.getByText('เมนูเพิ่มเติม').click();
+  await page.getByRole('button', { name: 'ออกบัตรใหม่', exact: true }).click();
+  await page.getByRole('button', { name: 'ยืนยัน ออกบัตรใหม่' }).click();
+  await pending.arrived;
+  await page.getByRole('button', { name: 'ยกเลิก' }).click();
+  await expect(page.getByRole('heading', { name: 'บัตรสมาชิก' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+  await gated.arrived;
+  pending.release();
+  await expect(page.getByRole('status').filter({ hasText: 'บัตรใบเดิมใช้ไม่ได้ทันที' })).toBeVisible();
+  gated.release();
+
+  await expect(page.getByRole('alert').filter({ hasText: STALE })).toBeVisible();
+  expect(downloads, 'บัตรที่กำลังถูกยกเลิกถูกบันทึกลงเครื่อง').toEqual([]);
+  await expect(page.getByRole('status').filter({ hasText: 'เปิด LINE' })).toHaveCount(0);
+
+  // And the way forward works: press again and the card that comes down is the
+  // one the member should be holding.
+  const saved = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'ส่งบัตรให้ลูกค้า' }).click();
+  const file = await saved;
+  const current = await cardToken(page, name);
+  expect(file.suggestedFilename()).toBe(current.code + '.png');
+});

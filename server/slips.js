@@ -86,10 +86,21 @@ export function stripMetadata(buffer, type) {
   return buffer;
 }
 
+/**
+ * Also holds member photographs, which need exactly the same treatment: judged
+ * by their leading bytes rather than their name, stripped of the GPS
+ * coordinates the camera wrote into them, stored outside the web root under a
+ * name the server chose, and only ever served through a route that checks who
+ * is asking. A second class would have been the same class.
+ */
 export class SlipStore {
-  /** @param {string} root directory outside the web root, e.g. ./data/slips */
-  constructor(root) {
+  /**
+   * @param {string} root directory outside the web root, e.g. ./data/slips
+   * @param {{maxBytes?: number}} [options]
+   */
+  constructor(root, { maxBytes = MAX_SLIP_BYTES } = {}) {
     this.root = resolve(root);
+    this.maxBytes = maxBytes;
     mkdirSync(this.root, { recursive: true });
   }
 
@@ -100,8 +111,8 @@ export class SlipStore {
    */
   save(buffer) {
     if (!buffer?.length) throw new SlipError('ไฟล์ว่างเปล่า กรุณาเลือกรูปสลิปอีกครั้ง');
-    if (buffer.length > MAX_SLIP_BYTES) {
-      throw new SlipError(`ไฟล์ใหญ่เกิน ${Math.floor(MAX_SLIP_BYTES / 1024 / 1024)} MB กรุณาถ่ายใหม่หรือย่อรูปก่อนอัปโหลด`);
+    if (buffer.length > this.maxBytes) {
+      throw new SlipError(`ไฟล์ใหญ่เกิน ${Math.floor(this.maxBytes / 1024 / 1024)} MB กรุณาถ่ายใหม่หรือย่อรูปก่อนอัปโหลด`);
     }
     const detected = detectImageType(buffer);
     if (detected?.unsupported) {

@@ -1,0 +1,484 @@
+// The content behind the QR stickers, and who may read which part of it.
+//
+// Two rules decide everything here, and they pull in opposite directions.
+//
+// The machine pages are PUBLIC. There is a sticker on the side of every
+// machine; somebody standing at it with a phone has not signed in and is not
+// going to, and a page that asks them to is a sticker nobody scans twice.
+//
+// The programmes are NOT. They are what the membership pays for, and the
+// check is per request -- a membership that ran out on Tuesday must not keep
+// working until the session expires on Wednesday.
+//
+// The third thing this file guards is quieter: a number nobody at the gym has
+// checked must never be printed as though the gym said it.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { counterFixture, PNG_PIXEL } from './counter.js';
+import { createRequire } from 'node:module';
+import { importContent } from '../server/content-import.js';
+import { registerMachineFallback, youTubeId } from '../server/content-routes.js';
+import { seedConfiguration } from '../server/seed.js';
+
+const { formatPhone } = createRequire(import.meta.url)('../shared/phone.cjs');
+
+const CONTENT = JSON.parse(readFileSync(new URL('../docs/content/member-content.json', import.meta.url), 'utf8'));
+const MEMBER = { name: 'สมชาย ขยันมาก', phone: '0891234567', email: 'somchai@example.test' };
+const PORTAL_PASSWORD = 'a-password-of-my-own';
+
+/** The owner's token, for the routes that only answer to one. */
+const signInOwner = fixture => fixture.signIn('owner@example.test');
+
+/** A member with a live membership and a password, the way one really arrives. */
+async function joinedMember(fixture) {
+  const { call, signIn, addMember } = fixture;
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+  const member = await addMember(desk, MEMBER);
+  const pkg = (await call('post', '/packages', owner, {
+    code: 'MONTH', name_th: 'รายเดือน', type: 'unlimited', duration_days: 30,
+    price_thb: 1200, status: 'active',
+  }).expect(201)).body;
+  await call('post', `/members/${member.id}/grant`, owner)
+    .field('package_id', pkg.id).field('payment_method', 'cash').expect(201);
+  await call('post', `/members/${member.id}/welcome`, desk, {}).expect(200);
+  await call('post', '/auth/set-password', null,
+    { token: fixture.resetToken(), password: PORTAL_PASSWORD }).expect(200);
+  const portal = (await call('post', '/auth/member/login', null,
+    { email: MEMBER.email, password: PORTAL_PASSWORD }).expect(200)).body.token;
+  return { member, owner, portal };
+}
+
+test('the importer adds, updates, and refuses to overwrite what a trainer checked', async t => {
+  const { db } = counterFixture(t);
+  const first = importContent(db, CONTENT, 1000);
+  assert.equal(first.machines.filter(row => row.action === 'added').length, CONTENT.machines.length);
+  assert.equal(first.programs.length, CONTENT.programs.length);
+  assert.equal(first.articles.length, CONTENT.articles.length);
+
+  // Run twice: a second import must bring rows up to date, not duplicate them.
+  const again = importContent(db, CONTENT, 2000);
+  assert.ok(again.machines.every(row => row.action === 'updated'));
+  assert.equal(db.prepare('SELECT count(*) AS n FROM machines').get().n, CONTENT.machines.length);
+
+  // The trainer goes through the numbers on one machine and signs it off.
+  db.prepare("UPDATE machines SET name_th='ชื่อที่เทรนเนอร์แก้',reviewed_by='trainer@gym',reviewed_at=? WHERE code=?")
+    .run(3000, CONTENT.machines[0].code);
+  const third = importContent(db, CONTENT, 4000);
+  assert.equal(third.machines.find(row => row.code === CONTENT.machines[0].code).action, 'kept');
+  // Their wording survives. Without this the next import from the team silently
+  // replaces what somebody at the gym decided, and nobody finds out.
+  assert.equal(db.prepare('SELECT name_th FROM machines WHERE code=?').get(CONTENT.machines[0].code).name_th,
+    'ชื่อที่เทรนเนอร์แก้');
+});
+
+test('the machine page is public, and costs one request with no script', async t => {
+  const { call, http, db } = counterFixture(t);
+  importContent(db, CONTENT, 1000);
+  const code = CONTENT.machines[0].code;
+
+  // No session, no cookie, no token. That is the whole point of the sticker.
+  const page = await http.get(`/m/${code}`).expect(200);
+  assert.match(page.headers['content-type'], /text\/html/);
+  assert.ok(page.text.includes(CONTENT.machines[0].name_th));
+  assert.ok(page.text.includes(CONTENT.machines[0].steps[0]));
+  // The gym's own safety footer comes with it.
+  assert.ok(page.text.includes(CONTENT.safety.machine_footer[0]));
+
+  // Lower case works too: somebody types the code off the sticker.
+  await http.get(`/m/${code.toLowerCase()}`).expect(200);
+  await http.get('/m/M-99').expect(404);
+
+  // No React, no bundle: the page is the answer, not a loader for one.
+  assert.equal(page.text.includes('/assets/'), false, 'หน้าเครื่องต้องไม่โหลด bundle ของแอป');
+
+  // The video is a still and a button until somebody presses it. An iframe
+  // that exists on load is a megabyte of YouTube on gym wifi per clip.
+  assert.equal(page.text.includes('<iframe'), false, 'ต้องไม่มี iframe ก่อนกดเล่น');
+  assert.ok(page.text.includes('i.ytimg.com'), 'ควรมีภาพนิ่งของคลิป');
+  // The four lines that build the player come from a file rather than from an
+  // inline <script>, because this is the one page a stranger can open and
+  // loosening `script-src` for it would be the wrong trade.
+  assert.equal(/<script>/.test(page.text), false, 'ต้องไม่มีสคริปต์ inline บนหน้าที่เปิดสาธารณะ');
+  assert.ok(page.text.includes('/m/_play.js'), 'ต้องโหลดสคริปต์เล่นคลิปเป็นไฟล์');
+  const player = await http.get('/m/_play.js').expect(200);
+  assert.ok(player.text.includes('youtube-nocookie.com/embed'), 'และสร้าง iframe ตอนกด');
+  // And it says what to do when the clip has been taken down by its owner.
+  assert.match(page.text, /เจ้าของคลิปลบไปแล้ว/);
+
+  const api = await call('get', '/public/machines', null).expect(200);
+  assert.equal(api.body.items.length, CONTENT.machines.length);
+
+  // The gym's number is written the way it is written everywhere else. Two of
+  // the screens a customer sees printed 038541029 while every staff screen
+  // printed 038-541-029, because the rule lived in web/ where the server could
+  // not reach it (QA BUG-13). It is in shared/ now, like the colour formula.
+  seedConfiguration(db);
+  const gym = db.prepare('SELECT phone_primary FROM gym_profile WHERE id=1').get();
+  assert.ok(gym?.phone_primary, 'ยิมตั้งต้นต้องมีเบอร์ ไม่งั้นเทสต์นี้ไม่ได้ตรวจอะไร');
+  const withPhone = await http.get(`/m/${code}`).expect(200);
+  assert.ok(withPhone.text.includes(formatPhone(gym.phone_primary)));
+  assert.equal(withPhone.text.includes(`โทร ${gym.phone_primary}<`), false, 'ต้องไม่ใช่เลขติดกันทั้งพวง');
+});
+
+test('a sticker for a machine that is gone answers in Thai, not in Express', async t => {
+  const fixture = counterFixture(t);
+  const { app, db, http } = fixture;
+  importContent(db, CONTENT, 1000);
+  // The last line of the real servers, added here the same way they add it.
+  registerMachineFallback({ app, db });
+
+  // Somebody is standing at a machine whose sticker was never peeled off after
+  // it was moved out. What they got was Express's finalhandler page: English,
+  // headed "Error", reading `Cannot GET /m/M-99` -- the first thing this gym
+  // had ever shown them (QA BUG-11).
+  const gone = await http.get('/m/M-99').expect(404);
+  assert.match(gone.headers['content-type'], /text\/html/);
+  assert.match(gone.text, /<html lang="th"/);
+  assert.match(gone.text, /ไม่พบเครื่องนี้/);
+  assert.match(gone.text, /เคาน์เตอร์/, 'ต้องบอกว่าให้ทำอะไรต่อ ไม่ใช่แค่บอกว่าไม่เจอ');
+  assert.equal(gone.text.includes('Cannot GET'), false);
+  assert.equal(/<script/.test(gone.text), false, 'หน้านี้เปิดสาธารณะเหมือนหน้าเครื่อง ไม่มีสคริปต์');
+
+  // Including the shapes somebody can type or paste at it. The escaping is the
+  // machine page's own, and this page reuses it.
+  for (const path of ['/m/', '/m/M-01%27', '/m/%3Cscript%3Ealert(1)%3C/script%3E', '/m/../../etc/passwd']) {
+    const answer = await http.get(path);
+    assert.equal(answer.status, 404, `${path} ตอบ ${answer.status}`);
+    assert.equal(/<script>alert/.test(answer.text ?? ''), false);
+  }
+
+  // And a machine that IS here still wins: the fallback is last, not first.
+  await http.get(`/m/${CONTENT.machines[0].code}`).expect(200);
+});
+
+test('both servers that listen register that fallback, and register it last', () => {
+  // It cannot live inside createApp: it has to come after the portal's two
+  // single-page routes and after express.static, which the two entry points
+  // own. That makes it the kind of line one of them can be written without --
+  // and then the browser suite proves a page the real server does not serve.
+  for (const file of ['server/start.js', 'tests/ui-server.js']) {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    const registers = source.indexOf('registerMachineFallback({');
+    assert.notEqual(registers, -1, `${file} never registers the /m fallback, `
+      + 'so a sticker for a machine that is gone answers in English there');
+    assert.ok(registers > source.indexOf('express.static('),
+      `${file} registers the /m fallback before express.static, which would swallow the portal's own files`);
+  }
+});
+
+test('a programme is for members whose membership is still live, checked every time', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const { member, portal } = await joinedMember(fixture);
+  const code = CONTENT.programs[0].code;
+
+  const home = (await call('get', '/m/home', portal).expect(200)).body;
+  assert.equal(home.programs.length, CONTENT.programs.length);
+  assert.ok(home.safety.body.length, 'หน้าแรกต้องมีข้อความความปลอดภัย');
+
+  const program = (await call('get', `/m/programs/${code}`, portal).expect(200)).body;
+  // Every station names a machine, and the screen needs its name and whether
+  // the page it links to exists.
+  assert.ok(program.program.stations.every(station => station.machine_name));
+  assert.ok(program.program.stations.every(station => station.machine_exists));
+  assert.ok(program.before_start.length);
+
+  // Nobody at the gym has been through the numbers yet, and the payload says
+  // so -- a set count printed with the gym's name on it reads as instruction
+  // from the gym whether or not anybody meant it to.
+  assert.equal(program.program.values_are_examples, true);
+
+  // The membership ends, by its own date. Nothing about the session changes.
+  db.prepare('UPDATE entitlements SET expires_at=? WHERE member_id=?')
+    .run(fixture.at() - 1000, member.id);
+  const shut = await call('get', `/m/programs/${code}`, portal).expect(402);
+  assert.equal(shut.body.expired, true);
+  assert.ok(shut.body.expired_on, 'ต้องบอกวันที่หมดอายุ ไม่ใช่แค่ปฏิเสธ');
+  await call('get', '/m/home', portal).expect(402);
+
+  // But the machine pages keep working, because they were never the paid part.
+  await fixture.http.get(`/m/${CONTENT.machines[0].code}`).expect(200);
+  await call('get', '/public/machines', null).expect(200);
+});
+
+test('only the owner edits content, and signing numbers off means something', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+  const { portal } = await joinedMember(fixture);
+  const code = CONTENT.programs[0].code;
+
+  for (const token of [desk, portal, null]) {
+    const answer = await call('get', '/api/machines'.replace('/api', ''), token);
+    assert.ok([401, 403].includes(answer.status), `สถานะ ${answer.status} — ต้องเป็นของเจ้าของยิมเท่านั้น`);
+  }
+
+  const current = (await call('get', '/programs', owner).expect(200)).body.items
+    .find(item => item.code === code);
+  const saved = (await call('put', `/programs/${code}`, owner, {
+    name_th: current.name_th,
+    stations: current.stations.map(station => ({ ...station, sets: '3 เซ็ต' })),
+    values_are_examples: false,
+    reviewed: true,
+    version: current.version,
+  }).expect(200)).body;
+
+  // The flag is off, so the member's screen stops disclaiming the numbers.
+  assert.equal(saved.values_are_examples, false);
+  const seen = (await call('get', `/m/programs/${code}`, portal).expect(200)).body;
+  assert.equal(seen.program.values_are_examples, false);
+  assert.equal(seen.program.stations[0].sets, '3 เซ็ต');
+
+  // And the import stops overwriting it, which is what the press really means.
+  assert.equal(importContent(db, CONTENT, 5000).programs[0].action, 'kept');
+
+  // Two owners on two tablets must not overwrite each other in silence.
+  await call('put', `/programs/${code}`, owner,
+    { name_th: 'x', stations: [], values_are_examples: true, version: 1 }).expect(409);
+});
+
+test('a YouTube link is read out of every shape people paste', async t => {
+  assert.ok(t);
+  assert.equal(youTubeId('https://www.youtube.com/watch?v=Udz8Wa0o6-o'), 'Udz8Wa0o6-o');
+  assert.equal(youTubeId('https://youtu.be/Udz8Wa0o6-o'), 'Udz8Wa0o6-o');
+  assert.equal(youTubeId('https://www.youtube.com/embed/Udz8Wa0o6-o'), 'Udz8Wa0o6-o');
+  // Anything else draws no player rather than an embed of who knows what.
+  assert.equal(youTubeId('https://vimeo.com/12345'), null);
+  assert.equal(youTubeId(''), null);
+  assert.equal(youTubeId(undefined), null);
+});
+
+test('the QR sheet is one page per gym, not per person, and belongs to the owner', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn, http, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+
+  await http.get('/api/machines/qr-sheet').expect(401);
+  await http.get('/api/machines/qr-sheet').set('Authorization', `Bearer ${desk}`).expect(403);
+
+  const sheet = await http.get('/api/machines/qr-sheet').set('Authorization', `Bearer ${owner}`).expect(200);
+  assert.match(sheet.headers['content-type'], /text\/html/);
+  // One card per machine, each with a real QR image in it.
+  assert.equal((sheet.text.match(/class="qr"/g) ?? []).length, CONTENT.machines.length);
+  assert.equal((sheet.text.match(/data:image\/png;base64,/g) ?? []).length, CONTENT.machines.length);
+  for (const machine of CONTENT.machines) assert.ok(sheet.text.includes(machine.name_th));
+  // And it tells whoever prints it that no login is needed on the other end,
+  // because that is the question they will be asked when they hand it over.
+  assert.match(sheet.text, /ไม่ต้องเข้าสู่ระบบ/);
+  assert.ok(call);
+});
+
+test('the owner edits the articles and signs them off, and nobody else can', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+  const { portal } = await joinedMember(fixture);
+
+  for (const token of [desk, portal, null]) {
+    const answer = await call('get', '/articles', token);
+    assert.ok([401, 403].includes(answer.status), `สถานะ ${answer.status} — บทความเป็นของเจ้าของยิม`);
+  }
+
+  const before = (await call('get', '/articles', owner).expect(200)).body.items;
+  assert.equal(before.length, CONTENT.articles.length);
+  assert.equal(before[0].reviewed_by, null);
+
+  const saved = (await call('put', `/articles/${before[0].code}`, owner, {
+    title: 'มาถึงยิมครั้งแรก อ่านอันนี้ก่อน',
+    body: ['ย่อหน้าที่เจ้าของยิมเขียนเอง', 'อีกย่อหน้าหนึ่ง'],
+    reviewed: true,
+    version: before[0].version,
+  }).expect(200)).body;
+  assert.equal(saved.title, 'มาถึงยิมครั้งแรก อ่านอันนี้ก่อน');
+  assert.deepEqual(saved.body.length, 2);
+
+  // What the member reads is what the owner typed, on the public list too.
+  const seen = (await call('get', '/public/articles', null).expect(200)).body.items;
+  assert.equal(seen.find(a => a.code === before[0].code).title, 'มาถึงยิมครั้งแรก อ่านอันนี้ก่อน');
+
+  // Signed off means the next import leaves it alone -- the whole point of it.
+  assert.equal(importContent(db, CONTENT, 5000).articles
+    .find(row => row.code === before[0].code).action, 'kept');
+  await call('put', `/articles/${before[0].code}`, owner,
+    { title: 'x', version: 1 }).expect(409);
+});
+
+test('the safety wording carries the gym name, so it takes the owner press', async t => {
+  const fixture = counterFixture(t);
+  const { call, signIn, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signIn('owner@example.test');
+  const desk = await signIn('desk@example.test', 'staff');
+
+  for (const token of [desk, null]) {
+    const answer = await call('get', '/safety', token);
+    assert.ok([401, 403].includes(answer.status), `สถานะ ${answer.status} — ข้อความความปลอดภัยเป็นของเจ้าของยิม`);
+  }
+
+  const before = (await call('get', '/safety', owner).expect(200)).body;
+  assert.equal(before.approved_by, null, 'ยังไม่มีใครอนุมัติตอนเพิ่งนำเข้า');
+  assert.ok(before.machine_footer.length);
+
+  // The approval is the server's to write, not the browser's to claim: a body
+  // that hands in its own approved_by is refused rather than believed.
+  const refused = (await call('put', '/safety', owner,
+    { approved_by: 'somebody@else', version: before.version }).expect(400)).body;
+  assert.ok(refused.error);
+
+  // Editing and approving are two different acts: a typo fix is not the gym
+  // putting its name to the advice, and approving is not a rewrite.
+  const saved = (await call('put', '/safety', owner, {
+    machine_footer: ['เก็บอุปกรณ์เข้าที่ทุกครั้ง'], version: before.version,
+  }).expect(200)).body;
+  assert.deepEqual(saved.machine_footer, ['เก็บอุปกรณ์เข้าที่ทุกครั้ง']);
+  assert.equal(saved.approved_by, null, 'แก้ข้อความไม่ใช่การอนุมัติ');
+  assert.deepEqual(saved.portal_home, before.portal_home, 'ช่องที่ไม่ได้ส่งมาต้องอยู่เหมือนเดิม');
+
+  const approved = (await call('put', '/safety', owner,
+    { approved: true, version: saved.version }).expect(200)).body;
+  assert.equal(approved.approved_by, 'owner@example.test');
+  assert.ok(approved.approved_at, 'ต้องบันทึกวันที่อนุมัติไว้เป็นหลักฐาน');
+
+  // It reaches the machine page, which is where a member meets it.
+  const page = await fixture.http.get(`/m/${CONTENT.machines[0].code}`).expect(200);
+  assert.ok(page.text.includes('เก็บอุปกรณ์เข้าที่ทุกครั้ง'));
+
+  // And the press is written down: this is the gym saying these words are theirs.
+  const logged = db.prepare("SELECT count(*) AS n FROM audit_logs WHERE action='content.safety_changed'").get();
+  assert.equal(logged.n, 2);
+  await call('put', '/safety', owner, { approved: true, version: 1 }).expect(409);
+});
+
+test('a photograph of a machine is saved and served to whoever scans the sticker', async t => {
+  const fixture = counterFixture(t);
+  const { call, http, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signInOwner(fixture);
+  const code = CONTENT.machines[0].code;
+
+  // This route answered 500 to every upload it was ever given: it called a
+  // method the store does not have (`write`), and nothing exercised it because
+  // there was no screen behind it and no test in front of it. Found the day
+  // the screen was built, which is later than it should have been -- hence
+  // this test rather than only the browser one.
+  const before = (await call('get', '/machines', owner).expect(200)).body.items
+    .find(item => item.code === code);
+  assert.equal(before.has_photo, false);
+
+  const saved = (await fixture.http.put(`/api/machines/${code}/photo`)
+    .set('X-Gym-Client', 'mobile').set('Authorization', `Bearer ${owner}`)
+    .attach('photo', PNG_PIXEL, 'machine.png').expect(200)).body;
+  assert.equal(saved.has_photo, true);
+  assert.match(saved.photo_url, new RegExp(`^/api/public/machines/${code}/photo`));
+
+  // Served without a session: the person scanning the sticker has none.
+  const image = await http.get(saved.photo_url).expect(200);
+  assert.match(image.headers['content-type'], /image\/png/);
+  // And the page behind the sticker shows it.
+  const page = await http.get(`/m/${code}`).expect(200);
+  assert.ok(page.text.includes(`/api/public/machines/${code}/photo`));
+
+  // A file that is not an image is refused with a sentence, not a 500.
+  const refused = await fixture.http.put(`/api/machines/${code}/photo`)
+    .set('X-Gym-Client', 'mobile').set('Authorization', `Bearer ${owner}`)
+    .attach('photo', Buffer.from('not a picture at all, just text'), 'notes.txt').expect(400);
+  assert.match(refused.body.error, /รูป/);
+});
+
+test('the six lines a member reads about a programme are the gym to change', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signInOwner(fixture);
+  const { portal } = await joinedMember(fixture);
+  const code = CONTENT.programs[0].code;
+
+  // The trap QA found: the screen showed these, the schema refused them, and
+  // "ตรวจแล้ว" then locked the row against the next import -- so wording the
+  // gym never agreed to would sit there forever with nobody able to edit it.
+  const before = (await call('get', '/programs', owner).expect(200)).body.items
+    .find(item => item.code === code);
+  for (const key of ['goal', 'for_whom', 'level', 'frequency_per_week', 'minutes_per_session', 'next_program']) {
+    assert.ok(before[key], `${key} ต้องมีค่ามาจากไฟล์เนื้อหา`);
+  }
+
+  // Only the fields the route accepts: the list read back carries `code` and
+  // `reviewed_by` too, and strict means strict.
+  const payload = {
+    name_th: before.name_th, stations: before.stations,
+    progression: before.progression, trainer_note: before.trainer_note,
+  };
+  const edited = (await call('put', `/programs/${code}`, owner, {
+    ...payload,
+    frequency_per_week: '3–4 วัน เว้นวันระหว่างรอบ',
+    minutes_per_session: '45 นาที',
+    for_whom: 'สมาชิกที่เคยเล่นมาก่อนและอยากกลับมาเล่นสม่ำเสมอ',
+    goal: 'กลับมาเล่นใหม่',
+    level: 'เคยเล่นมาบ้าง',
+    next_program: 'ครบ 4 สัปดาห์แล้วคุยกับพนักงานก่อนทุกครั้ง',
+    values_are_examples: false,
+    reviewed: true,
+    version: before.version,
+  }).expect(200)).body;
+  assert.equal(edited.frequency_per_week, '3–4 วัน เว้นวันระหว่างรอบ');
+
+  // What the member reads is what the gym typed -- the point of the whole thing.
+  const home = (await call('get', '/m/home', portal).expect(200)).body;
+  const seen = home.programs.find(program => program.code === code);
+  assert.equal(seen.frequency_per_week, '3–4 วัน เว้นวันระหว่างรอบ');
+  assert.equal(seen.minutes_per_session, '45 นาที');
+  assert.equal(seen.goal, 'กลับมาเล่นใหม่');
+  assert.equal(seen.values_are_examples, false);
+
+  // And the row is locked to the import exactly as it was before: the six new
+  // fields ride with `reviewed`, they do not weaken it.
+  assert.equal(importContent(db, CONTENT, 5000).programs
+    .find(row => row.code === code).action, 'kept');
+  assert.equal(db.prepare('SELECT frequency_per_week f FROM programs WHERE code=?').get(code).f,
+    '3–4 วัน เว้นวันระหว่างรอบ', 'การนำเข้ารอบถัดไปต้องไม่ทับค่าที่ยิมแก้เอง');
+
+  // Still strict: a field nobody defined is still refused rather than dropped.
+  const after = (await call('get', '/programs', owner).expect(200)).body.items
+    .find(item => item.code === code);
+  await call('put', `/programs/${code}`, owner,
+    { ...payload, values_are_examples: false, coach_note: 'x', version: after.version }).expect(400);
+  assert.equal(after.reviewed_by, 'owner@example.test', 'แถวนี้ถูกล็อกโดยคนที่กดตรวจแล้ว');
+});
+
+test('an audit row carries what happened, and nothing borrowed from a member', async t => {
+  const fixture = counterFixture(t);
+  const { call, db } = fixture;
+  importContent(db, CONTENT, 1000);
+  const owner = await signInOwner(fixture);
+
+  const safetyNow = (await call('get', '/safety', owner).expect(200)).body;
+  await call('put', '/safety', owner, { approved: true, version: safetyNow.version }).expect(200);
+  const safety = db.prepare("SELECT after_json FROM audit_logs WHERE action='content.safety_changed'").get();
+  // Every row in the table used to arrive with "email":null,"has_photo":false
+  // stamped on it, whatever the action was, because one serializer was applied
+  // to everything (QA). An audit trail is read when somebody needs to know
+  // exactly what happened; invented fields are the opposite of that.
+  assert.deepEqual(JSON.parse(safety.after_json), { approved: true });
+
+  // The filter still runs where it is for: a member row must never carry the
+  // stored file name of their photograph into the log.
+  const desk = await fixture.signIn('desk@example.test', 'staff');
+  const member = await fixture.addMember(desk, { name: 'ทดสอบ audit', phone: '0899990001' });
+  const created = db.prepare("SELECT after_json FROM audit_logs WHERE action='member.create'").get();
+  const row = JSON.parse(created.after_json);
+  assert.equal(row.name, 'ทดสอบ audit');
+  assert.equal('photo_stored_name' in row, false, 'ชื่อไฟล์รูปต้องไม่หลุดลง audit');
+  assert.equal('user_id' in row, false);
+  assert.equal(row.has_photo, false, 'แถวของสมาชิกยังบอกได้ว่ามีรูปหรือไม่');
+  assert.ok(member.id);
+});
